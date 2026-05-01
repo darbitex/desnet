@@ -1,0 +1,27 @@
+<svg viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <radialGradient id="bg" cx="0.5" cy="0.5" r="0.6">
+      <stop offset="0%" stop-color="#0F2027"/>
+      <stop offset="100%" stop-color="#000814"/>
+    </radialGradient>
+  </defs>
+  <rect width="512" height="512" fill="url(#bg)" rx="96"/>
+  <g stroke="#00E5FF" stroke-width="3" opacity="0.45">
+    <line x1="256" y1="256" x2="256" y2="80"/>
+    <line x1="256" y1="256" x2="408" y2="168"/>
+    <line x1="256" y1="256" x2="408" y2="344"/>
+    <line x1="256" y1="256" x2="256" y2="432"/>
+    <line x1="256" y1="256" x2="104" y2="344"/>
+    <line x1="256" y1="256" x2="104" y2="168"/>
+  </g>
+  <g fill="#00E5FF" opacity="0.9">
+    <circle cx="256" cy="80" r="20"/>
+    <circle cx="408" cy="168" r="20"/>
+    <circle cx="408" cy="344" r="20"/>
+    <circle cx="256" cy="432" r="20"/>
+    <circle cx="104" cy="344" r="20"/>
+    <circle cx="104" cy="168" r="20"/>
+  </g>
+  <polygon points="256,184 316,220 316,292 256,328 196,292 196,220" fill="#0066FF" stroke="#00E5FF" stroke-width="5"/>
+  <text x="256" y="276" text-anchor="middle" font-family="Inter,Helvetica,Arial,sans-serif" font-weight="700" font-size="56" fill="#FFFFFF">D</text>
+</svg>

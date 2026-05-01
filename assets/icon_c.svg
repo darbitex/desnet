@@ -1,0 +1,14 @@
+<svg viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <radialGradient id="bg" cx="0.5" cy="0.5" r="0.6">
+      <stop offset="0%" stop-color="#0F2027"/>
+      <stop offset="100%" stop-color="#000814"/>
+    </radialGradient>
+  </defs>
+  <rect width="512" height="512" fill="url(#bg)" rx="96"/>
+  <circle cx="256" cy="256" r="192" fill="none" stroke="#00E5FF" stroke-width="4" opacity="0.25"/>
+  <path d="M 48 256 L 144 256 L 168 200 L 192 312 L 216 176 L 240 336 L 264 256 L 464 256"
+        fill="none" stroke="#00E5FF" stroke-width="6" opacity="0.7" stroke-linecap="round" stroke-linejoin="round"/>
+  <polygon points="320,192 376,228 376,284 320,320 264,284 264,228" fill="#0066FF" stroke="#00E5FF" stroke-width="5"/>
+  <text x="320" y="272" text-anchor="middle" font-family="Inter,Helvetica,Arial,sans-serif" font-weight="700" font-size="56" fill="#FFFFFF">D</text>
+</svg>

@@ -324,6 +324,10 @@ module desnet::profile {
         controller_addr: address,
         avatar_b64: vector<u8>,
         bio: vector<u8>,
+        token_name: vector<u8>,
+        token_symbol: vector<u8>,
+        token_icon_uri: vector<u8>,
+        token_project_uri: vector<u8>,
     ) acquires HandleRegistry, ProtocolState {
         // 1. Validate
         validate_handle(&handle);
@@ -410,7 +414,16 @@ module desnet::profile {
         // 9. Atomic token + AMM pool + locked LP (factory).
         //    factory::create_token_atomic is friend-only (only desnet::profile may call),
         //    so APT collection above cannot be bypassed by external callers.
-        factory::create_token_atomic(handle, pid_addr, &pid_signer, pool_seed_fa);
+        factory::create_token_atomic(
+            handle,
+            pid_addr,
+            &pid_signer,
+            pool_seed_fa,
+            string::utf8(token_name),
+            string::utf8(token_symbol),
+            string::utf8(token_icon_uri),
+            string::utf8(token_project_uri),
+        );
 
         // 10. Emit
         event::emit(HandleRegistered {

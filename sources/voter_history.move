@@ -8,9 +8,12 @@
 /// reward streams added to LP pool, cross-token rewards, etc.) do NOT populate this
 /// history and do NOT count toward voting power.
 ///
-/// Cross-module authentication via signer addr check:
-///   record_reward_received(authority, voter, amount) asserts
-///   signer::address_of(authority) == @desnet
+/// Cross-module authentication via friend visibility + signer addr check:
+///   - `record_reward_received` is `public(friend)` with `friend desnet::lp_staking;`
+///     as the load-bearing barrier (compile-time enforcement).
+///   - The runtime `signer::address_of(authority) == @desnet` assertion remains as
+///     belt-and-braces defense-in-depth against future refactors that widen friend
+///     scope or hypothetical compiler edge cases.
 ///
 /// Storage: centralized SmartTable<voter_addr, VoterHistory> at @desnet.
 module desnet::voter_history {

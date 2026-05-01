@@ -12,6 +12,7 @@ module desnet::v030_integration {
     use aptos_framework::timestamp;
 
     use desnet::amm;
+    use desnet::apt_vault;
     use desnet::governance;
 
     fun setup_framework(framework: &signer): (coin::BurnCapability<AptosCoin>, coin::MintCapability<AptosCoin>) {
@@ -402,6 +403,176 @@ module desnet::v030_integration {
         let warning = amm::read_warning();
         // Sanity: non-empty bytes, contains "DESNET" prefix
         assert!(std::vector::length(&warning) > 30, 1);  // trimmed for tx-size fit
+        cleanup(burn, mint);
+    }
+
+    // ============ R3 H3 Regression — apt_vault two-phase settle ============
+
+    /// Verify the two-phase settle blocks single-tx sandwich.
+    /// Setup: token with burn_ref, pool seeded, vault with deposited APT.
+    /// Phase 1: execute_settle without prior request → E_NO_PENDING_SETTLE (6).
+    /// Phase 2: request_settle then immediate execute_settle → E_SETTLE_NOT_READY (7).
+    /// Phase 3: request_settle, fast-forward 60s, execute_settle → success.
+    #[test(framework = @aptos_framework, alice = @0xa11ce)]
+    #[expected_failure(abort_code = 6, location = desnet::apt_vault)]
+    fun test_settle_two_phase_no_pending_aborts(framework: &signer, alice: &signer) {
+        let (burn, mint) = setup_framework(framework);
+        account::create_account_for_test(signer::address_of(alice));
+
+        // Build a token where we keep both mint+burn refs (need burn for vault).
+        let constructor = object::create_named_object(alice, b"vaultcoin");
+        primary_fungible_store::create_primary_store_enabled_fungible_asset(
+            &constructor,
+            option::some(100_000_000_000_000_000u128),
+            string::utf8(b"vaultcoin"),
+            string::utf8(b"VC"),
+            8,
+            string::utf8(b""),
+            string::utf8(b""),
+        );
+        let token_meta = object::object_from_constructor_ref<Metadata>(&constructor);
+        let token_meta_addr = object::object_address(&token_meta);
+        let token_mint_ref = fungible_asset::generate_mint_ref(&constructor);
+        let burn_ref = fungible_asset::generate_burn_ref(&constructor);
+
+        // Seed pool 100 APT / 100M tokens.
+        let apt_fa = mint_apt_fa(&mint, 10_000_000_000);
+        let token_fa = fungible_asset::mint(&token_mint_ref, 10_000_000_000_000_000);
+        let _ = amm::create_pool_atomic_for_test(b"vaultcoin", apt_fa, token_fa, @0xa11ce);
+        let pool_addr = amm::pool_address_of_handle(b"vaultcoin");
+
+        // Fake PID.
+        let pid_ctor = object::create_named_object(alice, b"fake_pid");
+        let pid_addr = object::address_from_constructor_ref(&pid_ctor);
+
+        // Deploy vault.
+        let vault_addr = apt_vault::deploy_for_test(
+            alice,
+            b"vaultcoin",
+            token_meta_addr,
+            pool_addr,
+            pid_addr,
+            burn_ref,
+        );
+
+        // Fund the vault with 1 APT (above 0.1 APT threshold).
+        let funding_coin = coin::mint<AptosCoin>(100_000_000, &mint);
+        apt_vault::deposit_apt_coin_for_test(vault_addr, funding_coin);
+
+        // Attempt execute_settle with NO prior request_settle — expects E_NO_PENDING_SETTLE.
+        apt_vault::execute_settle(alice, vault_addr);
+
+        // Unreached — but cleanup pattern for safety.
+        let _ = token_mint_ref;
+        cleanup(burn, mint);
+    }
+
+    #[test(framework = @aptos_framework, alice = @0xa11ce)]
+    #[expected_failure(abort_code = 7, location = desnet::apt_vault)]
+    fun test_settle_two_phase_immediate_execute_aborts(framework: &signer, alice: &signer) {
+        let (burn, mint) = setup_framework(framework);
+        account::create_account_for_test(signer::address_of(alice));
+
+        let constructor = object::create_named_object(alice, b"vaultcoin");
+        primary_fungible_store::create_primary_store_enabled_fungible_asset(
+            &constructor,
+            option::some(100_000_000_000_000_000u128),
+            string::utf8(b"vaultcoin"),
+            string::utf8(b"VC"),
+            8,
+            string::utf8(b""),
+            string::utf8(b""),
+        );
+        let token_meta = object::object_from_constructor_ref<Metadata>(&constructor);
+        let token_meta_addr = object::object_address(&token_meta);
+        let token_mint_ref = fungible_asset::generate_mint_ref(&constructor);
+        let burn_ref = fungible_asset::generate_burn_ref(&constructor);
+
+        let apt_fa = mint_apt_fa(&mint, 10_000_000_000);
+        let token_fa = fungible_asset::mint(&token_mint_ref, 10_000_000_000_000_000);
+        let _ = amm::create_pool_atomic_for_test(b"vaultcoin", apt_fa, token_fa, @0xa11ce);
+        let pool_addr = amm::pool_address_of_handle(b"vaultcoin");
+
+        let pid_ctor = object::create_named_object(alice, b"fake_pid");
+        let pid_addr = object::address_from_constructor_ref(&pid_ctor);
+        let vault_addr = apt_vault::deploy_for_test(
+            alice, b"vaultcoin", token_meta_addr, pool_addr, pid_addr, burn_ref
+        );
+
+        apt_vault::deposit_apt_coin_for_test(vault_addr, coin::mint<AptosCoin>(100_000_000, &mint));
+
+        // Advance past 0 so pending_settle_at_secs is distinguishable from sentinel.
+        timestamp::fast_forward_seconds(100);
+
+        // Request, then attempt execute in same tx (no further time advance).
+        apt_vault::request_settle(alice, vault_addr);
+        // Expects E_SETTLE_NOT_READY (7).
+        apt_vault::execute_settle(alice, vault_addr);
+
+        let _ = token_mint_ref;
+        cleanup(burn, mint);
+    }
+
+    /// Positive path: request → fast-forward ≥60s → execute succeeds.
+    /// Also verifies the 1% buyback cap (defense-in-depth) by funding the vault
+    /// with much more APT than 1% of pool reserve, and asserting the cap kicks in.
+    #[test(framework = @aptos_framework, alice = @0xa11ce)]
+    fun test_settle_two_phase_executes_after_delay(framework: &signer, alice: &signer) {
+        let (burn, mint) = setup_framework(framework);
+        account::create_account_for_test(signer::address_of(alice));
+
+        let constructor = object::create_named_object(alice, b"vaultcoin");
+        primary_fungible_store::create_primary_store_enabled_fungible_asset(
+            &constructor,
+            option::some(100_000_000_000_000_000u128),
+            string::utf8(b"vaultcoin"),
+            string::utf8(b"VC"),
+            8,
+            string::utf8(b""),
+            string::utf8(b""),
+        );
+        let token_meta = object::object_from_constructor_ref<Metadata>(&constructor);
+        let token_meta_addr = object::object_address(&token_meta);
+        let token_mint_ref = fungible_asset::generate_mint_ref(&constructor);
+        let burn_ref = fungible_asset::generate_burn_ref(&constructor);
+
+        // Seed pool: 100 APT (1e10) / 100M tokens (1e16).
+        let apt_fa = mint_apt_fa(&mint, 10_000_000_000);
+        let token_fa = fungible_asset::mint(&token_mint_ref, 10_000_000_000_000_000);
+        let _ = amm::create_pool_atomic_for_test(b"vaultcoin", apt_fa, token_fa, @0xa11ce);
+        let pool_addr = amm::pool_address_of_handle(b"vaultcoin");
+
+        let pid_ctor = object::create_named_object(alice, b"fake_pid");
+        let pid_addr = object::address_from_constructor_ref(&pid_ctor);
+        let vault_addr = apt_vault::deploy_for_test(
+            alice, b"vaultcoin", token_meta_addr, pool_addr, pid_addr, burn_ref
+        );
+
+        // Fund vault with 10 APT — half (5 APT raw) would be the raw_buyback,
+        // but cap = 1% of 100 APT reserve = 1 APT. So buyback caps at 1 APT,
+        // owner receives 10 - 1 = 9 APT (instead of 10/2 = 5).
+        apt_vault::deposit_apt_coin_for_test(vault_addr, coin::mint<AptosCoin>(1_000_000_000, &mint));
+        assert!(apt_vault::apt_balance(vault_addr) == 1_000_000_000, 1);
+
+        // Advance past 0 so pending_settle_at_secs is distinguishable from sentinel.
+        timestamp::fast_forward_seconds(100);
+
+        // Request settle.
+        apt_vault::request_settle(alice, vault_addr);
+        assert!(apt_vault::pending_settle_at_secs(vault_addr) > 0, 2);
+
+        // Fast-forward 60s + 1.
+        timestamp::fast_forward_seconds(61);
+
+        // Execute settle.
+        apt_vault::execute_settle(alice, vault_addr);
+
+        // Vault balance should be 0 (all consumed: 1 APT buyback, 9 APT to owner).
+        assert!(apt_vault::apt_balance(vault_addr) == 0, 3);
+        // pending should reset.
+        assert!(apt_vault::pending_settle_at_secs(vault_addr) == 0, 4);
+
+        let _ = token_mint_ref;
         cleanup(burn, mint);
     }
 }

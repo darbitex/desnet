@@ -1,6 +1,6 @@
 [package]
 name = "Desnet"
-version = "0.3.0-r2"
+version = "0.3.0"
 upgrade_policy = "compatible"
 authors = ["Rera", "Claude (Anthropic)"]
 license = "Unlicense"

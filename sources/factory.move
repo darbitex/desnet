@@ -33,6 +33,8 @@ module desnet::factory {
     use desnet::lp_staking;
     use desnet::reaction_emission;
 
+    use aptos_framework::fungible_asset::MutateMetadataRef;
+
     friend desnet::profile;
 
     // ============ CONSTANTS ============
@@ -67,12 +69,31 @@ module desnet::factory {
     const E_PID_NOT_REGISTERED: u64 = 10;
     const E_INVALID_POOL_SEED_APT: u64 = 12;
     const E_NOT_ADMIN: u64 = 13;
+    const E_INVALID_ADDRESS: u64 = 14;
+    const E_NAME_TOO_LONG: u64 = 15;
+    const E_SYMBOL_TOO_LONG: u64 = 16;
+    const E_ICON_URI_TOO_LONG: u64 = 17;
+    const E_NOT_PID_OWNER: u64 = 18;
+    const E_TOKEN_NOT_FOUND: u64 = 19;
+    const E_PROJECT_URI_TOO_LONG: u64 = 20;
+
+    /// Mirror Aptos `fungible_asset` framework limits — pre-validate so callers
+    /// get a clear abort instead of a deep-stack framework error.
+    const MAX_NAME_LEN: u64 = 32;
+    const MAX_SYMBOL_LEN: u64 = 32;
+    const MAX_URI_LEN: u64 = 512;
 
     // ============ TYPES ============
 
     struct FactoryState has key {
         spawn_count: u64,
         paused: bool,
+        /// R3 fix (Gemini HIGH): rotatable pause/admin authority. Initialized to
+        /// `@origin` at deploy. Can be rotated to a DAO-governed addr post-launch
+        /// to align with `governance::disable_multisig_upgrade` (avoiding the
+        /// post-DAO-transition deadlock where @origin retains a permanent
+        /// kill-switch or, if dissolved, pause becomes permanently bricked).
+        admin: address,
     }
 
     /// Per-spawned-token registry record.
@@ -93,6 +114,15 @@ module desnet::factory {
         records: SmartTable<String, TokenRecord>,
         metadata_index: SmartTable<address, String>,    // token_metadata → handle
         owner_index: SmartTable<address, String>,        // owner_addr (pid) → handle
+    }
+
+    /// Holds the `MutateMetadataRef` for a spawned token's FA Metadata. Stored at
+    /// the FA Metadata object addr (one-to-one with the token). The ref's only
+    /// authorized use is `update_token_icon`, gated by PID-NFT-owner signer
+    /// (cold wallet — same authority tier as `withdraw_pid_token`).
+    /// Name/symbol/decimals/project_uri are NOT mutable by design.
+    struct TokenMetadataMutRef has key {
+        mutate_ref: MutateMetadataRef,
     }
 
     // ============ EVENTS ============
@@ -125,6 +155,7 @@ module desnet::factory {
         move_to(account, FactoryState {
             spawn_count: 0,
             paused: false,
+            admin: @origin,
         });
 
         move_to(account, FactoryRegistry {
@@ -148,13 +179,21 @@ module desnet::factory {
     /// - Have already minted PID NFT at `pid_addr`
     /// - Have already collected handle_fee_apt + POOL_SEED_APT_AMOUNT from end-user
     /// - Pass exactly POOL_SEED_APT_AMOUNT (5 APT) as `pool_seed_apt`
+    /// - Pass `name`/`symbol` (≤32 b each, PERMANENT) and `icon_uri`/`project_uri`
+    ///   (≤512 b each, mutable post-mint via `update_token_icon` /
+    ///   `update_token_project_uri`, both PID-NFT-owner gated).
     public(friend) fun create_token_atomic(
         handle: vector<u8>,
         pid_addr: address,
         pid_signer: &signer,
         pool_seed_apt: FungibleAsset,
+        name: String,
+        symbol: String,
+        icon_uri: String,
+        project_uri: String,
     ) acquires FactoryState, FactoryRegistry {
         validate_handle(&handle);
+        validate_token_metadata_strings(&name, &symbol, &icon_uri, &project_uri);
         let handle_str = string::utf8(handle);
         let registry = borrow_global<FactoryRegistry>(@desnet);
         assert!(!smart_table::contains(&registry.records, handle_str), E_HANDLE_TAKEN);
@@ -175,22 +214,26 @@ module desnet::factory {
         let constructor_ref = object::create_named_object(&factory_signer, token_seed);
         let token_metadata_addr = object::address_from_constructor_ref(&constructor_ref);
 
-        let name_str = string::utf8(handle);
-        let symbol_str = string::utf8(handle);
-        // FA icon_uri / project_uri left empty — frontend constructs at render time
-        // from on-chain PID metadata. No hardcoded domain in source.
+        // FA name/symbol caller-supplied (PERMANENT). icon_uri/project_uri
+        // caller-supplied (MUTABLE via update_token_icon / update_token_project_uri,
+        // PID-NFT-owner gated).
         primary_fungible_store::create_primary_store_enabled_fungible_asset(
             &constructor_ref,
             option::some((TOTAL_SUPPLY as u128)),
-            name_str,
-            symbol_str,
+            name,
+            symbol,
             TOKEN_DECIMALS,
-            string::utf8(b""),
-            string::utf8(b""),
+            icon_uri,
+            project_uri,
         );
 
         let mint_ref = fungible_asset::generate_mint_ref(&constructor_ref);
         let burn_ref = fungible_asset::generate_burn_ref(&constructor_ref);
+
+        // Capture MutateMetadataRef so PID-NFT-owner can update icon_uri later.
+        let mutate_ref = fungible_asset::generate_mutate_metadata_ref(&constructor_ref);
+        let metadata_signer = object::generate_signer(&constructor_ref);
+        move_to(&metadata_signer, TokenMetadataMutRef { mutate_ref });
 
         let metadata_obj_transfer_ref = object::generate_transfer_ref(&constructor_ref);
         object::disable_ungated_transfer(&metadata_obj_transfer_ref);
@@ -289,7 +332,78 @@ module desnet::factory {
         });
     }
 
+    // ============ TOKEN METADATA UPDATE — PID-NFT-OWNER ONLY ============
+
+    /// Update the FA `icon_uri` for a spawned token. Authority = PID-NFT-owner
+    /// (cold wallet, same tier as `withdraw_pid_token`). Name/symbol are NOT
+    /// mutable. New icon_uri must be ≤ 512 bytes (Aptos framework cap).
+    public entry fun update_token_icon(
+        owner: &signer,
+        handle: vector<u8>,
+        new_icon_uri: String,
+    ) acquires FactoryRegistry, TokenMetadataMutRef {
+        assert!(string::length(&new_icon_uri) <= MAX_URI_LEN, E_ICON_URI_TOO_LONG);
+        let mut_ref = assert_owner_and_get_mut_ref(owner, handle);
+        fungible_asset::mutate_metadata(
+            mut_ref,
+            option::none(), option::none(), option::none(),
+            option::some(new_icon_uri),            // icon_uri — UPDATE
+            option::none(),
+        );
+    }
+
+    /// Update the FA `project_uri` for a spawned token. Same authority as
+    /// `update_token_icon` (PID-NFT-owner). Symmetric mutability for the two
+    /// non-load-bearing display fields.
+    public entry fun update_token_project_uri(
+        owner: &signer,
+        handle: vector<u8>,
+        new_project_uri: String,
+    ) acquires FactoryRegistry, TokenMetadataMutRef {
+        assert!(string::length(&new_project_uri) <= MAX_URI_LEN, E_PROJECT_URI_TOO_LONG);
+        let mut_ref = assert_owner_and_get_mut_ref(owner, handle);
+        fungible_asset::mutate_metadata(
+            mut_ref,
+            option::none(), option::none(), option::none(),
+            option::none(),
+            option::some(new_project_uri),         // project_uri — UPDATE
+        );
+    }
+
+    /// Shared auth + lookup helper for owner-gated metadata updates.
+    /// Returns a reference to the token's MutateMetadataRef.
+    inline fun assert_owner_and_get_mut_ref(
+        owner: &signer,
+        handle: vector<u8>,
+    ): &MutateMetadataRef {
+        let handle_str = string::utf8(handle);
+        let registry = borrow_global<FactoryRegistry>(@desnet);
+        assert!(smart_table::contains(&registry.records, handle_str), E_TOKEN_NOT_FOUND);
+        let record = smart_table::borrow(&registry.records, handle_str);
+        let pid_addr = record.owner_addr;
+        let token_metadata_addr = record.token_metadata;
+
+        let pid_object = object::address_to_object<object::ObjectCore>(pid_addr);
+        let pid_owner = object::owner(pid_object);
+        assert!(signer::address_of(owner) == pid_owner, E_NOT_PID_OWNER);
+
+        &borrow_global<TokenMetadataMutRef>(token_metadata_addr).mutate_ref
+    }
+
     // ============ HANDLE VALIDATION ============
+
+    fun validate_token_metadata_strings(
+        name: &String,
+        symbol: &String,
+        icon_uri: &String,
+        project_uri: &String,
+    ) {
+        assert!(string::length(name) <= MAX_NAME_LEN, E_NAME_TOO_LONG);
+        assert!(string::length(symbol) <= MAX_SYMBOL_LEN, E_SYMBOL_TOO_LONG);
+        assert!(string::length(icon_uri) <= MAX_URI_LEN, E_ICON_URI_TOO_LONG);
+        assert!(string::length(project_uri) <= MAX_URI_LEN, E_PROJECT_URI_TOO_LONG);
+    }
+
 
     fun validate_handle(handle: &vector<u8>) {
         let len = vector::length(handle);
@@ -403,11 +517,31 @@ module desnet::factory {
         borrow_global<FactoryState>(@desnet).paused
     }
 
-    /// Kimi F2 fix (audit R1): admin pause/unpause control. @origin-only.
-    /// Without this, paused=true was a one-way kill-switch with no recovery.
+    /// Kimi F2 fix (audit R1): admin pause/unpause control.
+    /// Gemini R2 HIGH fix (R3): authority read from rotatable `FactoryState.admin`
+    /// (initially `@origin`, rotatable via `rotate_admin` to a DAO-governed addr).
     public entry fun set_paused(admin: &signer, new_paused: bool) acquires FactoryState {
-        assert!(signer::address_of(admin) == @origin, E_NOT_ADMIN);
-        borrow_global_mut<FactoryState>(@desnet).paused = new_paused;
+        let state = borrow_global_mut<FactoryState>(@desnet);
+        assert!(signer::address_of(admin) == state.admin, E_NOT_ADMIN);
+        state.paused = new_paused;
+    }
+
+    /// Rotate the factory admin (pause authority) to a new address.
+    /// Used to transfer pause control to the DAO post-bootstrap.
+    /// Mirrors the `profile::rotate_admin` pattern.
+    public entry fun rotate_admin(
+        current_admin: &signer,
+        new_admin: address,
+    ) acquires FactoryState {
+        assert!(new_admin != @0x0, E_INVALID_ADDRESS);
+        let state = borrow_global_mut<FactoryState>(@desnet);
+        assert!(signer::address_of(current_admin) == state.admin, E_NOT_ADMIN);
+        state.admin = new_admin;
+    }
+
+    #[view]
+    public fun admin(): address acquires FactoryState {
+        borrow_global<FactoryState>(@desnet).admin
     }
 
     #[view]

@@ -839,7 +839,8 @@ module desnet::amm {
     ): u128 acquires Pool {
         let (lp, apt_refund, token_refund) =
             add_liquidity_internal(handle, apt_in, token_in, min_lp_out);
-        // Tests don't care about refunds; destroy them
+        // Tests may pass non-exact-ratio inputs, so refunds can be non-zero.
+        // Sink them at @desnet (test-only path; production caller receives the refund).
         if (fungible_asset::amount(&apt_refund) > 0) {
             primary_fungible_store::deposit(@desnet, apt_refund);
         } else { fungible_asset::destroy_zero(apt_refund) };

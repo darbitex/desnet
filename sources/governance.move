@@ -242,6 +242,12 @@ module desnet::governance {
 
     // ============ DAO-PHASE PROPOSAL LIFECYCLE ============
 
+    /// IMPORTANT: `new_module_bytes_hash` MUST be computed via
+    /// `governance::compute_upgrade_digest(metadata, code_bytes)` (or its view
+    /// variant `compute_upgrade_digest_view`). Any other scheme — including the
+    /// natural BCS encoding of the tuple `(metadata, code_bytes)` — produces a
+    /// different digest, and the proposal will fail at `execute_proposal` with
+    /// `E_HASH_MISMATCH` after the timelock window has elapsed.
     public entry fun propose_upgrade(
         proposer: &signer,
         target_package_addr: address,
@@ -420,6 +426,8 @@ module desnet::governance {
     /// Canonical digest of upgrade payload. Used by both `propose_upgrade` (off-chain
     /// callers compute this on the intended payload) and `execute_proposal` (verifies
     /// submitted bytes match). Scheme: sha3_256(bcs(metadata) || concat(bcs(code_bytes[i]))).
+    /// Off-chain callers should prefer `compute_upgrade_digest_view` (owned-value
+    /// wrapper, callable via `/v1/view`) — this reference variant is for on-chain use.
     public fun compute_upgrade_digest(
         metadata: &vector<u8>,
         code_bytes: &vector<vector<u8>>,
@@ -433,6 +441,18 @@ module desnet::governance {
             i = i + 1;
         };
         hash::sha3_256(buf)
+    }
+
+    /// R3 fix (Claude R2-N3): owned-value `#[view]` wrapper around
+    /// `compute_upgrade_digest`. Lets off-chain SDKs invoke gas-free via
+    /// `/v1/view` for ground-truth hash verification before calling
+    /// `propose_upgrade`. Identical semantics to the reference variant.
+    #[view]
+    public fun compute_upgrade_digest_view(
+        metadata: vector<u8>,
+        code_bytes: vector<vector<u8>>,
+    ): vector<u8> {
+        compute_upgrade_digest(&metadata, &code_bytes)
     }
 
     // ============ VIEWS ============
@@ -472,11 +492,14 @@ module desnet::governance {
 
     /// Multisig sets DESNET FA metadata addr post-deploy. Required to activate
     /// voting_power. Idempotent (admin can re-point if needed).
+    /// R3 fix (Claude R2-N5 / Kimi / Qwen): reject @0x0 — that is the
+    /// "unconfigured" sentinel value and would freeze all voting power.
     public entry fun update_desnet_fa_metadata(
         multisig: &signer,
         fa_addr: address,
     ) acquires GovernanceState {
         assert!(signer::address_of(multisig) == @origin, E_NOT_MULTISIG_ADMIN);
+        assert!(fa_addr != @0x0, E_INVALID_ADDRESS);
         borrow_global_mut<GovernanceState>(@desnet).desnet_fa_metadata = fa_addr;
     }
 
