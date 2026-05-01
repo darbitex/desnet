@@ -36,7 +36,6 @@ module desnet::profile {
     use desnet::reference_gate::{Self, ReferenceGate};
     use desnet::factory;
     use desnet::governance;
-    use desnet::handle_fee_vault;
 
     friend desnet::mint;
     friend desnet::link;
@@ -225,14 +224,17 @@ module desnet::profile {
 
     // ============ ADMIN — config updates (multisig → governance later) ============
 
-    /// DEPRECATED — fee destination is immutable post-upgrade. handle_fee_vault
-    /// hardcodes split 10% deployer / 90% DESNET buyback-burn at deploy time.
-    /// Body aborts to prevent any further redirection attempt.
+    /// Admin updates fee_receiver. Used pre-handle_fee_vault to point fees somewhere.
+    /// Post-vault upgrade, register_handle body bypasses this field — handle_fee_vault
+    /// is the immutable destination. Kept here for v0.3.0 baseline; body becomes
+    /// `abort 0` in v0.3.1 compat upgrade.
     public entry fun update_fee_receiver(
-        _admin: &signer,
-        _new_fee_receiver: address,
-    ) {
-        abort 0
+        admin: &signer,
+        new_fee_receiver: address,
+    ) acquires ProtocolState {
+        let state = borrow_global_mut<ProtocolState>(@desnet);
+        assert!(signer::address_of(admin) == state.admin, E_NOT_ADMIN);
+        state.fee_receiver = new_fee_receiver;
     }
 
     /// Admin rotates admin (e.g., to governance contract). One-way after PMF transition.
@@ -317,7 +319,7 @@ module desnet::profile {
         controller_addr: address,
         avatar_b64: vector<u8>,
         bio: vector<u8>,
-    ) acquires HandleRegistry {
+    ) acquires HandleRegistry, ProtocolState {
         // 1. Validate
         validate_handle(&handle);
         assert!(vector::length(&avatar_b64) <= AVATAR_MAX_BYTES, E_AVATAR_TOO_LARGE);
@@ -345,16 +347,18 @@ module desnet::profile {
         );
         assert!(!exists<Profile>(pid_addr), E_PID_ALREADY_EXISTS);
 
-        // 3. Fee in APT — withdraw from wallet, route to handle_fee_vault.
+        // 3. Fee in APT — withdraw from wallet, deposit to fee_receiver.
         //    Plus pool_seed_apt (5 APT) — withdrawn as separate FA, passed to factory
         //    for atomic AMM pool seed.
-        //    Note: state.fee_receiver field is now inert (legacy from pre-upgrade);
-        //    fees flow exclusively to handle_fee_vault for 10/90 split + DESNET burn.
+        //    Note: fee_receiver = @desnet at init. Compat upgrade adds handle_fee_vault
+        //    that pulls fees from this primary store via migrate_legacy_fees + reroutes
+        //    register_handle body to deposit directly to vault (post-upgrade body).
+        let state = borrow_global<ProtocolState>(@desnet);
         let fee_raw = handle_fee_apt(vector::length(&handle));
         let apt_metadata = object::address_to_object<Metadata>(APT_FA_METADATA);
         if (fee_raw > 0) {
             let fee_fa = primary_fungible_store::withdraw(wallet, apt_metadata, fee_raw);
-            handle_fee_vault::deposit_apt_fa(fee_fa);
+            primary_fungible_store::deposit(state.fee_receiver, fee_fa);
         };
         let pool_seed_amount = factory::pool_seed_apt_amount();
         let pool_seed_fa = primary_fungible_store::withdraw(wallet, apt_metadata, pool_seed_amount);

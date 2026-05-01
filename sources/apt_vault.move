@@ -23,7 +23,6 @@ module desnet::apt_vault {
     use desnet::amm;
 
     friend desnet::factory;
-    friend desnet::handle_fee_vault;
 
     // ============ CONSTANTS ============
 
@@ -202,15 +201,5 @@ module desnet::apt_vault {
     #[view]
     public fun handle(vault_addr: address): vector<u8> acquires Vault {
         borrow_global<Vault>(vault_addr).handle
-    }
-
-    /// Friend-only burn delegation. handle_fee_vault uses this to burn DESNET
-    /// (BurnRef stays sealed in DESNET's apt_vault, no extraction needed).
-    public(friend) fun burn_via_vault(
-        vault_addr: address,
-        fa: fungible_asset::FungibleAsset,
-    ) acquires Vault {
-        let vault = borrow_global<Vault>(vault_addr);
-        fungible_asset::burn(&vault.burn_ref, fa);
     }
 }

@@ -43,7 +43,6 @@ module desnet::governance {
     friend desnet::profile;
     friend desnet::amm;
     friend desnet::lp_staking;
-    friend desnet::handle_fee_vault;
 
     // ============ CONSTANTS ============
 

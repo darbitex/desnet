@@ -413,15 +413,6 @@ module desnet::factory {
         smart_table::borrow(&registry.records, handle).apt_vault
     }
 
-    /// Single-hop view: handle → apt_vault addr (used by handle_fee_vault).
-    #[view]
-    public fun vault_addr_of_handle(handle: vector<u8>): address acquires FactoryRegistry {
-        let registry = borrow_global<FactoryRegistry>(@desnet);
-        let key = string::utf8(handle);
-        assert!(smart_table::contains(&registry.records, key), E_HANDLE_TAKEN);
-        smart_table::borrow(&registry.records, key).apt_vault
-    }
-
     #[view]
     public fun pool_seed_apt_amount(): u64 { POOL_SEED_APT_AMOUNT }
 

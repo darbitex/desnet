@@ -1,11 +1,13 @@
 [package]
 name = "Desnet"
-version = "0.3.1"
+version = "0.3.0"
 upgrade_policy = "compatible"
 authors = ["Rera", "Claude (Anthropic)"]
 license = "Unlicense"
 
-# DeSNet v0.3.1 — compat upgrade adding handle_fee_vault module.
+# DeSNet v0.3.0 mainnet baseline — pre-handle_fee_vault state with reservation guard
+# (5 reserved handles: desnet/darbitex/d/aptos/apt → @origin only).
+# Compat upgrade to v0.3.1 (handle_fee_vault) follows registration of "desnet" by @origin.
 # All darbitex deps dropped (policy chain unblocked). See docs/v0.3.0-design-lock.md.
 
 [addresses]
