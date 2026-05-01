@@ -327,14 +327,15 @@ module desnet::profile {
 
         let wallet_addr = signer::address_of(wallet);
 
-        // Reserved handles for @origin (deployer multisig). Prevents front-run
-        // squatting between package publish and the deployer's claim tx. Once claimed
-        // by @origin, the per-handle guard becomes inert (E_HANDLE_TAKEN takes over
-        // for any subsequent attempt regardless of caller).
-        // Reserved set: desnet (protocol token), darbitex (sister project), d (D token),
-        // aptos / apt (chain identity, both lowercase since validate_handle restricts).
-        if (is_reserved_handle(&handle)) {
-            assert!(wallet_addr == @origin, E_RESERVED_HANDLE);
+        // Reserved handles — each bound to one specific claimer address (per-handle).
+        // Prevents front-run squatting between package publish and project's claim tx.
+        // Once claimed by the authorized addr, E_HANDLE_TAKEN takes over for any
+        // subsequent attempt regardless of caller. PID-per-wallet constraint preserved
+        // (each reserved handle has a different claimer addr → no PID collision).
+        let claimer_opt = reserved_handle_claimer(&handle);
+        if (option::is_some(&claimer_opt)) {
+            let required_claimer = *option::borrow(&claimer_opt);
+            assert!(wallet_addr == required_claimer, E_RESERVED_HANDLE);
         };
         let pid_addr = derive_pid_address(wallet_addr);
         let handle_str = string::utf8(handle);
@@ -416,14 +417,23 @@ module desnet::profile {
         });
     }
 
-    /// Reserved handle check — these can only be claimed by @origin (multisig).
-    fun is_reserved_handle(handle: &vector<u8>): bool {
+    /// Reserved handle → authorized claimer. Each reserved handle has its OWN claimer
+    /// address (different per handle to preserve PID-per-wallet uniqueness). Returns
+    /// `Option::none` if handle is not reserved (= public registration).
+    ///
+    /// - "desnet" → @desnet_claimer (= @origin = deployer multisig)
+    /// - "darbitex" → Darbitex Final publisher multisig 3/5 (cross-project)
+    /// - "d" → D Aptos pkg (sealed resource_account, no signer ever — permanent burn)
+    /// - "aptos" → Darbitex treasury multisig 3/5
+    /// - "apt" → dedicated apt-claimer multisig
+    fun reserved_handle_claimer(handle: &vector<u8>): option::Option<address> {
         let h = *handle;
-        h == b"desnet"
-            || h == b"darbitex"
-            || h == b"d"
-            || h == b"aptos"
-            || h == b"apt"
+        if (h == b"desnet")        option::some(@desnet_claimer)
+        else if (h == b"darbitex") option::some(@darbitex_claimer)
+        else if (h == b"d")        option::some(@d_claimer)
+        else if (h == b"aptos")    option::some(@aptos_claimer)
+        else if (h == b"apt")      option::some(@apt_claimer)
+        else option::none()
     }
 
     fun make_pid_seed(wallet: address): vector<u8> {
