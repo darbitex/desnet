@@ -1,0 +1,32 @@
+[package]
+name = "Desnet"
+version = "0.3.1"
+upgrade_policy = "compatible"
+authors = ["Rera", "Claude (Anthropic)"]
+license = "Unlicense"
+
+# DeSNet v0.3.1 — compat upgrade adding handle_fee_vault module.
+# All darbitex deps dropped (policy chain unblocked). See docs/v0.3.0-design-lock.md.
+
+[addresses]
+desnet = "_"
+origin = "_"
+
+[dev-addresses]
+desnet = "0xDADE"
+origin = "0xA0E1"
+
+[dependencies.AptosFramework]
+git = "https://github.com/aptos-labs/aptos-core.git"
+rev = "mainnet"
+subdir = "aptos-move/framework/aptos-framework"
+
+[dependencies.AptosStdlib]
+git = "https://github.com/aptos-labs/aptos-core.git"
+rev = "mainnet"
+subdir = "aptos-move/framework/aptos-stdlib"
+
+[dependencies.AptosTokenObjects]
+git = "https://github.com/aptos-labs/aptos-core.git"
+rev = "mainnet"
+subdir = "aptos-move/framework/aptos-token-objects"
