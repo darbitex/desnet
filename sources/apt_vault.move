@@ -33,12 +33,19 @@ module desnet::apt_vault {
 
     const SEED_VAULT: vector<u8> = b"vault::";
 
+    /// H3 fix (audit R1): slippage tolerance for settle buyback.
+    /// 300 bps = 3% — bounds single-tx sandwich loss. Larger drift = abort,
+    /// settle re-callable later when pool recovers.
+    const SETTLE_SLIPPAGE_BPS: u64 = 300;
+    const BPS_DENOM: u64 = 10000;
+
     // ============ ERROR CODES ============
 
     const E_BELOW_THRESHOLD: u64 = 1;
     const E_VAULT_NOT_FOUND: u64 = 2;
     const E_SWAP_FAILED: u64 = 3;
     const E_BURN_FAILED: u64 = 4;
+    const E_POOL_ADDR_DRIFT: u64 = 5;
 
     // ============ TYPES ============
 
@@ -134,11 +141,20 @@ module desnet::apt_vault {
     // ============ SETTLE — permissionless ============
 
     /// Always 50/50 (pool always seeded atomically at register_handle).
+    /// H3 fix (audit R1): swap uses 3% slippage tolerance to bound sandwich attacks.
+    /// M5 fix: assert cached amm_pool_addr matches current handle-derived addr.
     public entry fun settle(
         _caller: &signer,
         vault_addr: address,
     ) acquires Vault {
         let vault = borrow_global_mut<Vault>(vault_addr);
+
+        // M5: cache consistency check
+        assert!(
+            amm::pool_address_of_handle(vault.handle) == vault.amm_pool_addr,
+            E_POOL_ADDR_DRIFT
+        );
+
         let total_apt = coin::value(&vault.apt_balance);
         assert!(total_apt >= APT_SETTLE_THRESHOLD, E_BELOW_THRESHOLD);
 
@@ -148,6 +164,11 @@ module desnet::apt_vault {
         let buyback_amount = total_apt / 2;
         let owner_amount = total_apt - buyback_amount;
 
+        // H3: compute expected output + apply 3% tolerance as min_out.
+        let (apt_reserve, token_reserve) = amm::reserves(vault.handle);
+        let expected_out = amm::compute_amount_out(apt_reserve, token_reserve, buyback_amount);
+        let min_out = (expected_out * (BPS_DENOM - SETTLE_SLIPPAGE_BPS)) / BPS_DENOM;
+
         let apt_for_buyback = coin::extract(&mut vault.apt_balance, buyback_amount);
         let apt_for_owner = coin::extract(&mut vault.apt_balance, owner_amount);
 
@@ -156,7 +177,7 @@ module desnet::apt_vault {
         let token_received = amm::swap_exact_apt_in(
             vault.handle,
             apt_fa_buyback,
-            0,
+            min_out,
         );
         let burned_amount = fungible_asset::amount(&token_received);
         fungible_asset::burn(&vault.burn_ref, token_received);

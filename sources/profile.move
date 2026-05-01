@@ -83,6 +83,7 @@ module desnet::profile {
     const E_NOT_CONTROLLER_OR_OWNER: u64 = 15;
     const E_SYNC_GATE_ALREADY_SET: u64 = 16;
     const E_RESERVED_HANDLE: u64 = 17;
+    const E_INVALID_ADDRESS: u64 = 18;
 
     // ============ TYPES ============
 
@@ -232,6 +233,8 @@ module desnet::profile {
         admin: &signer,
         new_fee_receiver: address,
     ) acquires ProtocolState {
+        // Gemini MED fix (audit R1): zero-addr check.
+        assert!(new_fee_receiver != @0x0, E_INVALID_ADDRESS);
         let state = borrow_global_mut<ProtocolState>(@desnet);
         assert!(signer::address_of(admin) == state.admin, E_NOT_ADMIN);
         state.fee_receiver = new_fee_receiver;
@@ -242,6 +245,8 @@ module desnet::profile {
         current_admin: &signer,
         new_admin: address,
     ) acquires ProtocolState {
+        // Gemini MED fix (audit R1): zero-addr check.
+        assert!(new_admin != @0x0, E_INVALID_ADDRESS);
         let state = borrow_global_mut<ProtocolState>(@desnet);
         assert!(signer::address_of(current_admin) == state.admin, E_NOT_ADMIN);
         state.admin = new_admin;

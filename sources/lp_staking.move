@@ -269,9 +269,20 @@ module desnet::lp_staking {
         let token_meta = object::address_to_object<Metadata>(pool.token_metadata_addr);
         let token_fa = primary_fungible_store::withdraw(caller, token_meta, token_amount);
 
-        // Mint LP shares via amm
-        let lp_minted = amm::add_liquidity_internal(handle, apt_fa, token_fa, min_lp_out);
+        // Mint LP shares via amm. M1 fix (audit R1): refund surplus on ratio mismatch.
+        let (lp_minted, apt_refund, token_refund) =
+            amm::add_liquidity_internal(handle, apt_fa, token_fa, min_lp_out);
         assert!(lp_minted > 0, E_ZERO_SHARES);
+        if (fungible_asset::amount(&apt_refund) > 0) {
+            primary_fungible_store::deposit(caller_addr, apt_refund);
+        } else {
+            fungible_asset::destroy_zero(apt_refund);
+        };
+        if (fungible_asset::amount(&token_refund) > 0) {
+            primary_fungible_store::deposit(caller_addr, token_refund);
+        } else {
+            fungible_asset::destroy_zero(token_refund);
+        };
 
         // Update emission accumulator BEFORE snapshotting position
         update_pool(pool_addr);
@@ -409,7 +420,10 @@ module desnet::lp_staking {
         // 3. Resolve recipient
         let recipient = resolve_recipient(position.recipient_pid, position_addr);
 
-        // 4. Pull emission ($TOKEN) from lp_emission reserve
+        // 4. Pull emission ($TOKEN) from lp_emission reserve.
+        //    H2 fix (audit R1): record voting power for ACTUAL paid amount, not requested.
+        //    pull_for_claim caps at reserve balance (graceful depletion); recording
+        //    pending_emission would inflate voting power post-depletion at zero cost.
         if (pending_emission > 0) {
             let token_meta = object::address_to_object<Metadata>(pool.token_metadata_addr);
             let emission_fa = lp_emission::pull_for_claim(
@@ -417,11 +431,13 @@ module desnet::lp_staking {
                 token_meta,
                 pending_emission,
             );
+            let actual_paid = fungible_asset::amount(&emission_fa);
             primary_fungible_store::deposit(recipient, emission_fa);
 
-            // Voting power
-            let pkg_signer = governance::derive_pkg_signer();
-            voter_history::record_reward_received(&pkg_signer, recipient, pending_emission);
+            if (actual_paid > 0) {
+                let pkg_signer = governance::derive_pkg_signer();
+                voter_history::record_reward_received(&pkg_signer, recipient, actual_paid);
+            };
         };
 
         // 5. Pull LP fees (APT + TOKEN)

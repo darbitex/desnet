@@ -66,6 +66,7 @@ module desnet::factory {
     const E_FACTORY_PAUSED: u64 = 8;
     const E_PID_NOT_REGISTERED: u64 = 10;
     const E_INVALID_POOL_SEED_APT: u64 = 12;
+    const E_NOT_ADMIN: u64 = 13;
 
     // ============ TYPES ============
 
@@ -400,6 +401,13 @@ module desnet::factory {
     #[view]
     public fun is_paused(): bool acquires FactoryState {
         borrow_global<FactoryState>(@desnet).paused
+    }
+
+    /// Kimi F2 fix (audit R1): admin pause/unpause control. @origin-only.
+    /// Without this, paused=true was a one-way kill-switch with no recovery.
+    public entry fun set_paused(admin: &signer, new_paused: bool) acquires FactoryState {
+        assert!(signer::address_of(admin) == @origin, E_NOT_ADMIN);
+        borrow_global_mut<FactoryState>(@desnet).paused = new_paused;
     }
 
     #[view]

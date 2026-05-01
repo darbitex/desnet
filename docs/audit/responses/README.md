@@ -13,7 +13,7 @@ Raw audit responses from external LLM auditors, one file per auditor.
 
 | Auditor | File | Verdict | Status |
 |---|---|---|---|
-| Kimi K2.5 | `kimi-r1.md` | TBD | pending |
+| Kimi K2.6 | `kimi-r1.md` | 🟡 YELLOW (0H/1M/3L/5I) | ✓ received |
 | Gemini 3 Pro | `gemini-r1.md` | 🟡 YELLOW (0H/1M/1L/1I, partial source coverage) | ✓ received |
 | Grok 4 | `grok-r1.md` | 🟡 YELLOW (0H/2M/4L/4I) | ✓ received |
 | Qwen 3 Max | `qwen-r1.md` | 🟢 GREEN (0H/0M/1L/2I) | ✓ received |

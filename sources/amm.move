@@ -258,12 +258,15 @@ module desnet::amm {
 
     // ============ ADD LIQUIDITY (FRIEND, called by lp_staking) ============
 
+    /// M1 fix (audit R1): returns (lp_minted, apt_refund_fa, token_refund_fa).
+    /// Caller (lp_staking) deposits refund FAs back to user. Uniswap V2 pattern —
+    /// prevents naive callers from gifting surplus to existing LPs on ratio mismatch.
     public(friend) fun add_liquidity_internal(
         handle: vector<u8>,
         apt_in: FungibleAsset,
         token_in: FungibleAsset,
         min_lp_out: u64,
-    ): u128 acquires Pool {
+    ): (u128, FungibleAsset, FungibleAsset) acquires Pool {
         let pool_addr = pool_address_of_handle(handle);
         assert!(exists<Pool>(pool_addr), E_POOL_NOT_FOUND);
 
@@ -289,6 +292,23 @@ module desnet::amm {
         assert!(lp_minted > 0, E_INSUFFICIENT_LIQUIDITY);
         assert!(lp_minted >= (min_lp_out as u128), E_SLIPPAGE_EXCEEDED);
 
+        // M1: compute optimal pair from lp_minted; refund surplus from over-funded side.
+        let optimal_apt = (lp_minted * (apt_reserve_amt as u128)) / pool.lp_supply;
+        let optimal_token = (lp_minted * (token_reserve_amt as u128)) / pool.lp_supply;
+        let apt_surplus = (apt_amount as u128) - optimal_apt;
+        let token_surplus = (token_amount as u128) - optimal_token;
+
+        let apt_refund = if (apt_surplus > 0) {
+            fungible_asset::extract(&mut apt_in, (apt_surplus as u64))
+        } else {
+            fungible_asset::zero(apt_meta)
+        };
+        let token_refund = if (token_surplus > 0) {
+            fungible_asset::extract(&mut token_in, (token_surplus as u64))
+        } else {
+            fungible_asset::zero(token_meta)
+        };
+
         fungible_asset::deposit(pool.apt_reserve, apt_in);
         fungible_asset::deposit(pool.token_reserve, token_in);
         pool.lp_supply = pool.lp_supply + lp_minted;
@@ -296,15 +316,15 @@ module desnet::amm {
         event::emit(LiquidityAdded {
             handle: pool.handle,
             pool_addr,
-            apt_in: apt_amount,
-            token_in: token_amount,
+            apt_in: apt_amount - (apt_surplus as u64),
+            token_in: token_amount - (token_surplus as u64),
             lp_minted,
             new_apt_reserve: fungible_asset::balance(pool.apt_reserve),
             new_token_reserve: fungible_asset::balance(pool.token_reserve),
             new_lp_supply: pool.lp_supply,
         });
 
-        lp_minted
+        (lp_minted, apt_refund, token_refund)
     }
 
     // ============ REMOVE LIQUIDITY (FRIEND) ============
@@ -817,7 +837,16 @@ module desnet::amm {
         token_in: FungibleAsset,
         min_lp_out: u64,
     ): u128 acquires Pool {
-        add_liquidity_internal(handle, apt_in, token_in, min_lp_out)
+        let (lp, apt_refund, token_refund) =
+            add_liquidity_internal(handle, apt_in, token_in, min_lp_out);
+        // Tests don't care about refunds; destroy them
+        if (fungible_asset::amount(&apt_refund) > 0) {
+            primary_fungible_store::deposit(@desnet, apt_refund);
+        } else { fungible_asset::destroy_zero(apt_refund) };
+        if (fungible_asset::amount(&token_refund) > 0) {
+            primary_fungible_store::deposit(@desnet, token_refund);
+        } else { fungible_asset::destroy_zero(token_refund) };
+        lp
     }
 
     #[test_only]

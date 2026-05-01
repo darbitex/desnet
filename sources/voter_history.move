@@ -21,6 +21,7 @@ module desnet::voter_history {
     use aptos_std::smart_table::{Self, SmartTable};
 
     friend desnet::governance;
+    friend desnet::lp_staking;
 
     // ============ CONSTANTS ============
 
@@ -102,15 +103,18 @@ module desnet::voter_history {
         });
     }
 
-    // ============ RECORD — called by factory::lp_emission only ============
+    // ============ RECORD — called EXCLUSIVELY by desnet::lp_staking::claim_internal ============
 
-    /// Cross-package callable. Authenticated via signer addr check:
-    /// caller MUST be @desnet (lp_emission obtains factory_signer via
-    /// factory::derive_factory_signer friend helper).
+    /// SOLE pathway for voting power generation. Friend-restricted to lp_staking
+    /// (load-bearing barrier). The signer.addr == @desnet assertion is belt-and-braces.
     ///
-    /// Lazy-creates voter entry in centralized Registry if missing
-    /// (no voter signer required — pkg authority writes to centralized storage).
-    public fun record_reward_received(
+    /// H4 fix (audit R1): visibility tightened from `public` to `public(friend)`.
+    /// Previously, sole-call-site invariant was grep-enforced not type-enforced;
+    /// any future code with @desnet pkg_signer access could mint voting power.
+    /// Now any new caller requires explicit `friend` declaration in this file.
+    ///
+    /// Lazy-creates voter entry in centralized Registry if missing.
+    public(friend) fun record_reward_received(
         factory_authority: &signer,
         voter_addr: address,
         amount: u64,

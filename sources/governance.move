@@ -28,8 +28,11 @@
 ///   - Voting period: 7 days
 ///   - Timelock post-approval: 30 days
 module desnet::governance {
+    use std::bcs;
+    use std::hash;
     use std::option::{Self, Option};
     use std::signer;
+    use std::vector;
     use aptos_framework::account::{Self, SignerCapability};
     use aptos_framework::code;
     use aptos_framework::event;
@@ -67,6 +70,9 @@ module desnet::governance {
     const E_NOT_MULTISIG: u64 = 15;
     const E_ALREADY_EXECUTED: u64 = 16;
     const E_ALREADY_RATIFIED: u64 = 17;
+    const E_HASH_MISMATCH: u64 = 18;
+    const E_MULTISIG_DISABLED: u64 = 19;
+    const E_INVALID_ADDRESS: u64 = 20;
 
     // ============ TYPES ============
 
@@ -81,6 +87,9 @@ module desnet::governance {
         // 30d emission estimate (denominator for threshold/quorum).
         // 0 = NOT YET CONFIGURED (proposals can't be submitted).
         total_30d_emission: u64,
+        // M2 fix (audit R1): one-way switch to disable multisig_upgrade backdoor.
+        // Set true via `disable_multisig_upgrade` once DAO is trusted; never reversible.
+        multisig_upgrade_disabled: bool,
     }
 
     struct Proposal has store {
@@ -152,6 +161,12 @@ module desnet::governance {
         timestamp_secs: u64,
     }
 
+    #[event]
+    struct MultisigUpgradeDisabled has drop, store {
+        disabled_by: address,
+        timestamp_secs: u64,
+    }
+
     // ============ INIT — called by resource_account at deploy ============
 
     fun init_module(account: &signer) {
@@ -164,6 +179,7 @@ module desnet::governance {
             proposals: smart_table::new(),
             desnet_fa_metadata: @0x0,
             total_30d_emission: 0,
+            multisig_upgrade_disabled: false,
         });
 
         // Initialize centralized voter_history Registry at @desnet.
@@ -191,18 +207,35 @@ module desnet::governance {
     /// Multisig (@origin) directly upgrades the package without a DAO vote.
     /// Used pre-PMF while the team iterates rapidly. Off-chain: simply stop
     /// calling this once DAO is trusted.
+    /// M2 fix (audit R1): callable only while `multisig_upgrade_disabled == false`.
+    /// Use `disable_multisig_upgrade` for irreversible on-chain renouncement.
     public entry fun multisig_upgrade(
         multisig: &signer,
         metadata: vector<u8>,
         code_bytes: vector<vector<u8>>,
     ) acquires GovernanceState {
         assert!(signer::address_of(multisig) == @origin, E_NOT_MULTISIG);
+        assert!(
+            !borrow_global<GovernanceState>(@desnet).multisig_upgrade_disabled,
+            E_MULTISIG_DISABLED
+        );
 
         let pkg_signer = derive_pkg_signer();
         code::publish_package_txn(&pkg_signer, metadata, code_bytes);
 
         event::emit(MultisigUpgrade {
             multisig: signer::address_of(multisig),
+            timestamp_secs: timestamp::now_seconds(),
+        });
+    }
+
+    /// One-way switch to permanently renounce the multisig backdoor.
+    /// After this, the only upgrade path is the full DAO flow. NOT REVERSIBLE.
+    public entry fun disable_multisig_upgrade(multisig: &signer) acquires GovernanceState {
+        assert!(signer::address_of(multisig) == @origin, E_NOT_MULTISIG);
+        borrow_global_mut<GovernanceState>(@desnet).multisig_upgrade_disabled = true;
+        event::emit(MultisigUpgradeDisabled {
+            disabled_by: signer::address_of(multisig),
             timestamp_secs: timestamp::now_seconds(),
         });
     }
@@ -214,6 +247,11 @@ module desnet::governance {
         target_package_addr: address,
         new_module_bytes_hash: vector<u8>,
     ) acquires GovernanceState {
+        // Kimi F4 fix (audit R1): require DAO config before accepting proposals.
+        let cfg = borrow_global<GovernanceState>(@desnet);
+        assert!(cfg.desnet_fa_metadata != @0x0, E_NOT_INITIALIZED);
+        assert!(cfg.total_30d_emission > 0, E_NOT_INITIALIZED);
+
         let proposer_addr = signer::address_of(proposer);
         let proposer_power = voting_power(proposer_addr);
         assert!(proposer_power >= proposal_threshold_amount(), E_INSUFFICIENT_VOTING_POWER);
@@ -329,15 +367,23 @@ module desnet::governance {
     }
 
     /// Execute approved proposal after timelock expires. Calls
-    /// `code::publish_package_txn` directly with the derived package signer —
-    /// monolith means there's only one target (@desnet), no per-package dispatch.
+    /// `code::publish_package_txn` with the derived package signer.
+    ///
+    /// H1 fix (audit R1): the executor MUST submit metadata + code_bytes whose
+    /// digest matches `proposal.new_module_bytes_hash` recorded at propose time.
+    /// Without this check, executor can ship arbitrary code post-timelock — full
+    /// DAO bypass. Digest scheme: sha3_256(bcs(metadata) ++ concat(bcs(code_bytes[i])))
+    /// — `propose_upgrade` callers MUST use the same scheme to compute their hash.
     public entry fun execute_proposal(
         caller: &signer,
         proposal_id: u64,
         metadata: vector<u8>,
         code_bytes: vector<vector<u8>>,
     ) acquires GovernanceState {
-        // Derive pkg signer FIRST (acquires GovernanceState) before mut-borrow below.
+        // Compute digest BEFORE deriving pkg_signer (deterministic on inputs).
+        let submitted_digest = compute_upgrade_digest(&metadata, &code_bytes);
+
+        // Derive pkg signer (acquires GovernanceState) before mut-borrow below.
         let pkg_signer = derive_pkg_signer();
 
         let target_package_addr;
@@ -354,6 +400,9 @@ module desnet::governance {
             let now = timestamp::now_seconds();
             assert!(now >= approved_at + TIMELOCK_SECS, E_TIMELOCK_NOT_EXPIRED);
 
+            // Verify submitted code matches what voters approved.
+            assert!(submitted_digest == proposal.new_module_bytes_hash, E_HASH_MISMATCH);
+
             proposal.executed_at_secs = option::some(now);
             target_package_addr = proposal.target_package_addr;
         };
@@ -366,6 +415,24 @@ module desnet::governance {
             target_package_addr,
             executor: signer::address_of(caller),
         });
+    }
+
+    /// Canonical digest of upgrade payload. Used by both `propose_upgrade` (off-chain
+    /// callers compute this on the intended payload) and `execute_proposal` (verifies
+    /// submitted bytes match). Scheme: sha3_256(bcs(metadata) || concat(bcs(code_bytes[i]))).
+    public fun compute_upgrade_digest(
+        metadata: &vector<u8>,
+        code_bytes: &vector<vector<u8>>,
+    ): vector<u8> {
+        let buf = bcs::to_bytes(metadata);
+        let i = 0;
+        let n = vector::length(code_bytes);
+        while (i < n) {
+            let chunk_bcs = bcs::to_bytes(vector::borrow(code_bytes, i));
+            vector::append(&mut buf, chunk_bcs);
+            i = i + 1;
+        };
+        hash::sha3_256(buf)
     }
 
     // ============ VIEWS ============
@@ -483,6 +550,7 @@ module desnet::governance {
             proposals: smart_table::new(),
             desnet_fa_metadata: @0x0,
             total_30d_emission: 0,
+            multisig_upgrade_disabled: false,
         });
         voter_history::init_registry(&desnet_signer);
     }
