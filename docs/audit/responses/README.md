@@ -14,11 +14,11 @@ Raw audit responses from external LLM auditors, one file per auditor.
 | Auditor | File | Verdict | Status |
 |---|---|---|---|
 | Kimi K2.5 | `kimi-r1.md` | TBD | pending |
-| Gemini 3 Pro | `gemini-r1.md` | TBD | pending |
-| Grok 4 | `grok-r1.md` | TBD | pending |
-| Qwen 3 Max | `qwen-r1.md` | TBD | pending |
-| DeepSeek V3.2 | `deepseek-r1.md` | TBD | pending |
-| Claude Opus 4.7 (fresh web) | `claude-r1.md` | TBD | pending |
+| Gemini 3 Pro | `gemini-r1.md` | 🟡 YELLOW (0H/1M/1L/1I, partial source coverage) | ✓ received |
+| Grok 4 | `grok-r1.md` | 🟡 YELLOW (0H/2M/4L/4I) | ✓ received |
+| Qwen 3 Max | `qwen-r1.md` | 🟢 GREEN (0H/0M/1L/2I) | ✓ received |
+| DeepSeek V3.2 | `deepseek-r1.md` | 🔴 RED (1H+1H FP/0M/1L/2I) | ✓ received |
+| Claude Opus 4.7 (fresh web) | `claude-r1.md` | 🟡 YELLOW (4H/5M/5L/4I, full source read) | ✓ received |
 
 ## After all responses received
 
