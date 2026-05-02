@@ -64,6 +64,15 @@ module desnet::voter_history {
         voters: SmartTable<address, VoterHistory>,
     }
 
+    /// v0.3.2 (F7): per-token isolated rewards. Eliminates cross-token mix where a
+    /// non-DESNET reward stream could inflate voter's voting power. Lazy-init on
+    /// first per-token record. Outer key = voter_addr, inner key = token_metadata_addr.
+    /// `governance::voting_power` reads DESNET-only via this registry when present,
+    /// falls back to legacy mixed `Registry` when not.
+    struct RegistryByToken has key {
+        voters: SmartTable<address, SmartTable<address, VoterHistory>>,
+    }
+
     // ============ EVENTS ============
 
     /// Emitted on every voter reward record. Pairs atomically with
@@ -155,6 +164,42 @@ module desnet::voter_history {
         });
     }
 
+    // ============ v0.3.2 (F7): per-token isolation ============
+
+    /// Friend-only: extends `record_reward_received` with per-token tracking.
+    /// Records to BOTH legacy mixed `Registry` (preserve compat for old read-paths)
+    /// AND new `RegistryByToken` (per-token isolation for governance::voting_power).
+    /// Lazy-init RegistryByToken on first call.
+    public(friend) fun record_reward_received_for_token(
+        factory_authority: &signer,
+        voter_addr: address,
+        token_addr: address,
+        amount: u64,
+    ) acquires Registry, RegistryByToken {
+        // 1. Legacy path — keeps old indexers working.
+        record_reward_received(factory_authority, voter_addr, amount);
+
+        // 2. Per-token isolated path. (factory_authority asserted == @desnet inside #1.)
+        if (!exists<RegistryByToken>(@desnet)) {
+            move_to(factory_authority, RegistryByToken { voters: smart_table::new() });
+        };
+        let registry = borrow_global_mut<RegistryByToken>(@desnet);
+        if (!smart_table::contains(&registry.voters, voter_addr)) {
+            smart_table::add(&mut registry.voters, voter_addr, smart_table::new());
+        };
+        let voter_tokens = smart_table::borrow_mut(&mut registry.voters, voter_addr);
+        if (!smart_table::contains(voter_tokens, token_addr)) {
+            smart_table::add(voter_tokens, token_addr, VoterHistory {
+                rewards_history: vector::empty(),
+                total_received: 0,
+            });
+        };
+        let history = smart_table::borrow_mut(voter_tokens, token_addr);
+        let now = timestamp::now_seconds();
+        vector::push_back(&mut history.rewards_history, RewardEntry { timestamp_secs: now, amount });
+        history.total_received = history.total_received + amount;
+    }
+
     // ============ PRUNE — permissionless storage bound ============
 
     /// Anyone can call to prune entries older than HISTORY_PRUNE_AFTER_SECS.
@@ -194,6 +239,38 @@ module desnet::voter_history {
     }
 
     // ============ VIEWS ============
+
+    /// v0.3.2 (F7): Per-token rewards within 30d. Returns 0 if RegistryByToken not yet
+    /// initialized OR voter has no entry for this token. Replaces mixed-aggregate when
+    /// caller wants strict per-token isolation (e.g., governance DESNET-only voting power).
+    #[view]
+    public fun rewards_earned_30d_for_token(voter_addr: address, token_addr: address): u64
+        acquires RegistryByToken
+    {
+        if (!exists<RegistryByToken>(@desnet)) return 0;
+        let registry = borrow_global<RegistryByToken>(@desnet);
+        if (!smart_table::contains(&registry.voters, voter_addr)) return 0;
+        let voter_tokens = smart_table::borrow(&registry.voters, voter_addr);
+        if (!smart_table::contains(voter_tokens, token_addr)) return 0;
+        let history = smart_table::borrow(voter_tokens, token_addr);
+
+        let now = timestamp::now_seconds();
+        let cutoff = if (now > VOTING_WINDOW_SECS) now - VOTING_WINDOW_SECS else 0;
+        let sum: u64 = 0;
+        let len = vector::length(&history.rewards_history);
+        let i = 0;
+        while (i < len) {
+            let e = vector::borrow(&history.rewards_history, i);
+            if (e.timestamp_secs >= cutoff) sum = sum + e.amount;
+            i = i + 1;
+        };
+        sum
+    }
+
+    /// v0.3.2 (F7): exists check — gates governance::voting_power's choice of
+    /// per-token vs legacy-mixed read.
+    #[view]
+    public fun has_per_token_registry(): bool { exists<RegistryByToken>(@desnet) }
 
     /// Sum reward entries within last 30d window. Used as filter A in voting power.
     #[view]

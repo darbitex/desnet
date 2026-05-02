@@ -443,7 +443,8 @@ module desnet::factory {
     public fun get_token_record(handle: vector<u8>): TokenRecord acquires FactoryRegistry {
         let registry = borrow_global<FactoryRegistry>(@desnet);
         let key = string::utf8(handle);
-        assert!(smart_table::contains(&registry.records, key), E_HANDLE_TAKEN);
+        // v0.3.2 (F1): semantic-correct error code (was E_HANDLE_TAKEN — misleading).
+        assert!(smart_table::contains(&registry.records, key), E_TOKEN_NOT_FOUND);
         *smart_table::borrow(&registry.records, key)
     }
 
@@ -462,29 +463,37 @@ module desnet::factory {
     #[view]
     public fun handle_of_token(token_metadata: address): String acquires FactoryRegistry {
         let registry = borrow_global<FactoryRegistry>(@desnet);
+        // v0.3.2 (F1): semantic-correct error code.
         assert!(
             smart_table::contains(&registry.metadata_index, token_metadata),
-            E_HANDLE_TAKEN
+            E_TOKEN_NOT_FOUND
         );
         *smart_table::borrow(&registry.metadata_index, token_metadata)
     }
 
+    /// Note: `owner_addr` is the PID Object addr (= the registered owner_index key),
+    /// NOT the wallet that holds the PID NFT. Use `handle_of_wallet` for wallet→handle.
     #[view]
     public fun handle_of_owner(owner_addr: address): String acquires FactoryRegistry {
         let registry = borrow_global<FactoryRegistry>(@desnet);
+        // v0.3.2 (F1): semantic-correct error code.
         assert!(
             smart_table::contains(&registry.owner_index, owner_addr),
-            E_HANDLE_TAKEN
+            E_TOKEN_NOT_FOUND
         );
         *smart_table::borrow(&registry.owner_index, owner_addr)
     }
 
+    // (v0.3.2 F1b: handle_of_wallet lives in profile.move to avoid factory→profile
+    // dependency cycle. Profile already uses factory; reverse direction would cycle.)
+
     #[view]
     public fun token_metadata_of_owner(owner_addr: address): address acquires FactoryRegistry {
         let registry = borrow_global<FactoryRegistry>(@desnet);
+        // v0.3.2 (F1): semantic-correct error code.
         assert!(
             smart_table::contains(&registry.owner_index, owner_addr),
-            E_HANDLE_TAKEN
+            E_TOKEN_NOT_FOUND
         );
         let handle = *smart_table::borrow(&registry.owner_index, owner_addr);
         smart_table::borrow(&registry.records, handle).token_metadata
@@ -493,9 +502,10 @@ module desnet::factory {
     #[view]
     public fun lp_staking_pool_of_owner(owner_addr: address): address acquires FactoryRegistry {
         let registry = borrow_global<FactoryRegistry>(@desnet);
+        // v0.3.2 (F1): semantic-correct error code.
         assert!(
             smart_table::contains(&registry.owner_index, owner_addr),
-            E_HANDLE_TAKEN
+            E_TOKEN_NOT_FOUND
         );
         let handle = *smart_table::borrow(&registry.owner_index, owner_addr);
         smart_table::borrow(&registry.records, handle).lp_staking_pool
@@ -553,6 +563,16 @@ module desnet::factory {
         );
         let handle = *smart_table::borrow(&registry.owner_index, pid_addr);
         smart_table::borrow(&registry.records, handle).apt_vault
+    }
+
+    /// v0.3.2 F9: single-hop handle → apt_vault lookup. Used by handle_fee_vault::settle
+    /// to delegate-burn DESNET via desnet's apt_vault BurnRef.
+    #[view]
+    public fun vault_addr_of_handle(handle: vector<u8>): address acquires FactoryRegistry {
+        let registry = borrow_global<FactoryRegistry>(@desnet);
+        let key = string::utf8(handle);
+        assert!(smart_table::contains(&registry.records, key), E_TOKEN_NOT_FOUND);
+        smart_table::borrow(&registry.records, key).apt_vault
     }
 
     #[view]

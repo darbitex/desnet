@@ -437,7 +437,8 @@ module desnet::amm {
         let caller_addr = signer::address_of(caller);
         let apt_coin = coin::withdraw<AptosCoin>(caller, amount_in);
         let apt_fa = coin::coin_to_fungible_asset(apt_coin);
-        let token_out_fa = swap_exact_apt_in(handle, apt_fa, min_out);
+        // v0.3.2 (F5): route through *_actor to populate event.actor with caller addr.
+        let token_out_fa = swap_exact_apt_in_actor(handle, apt_fa, min_out, caller_addr);
         primary_fungible_store::deposit(caller_addr, token_out_fa);
     }
 
@@ -454,14 +455,29 @@ module desnet::amm {
         let token_meta = object::address_to_object<Metadata>(token_meta_addr);
 
         let token_fa = primary_fungible_store::withdraw(caller, token_meta, amount_in);
-        let apt_out_fa = swap_exact_token_in(handle, token_fa, min_out);
+        // v0.3.2 (F5): route through *_actor to populate event.actor with caller addr.
+        let apt_out_fa = swap_exact_token_in_actor(handle, token_fa, min_out, caller_addr);
         primary_fungible_store::deposit(caller_addr, apt_out_fa);
     }
 
+    /// v0.3.2 (F5): backward-compat wrapper. Composable callers (aggregators/flash arbs)
+    /// that don't have the actor address available can still call this — event.actor stays
+    /// @0x0 sentinel. New code should prefer `swap_exact_apt_in_actor` to preserve attribution.
     public fun swap_exact_apt_in(
         handle: vector<u8>,
         apt_in: FungibleAsset,
         min_out: u64,
+    ): FungibleAsset acquires Pool {
+        swap_exact_apt_in_actor(handle, apt_in, min_out, @0x0)
+    }
+
+    /// v0.3.2 (F5): actor-aware variant. `actor` is recorded in `Swapped` event for indexer
+    /// attribution. Pass `@0x0` for sentinel "actor unknown / multi-hop call".
+    public fun swap_exact_apt_in_actor(
+        handle: vector<u8>,
+        apt_in: FungibleAsset,
+        min_out: u64,
+        actor: address,
     ): FungibleAsset acquires Pool {
         let pool_addr = pool_address_of_handle(handle);
         assert!(exists<Pool>(pool_addr), E_POOL_NOT_FOUND);
@@ -499,7 +515,7 @@ module desnet::amm {
         event::emit(Swapped {
             handle: pool.handle,
             pool_addr,
-            actor: @0x0,
+            actor,
             apt_to_token: true,
             amount_in,
             amount_out,
@@ -511,10 +527,21 @@ module desnet::amm {
         token_out_fa
     }
 
+    /// v0.3.2 (F5): backward-compat wrapper for token-in direction.
     public fun swap_exact_token_in(
         handle: vector<u8>,
         token_in: FungibleAsset,
         min_out: u64,
+    ): FungibleAsset acquires Pool {
+        swap_exact_token_in_actor(handle, token_in, min_out, @0x0)
+    }
+
+    /// v0.3.2 (F5): actor-aware variant for token-in direction.
+    public fun swap_exact_token_in_actor(
+        handle: vector<u8>,
+        token_in: FungibleAsset,
+        min_out: u64,
+        actor: address,
     ): FungibleAsset acquires Pool {
         let pool_addr = pool_address_of_handle(handle);
         assert!(exists<Pool>(pool_addr), E_POOL_NOT_FOUND);
@@ -552,7 +579,7 @@ module desnet::amm {
         event::emit(Swapped {
             handle: pool.handle,
             pool_addr,
-            actor: @0x0,
+            actor,
             apt_to_token: false,
             amount_in,
             amount_out,
@@ -664,6 +691,8 @@ module desnet::amm {
     // ============ INTERNAL MATH ============
 
     /// Pure quote — darbitex-shape signature. CPMM with 10 bps fee.
+    /// v0.3.2 (F4b): added #[view] so frontend can call gas-free via /v1/view.
+    #[view]
     public fun compute_amount_out(
         reserve_in: u64,
         reserve_out: u64,
@@ -793,6 +822,50 @@ module desnet::amm {
     public fun pool_locked(pool_addr: address): bool acquires Pool {
         assert!(exists<Pool>(pool_addr), E_POOL_NOT_FOUND);
         borrow_global<Pool>(pool_addr).locked
+    }
+
+    // ============ v0.3.2 (F4c): handle/pool_addr companion view fns ============
+    // Some views take handle, others take pool_addr — caller convenience companions
+    // for the missing direction. Body delegates to existing variant.
+
+    #[view]
+    public fun lp_fee_per_share_by_handle(handle: vector<u8>): (u128, u128) acquires Pool {
+        lp_fee_per_share(pool_address_of_handle(handle))
+    }
+
+    #[view]
+    public fun pool_locked_by_handle(handle: vector<u8>): bool acquires Pool {
+        pool_locked(pool_address_of_handle(handle))
+    }
+
+    #[view]
+    public fun creator_pid_at(pool_addr: address): address acquires Pool {
+        assert!(exists<Pool>(pool_addr), E_POOL_NOT_FOUND);
+        borrow_global<Pool>(pool_addr).creator_pid
+    }
+
+    #[view]
+    public fun fee_buckets_at(pool_addr: address): (u64, u64) acquires Pool {
+        assert!(exists<Pool>(pool_addr), E_POOL_NOT_FOUND);
+        let pool = borrow_global<Pool>(pool_addr);
+        (fungible_asset::balance(pool.apt_fees), fungible_asset::balance(pool.token_fees))
+    }
+
+    #[view]
+    public fun quote_swap_exact_in_at(
+        pool_addr: address,
+        amount_in: u64,
+        is_apt_in: bool,
+    ): u64 acquires Pool {
+        assert!(exists<Pool>(pool_addr), E_POOL_NOT_FOUND);
+        let pool = borrow_global<Pool>(pool_addr);
+        let apt_r = fungible_asset::balance(pool.apt_reserve);
+        let token_r = fungible_asset::balance(pool.token_reserve);
+        if (is_apt_in) {
+            compute_amount_out(apt_r, token_r, amount_in)
+        } else {
+            compute_amount_out(token_r, apt_r, amount_in)
+        }
     }
 
     #[view]

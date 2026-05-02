@@ -436,7 +436,18 @@ module desnet::lp_staking {
 
             if (actual_paid > 0) {
                 let pkg_signer = governance::derive_pkg_signer();
-                voter_history::record_reward_received(&pkg_signer, recipient, actual_paid);
+                // v0.3.2 (F7): record per-token (also writes legacy mixed for compat).
+                // Token addr is the pool's emission token = current pool.token_metadata_addr.
+                voter_history::record_reward_received_for_token(
+                    &pkg_signer,
+                    recipient,
+                    pool.token_metadata_addr,
+                    actual_paid,
+                );
+                // v0.3.2 (F6): feed the 30d auto-tracker so DAO threshold/quorum
+                // become driven by actual emission flow (eliminates manipulation
+                // surface of multisig::update_total_30d_emission).
+                governance::record_emission_for_window(actual_paid);
             };
         };
 

@@ -51,6 +51,7 @@ module desnet::governance {
     friend desnet::profile;
     friend desnet::amm;
     friend desnet::lp_staking;
+    friend desnet::handle_fee_vault;
 
     // ============ CONSTANTS ============
 
@@ -82,6 +83,11 @@ module desnet::governance {
     const E_ARGS_LEN_MISMATCH: u64 = 21;
     /// v0.3.1 Item 3b: setters NEUTERED post-hardcode of DESNET_FA_ADDR.
     const E_NEUTERED: u64 = 22;
+    /// v0.3.2 (F2): chunked-publish defense-in-depth — at least one module slot empty.
+    const E_INCOMPLETE_CHUNKS: u64 = 23;
+    /// v0.3.2 (F6): 30-day rolling emission tracker constants.
+    const SECONDS_PER_DAY: u64 = 86400;
+    const ROLLING_WINDOW_DAYS: u64 = 30;
     /// v0.3.1 Item 3b: hardcoded DESNET FA addr — eliminates manipulation surface.
     /// Computable as `factory::derive_token_metadata_addr(b"desnet")`.
     /// `desnet_fa_metadata` field in GovernanceState becomes vestigial (compat only).
@@ -136,6 +142,18 @@ module desnet::governance {
         code: vector<vector<u8>>,
     }
 
+    /// v0.3.2 (F6): Auto-tracker for 30-day rolling emission. Eliminates manipulation
+    /// surface where multisig sets `total_30d_emission` to arbitrary value.
+    /// Per-day buckets indexed by (day_number % 30); parallel vector tracks the
+    /// day_number each entry actually refers to (for staleness check on read).
+    /// `record_emission_for_window` called by lp_staking::claim_internal per claim;
+    /// `total_30d_emission_auto` view aggregates fresh buckets only.
+    /// Lazy-initialized on first record (init_module skipped for upgrades).
+    struct Emission30dRollingBucket has key {
+        daily_amounts: vector<u64>,
+        daily_day_nums: vector<u64>,
+    }
+
     // ============ EVENTS ============
 
     #[event]
@@ -186,6 +204,13 @@ module desnet::governance {
     #[event]
     struct MultisigUpgradeDisabled has drop, store {
         disabled_by: address,
+        timestamp_secs: u64,
+    }
+
+    /// v0.3.2 (F3): emitted on cleanup_upgrade_staging — observability for indexers.
+    #[event]
+    struct UpgradeStagingCleanup has drop, store {
+        multisig: address,
         timestamp_secs: u64,
     }
 
@@ -333,6 +358,15 @@ module desnet::governance {
         let pkg_signer = derive_pkg_signer();
         stage_chunks_into_staging(&pkg_signer, metadata_chunk, code_indices, code_chunks);
         let UpgradeStaging { metadata, code } = move_from<UpgradeStaging>(@desnet);
+        // v0.3.2 (F2): defense-in-depth — reject incomplete staging (any empty slot).
+        // Without this, out-of-order/missing chunk produces a generic framework error
+        // at code::publish_package_txn instead of clear ours-error.
+        let i = 0;
+        let n = vector::length(&code);
+        while (i < n) {
+            assert!(!vector::is_empty(vector::borrow(&code, i)), E_INCOMPLETE_CHUNKS);
+            i = i + 1;
+        };
         code::publish_package_txn(&pkg_signer, metadata, code);
         event::emit(MultisigUpgrade {
             multisig: signer::address_of(multisig),
@@ -345,11 +379,113 @@ module desnet::governance {
         assert!(signer::address_of(multisig) == @origin, E_NOT_MULTISIG);
         if (exists<UpgradeStaging>(@desnet)) {
             let _ = move_from<UpgradeStaging>(@desnet);
+            // v0.3.2 (F3): observability event for off-chain indexers.
+            event::emit(UpgradeStagingCleanup {
+                multisig: signer::address_of(multisig),
+                timestamp_secs: timestamp::now_seconds(),
+            });
         };
     }
 
     #[view]
     public fun upgrade_staging_exists(): bool { exists<UpgradeStaging>(@desnet) }
+
+    // ============ EMISSION AUTO-TRACKER (v0.3.2 F6) ============
+    //
+    // 30-day rolling bucket of emission distributed via lp_staking::claim_internal.
+    // Eliminates manipulation surface where multisig sets `total_30d_emission` to
+    // arbitrary value (was the last remaining off-DAO knob in v0.3.1).
+    //
+    // Per-day buckets indexed by (day_number % 30); parallel `daily_day_nums`
+    // tracks which day_number each bucket entry actually refers to (so the view
+    // can distinguish fresh vs stale entries without a sweep on read).
+    //
+    // Lazy-init on first record (init_module doesn't re-run on upgrade).
+
+    /// Friend-only: lp_staking::claim_internal calls this with `actual_paid` (capped
+    /// emission amount, post graceful-depletion). Saturates a single daily bucket;
+    /// view sums across the rolling 30-day window.
+    public(friend) fun record_emission_for_window(amount: u64) acquires GovernanceState, Emission30dRollingBucket {
+        if (amount == 0) return;
+        let now = timestamp::now_seconds();
+        let day = now / SECONDS_PER_DAY;
+
+        if (!exists<Emission30dRollingBucket>(@desnet)) {
+            let pkg_signer = derive_pkg_signer();
+            let amounts = vector::empty<u64>();
+            let days = vector::empty<u64>();
+            let i = 0;
+            while (i < ROLLING_WINDOW_DAYS) {
+                vector::push_back(&mut amounts, 0);
+                vector::push_back(&mut days, 0);
+                i = i + 1;
+            };
+            move_to(&pkg_signer, Emission30dRollingBucket {
+                daily_amounts: amounts,
+                daily_day_nums: days,
+            });
+        };
+
+        let tracker = borrow_global_mut<Emission30dRollingBucket>(@desnet);
+        let idx = day % ROLLING_WINDOW_DAYS;
+        let stored_day = *vector::borrow(&tracker.daily_day_nums, idx);
+        if (stored_day != day) {
+            // Stale entry from prior cycle — reset before adding.
+            *vector::borrow_mut(&mut tracker.daily_amounts, idx) = 0;
+            *vector::borrow_mut(&mut tracker.daily_day_nums, idx) = day;
+        };
+        let cur = *vector::borrow(&tracker.daily_amounts, idx);
+        // Saturating add: pin to u64::MAX on overflow rather than abort
+        // (single-day emission overflowing u64 is structurally impossible
+        // given 1B token cap, but defense-in-depth).
+        let new_val = if (cur > 18446744073709551615u64 - amount) {
+            18446744073709551615u64
+        } else {
+            cur + amount
+        };
+        *vector::borrow_mut(&mut tracker.daily_amounts, idx) = new_val;
+    }
+
+    /// Sum of fresh (within rolling 30-day window) bucket amounts. Returns 0 pre-init.
+    #[view]
+    public fun total_30d_emission_auto(): u64 acquires Emission30dRollingBucket {
+        if (!exists<Emission30dRollingBucket>(@desnet)) return 0;
+        let tracker = borrow_global<Emission30dRollingBucket>(@desnet);
+        let now = timestamp::now_seconds();
+        let day = now / SECONDS_PER_DAY;
+        let cutoff = if (day >= ROLLING_WINDOW_DAYS - 1) day - (ROLLING_WINDOW_DAYS - 1) else 0;
+
+        let sum: u64 = 0;
+        let i = 0;
+        while (i < ROLLING_WINDOW_DAYS) {
+            let stored_day = *vector::borrow(&tracker.daily_day_nums, i);
+            if (stored_day >= cutoff) {
+                let v = *vector::borrow(&tracker.daily_amounts, i);
+                // Saturating sum
+                if (sum > 18446744073709551615u64 - v) {
+                    sum = 18446744073709551615u64;
+                } else {
+                    sum = sum + v;
+                };
+            };
+            i = i + 1;
+        };
+        sum
+    }
+
+    /// max(auto-tracked, manually-set). Used by quorum + threshold computations.
+    /// Manual setter (`update_total_30d_emission`) kept functional for transition;
+    /// expected to be neutered in a future upgrade once auto-tracker proven reliable.
+    fun effective_30d_emission(): u64 acquires GovernanceState, Emission30dRollingBucket {
+        let auto = total_30d_emission_auto();
+        let manual = borrow_global<GovernanceState>(@desnet).total_30d_emission;
+        if (auto > manual) auto else manual
+    }
+
+    #[view]
+    public fun effective_30d_emission_view(): u64 acquires GovernanceState, Emission30dRollingBucket {
+        effective_30d_emission()
+    }
 
     // ============ DAO-PHASE PROPOSAL LIFECYCLE ============
 
@@ -363,13 +499,15 @@ module desnet::governance {
         proposer: &signer,
         target_package_addr: address,
         new_module_bytes_hash: vector<u8>,
-    ) acquires GovernanceState {
-        // v0.3.1: DESNET FA addr now hardcoded as `DESNET_FA_ADDR` constant (Item 3b).
-        // The vestigial `desnet_fa_metadata` field check removed; only `total_30d_emission`
-        // (still manually set via `update_total_30d_emission` in v0.3.1; auto-tracker
-        // deferred to v0.3.2) gates DAO unlock.
-        let cfg = borrow_global<GovernanceState>(@desnet);
-        assert!(cfg.total_30d_emission > 0, E_NOT_INITIALIZED);
+    ) acquires GovernanceState, Emission30dRollingBucket {
+        // v0.3.2 (F14, R2 Kimi R2-N1): defense-in-depth — only @desnet pkg upgrades
+        // are valid in monolith. Reject impossible proposals at submission time.
+        assert!(target_package_addr == @desnet, E_INVALID_ADDRESS);
+
+        // v0.3.2 (F6): DAO-unlock now driven by auto-tracker (lp_staking emission claims).
+        // `update_total_30d_emission` manual setter still functional but auto-tracker
+        // takes precedence via `effective_30d_emission()`.
+        assert!(effective_30d_emission() > 0, E_NOT_INITIALIZED);
 
         let proposer_addr = signer::address_of(proposer);
         let proposer_power = voting_power(proposer_addr);
@@ -453,7 +591,7 @@ module desnet::governance {
     public entry fun ratify(
         _caller: &signer,
         proposal_id: u64,
-    ) acquires GovernanceState {
+    ) acquires GovernanceState, Emission30dRollingBucket {
         // Pre-compute quorum BEFORE mut-borrow (view fn acquires same resource = conflict).
         let q = quorum_amount();
 
@@ -522,12 +660,113 @@ module desnet::governance {
             // Verify submitted code matches what voters approved.
             assert!(submitted_digest == proposal.new_module_bytes_hash, E_HASH_MISMATCH);
 
+            // v0.3.2 (F14, R2 Kimi R2-N1): defense-in-depth at execute too.
+            // `target_package_addr` was sanitized at propose time, but re-assert in
+            // case future code paths bypass propose-time validation.
+            assert!(proposal.target_package_addr == @desnet, E_INVALID_ADDRESS);
+
             proposal.executed_at_secs = option::some(now);
             target_package_addr = proposal.target_package_addr;
         };
 
         // Real on-chain dispatch (no cross-package cycle in monolith).
         code::publish_package_txn(&pkg_signer, metadata, code_bytes);
+
+        event::emit(ProposalExecuted {
+            proposal_id,
+            target_package_addr,
+            executor: signer::address_of(caller),
+        });
+    }
+
+    // ============ DAO CHUNKED EXECUTE (v0.3.2 F8) ============
+    //
+    // Sister of multisig_stage_upgrade_chunk / multisig_publish_chunked_upgrade but
+    // gated on DAO proposal lifecycle (approved + ratified + timelock-elapsed).
+    //
+    // Reuses `UpgradeStaging` resource. Hash-verify the assembled (metadata, code) at
+    // publish time matches `proposal.new_module_bytes_hash`. Auth: anyone can call
+    // (post-ratify, the DAO has spoken; staging is pure mechanics).
+    //
+    // Flow:
+    //   1. Anyone calls `dao_stage_upgrade_chunk(proposal_id, ...)` N-1 times to stage
+    //   2. Anyone calls `dao_publish_chunked_upgrade(proposal_id, last_chunk, ...)` —
+    //      stages final + verifies digest + publishes + marks proposal executed
+
+    public entry fun dao_stage_upgrade_chunk(
+        _caller: &signer,
+        proposal_id: u64,
+        metadata_chunk: vector<u8>,
+        code_indices: vector<u16>,
+        code_chunks: vector<vector<u8>>,
+    ) acquires GovernanceState, UpgradeStaging {
+        // Verify proposal is approved + ratified + timelock-elapsed (same as execute_proposal).
+        let state = borrow_global<GovernanceState>(@desnet);
+        assert!(smart_table::contains(&state.proposals, proposal_id), E_PROPOSAL_NOT_FOUND);
+        let proposal = smart_table::borrow(&state.proposals, proposal_id);
+        let approved_opt = proposal.approved_at_secs;
+        assert!(option::is_some(&approved_opt), E_QUORUM_NOT_MET);
+        assert!(option::is_none(&proposal.executed_at_secs), E_ALREADY_EXECUTED);
+        let approved_at = *option::borrow(&approved_opt);
+        let now = timestamp::now_seconds();
+        assert!(now >= approved_at + TIMELOCK_SECS, E_TIMELOCK_NOT_EXPIRED);
+        assert!(proposal.target_package_addr == @desnet, E_INVALID_ADDRESS);
+
+        let pkg_signer = derive_pkg_signer();
+        stage_chunks_into_staging(&pkg_signer, metadata_chunk, code_indices, code_chunks);
+    }
+
+    public entry fun dao_publish_chunked_upgrade(
+        caller: &signer,
+        proposal_id: u64,
+        metadata_chunk: vector<u8>,
+        code_indices: vector<u16>,
+        code_chunks: vector<vector<u8>>,
+    ) acquires GovernanceState, UpgradeStaging {
+        // Re-verify (defense-in-depth — staging may span days; conditions can change).
+        let target_package_addr;
+        let stored_hash;
+        {
+            let state = borrow_global<GovernanceState>(@desnet);
+            assert!(smart_table::contains(&state.proposals, proposal_id), E_PROPOSAL_NOT_FOUND);
+            let proposal = smart_table::borrow(&state.proposals, proposal_id);
+            let approved_opt = proposal.approved_at_secs;
+            assert!(option::is_some(&approved_opt), E_QUORUM_NOT_MET);
+            assert!(option::is_none(&proposal.executed_at_secs), E_ALREADY_EXECUTED);
+            let approved_at = *option::borrow(&approved_opt);
+            let now = timestamp::now_seconds();
+            assert!(now >= approved_at + TIMELOCK_SECS, E_TIMELOCK_NOT_EXPIRED);
+            assert!(proposal.target_package_addr == @desnet, E_INVALID_ADDRESS);
+            target_package_addr = proposal.target_package_addr;
+            stored_hash = proposal.new_module_bytes_hash;
+        };
+
+        let pkg_signer = derive_pkg_signer();
+        stage_chunks_into_staging(&pkg_signer, metadata_chunk, code_indices, code_chunks);
+
+        let UpgradeStaging { metadata, code } = move_from<UpgradeStaging>(@desnet);
+
+        // Defense-in-depth — same empty-slot check as multisig variant.
+        let i = 0;
+        let n = vector::length(&code);
+        while (i < n) {
+            assert!(!vector::is_empty(vector::borrow(&code, i)), E_INCOMPLETE_CHUNKS);
+            i = i + 1;
+        };
+
+        // Verify assembled payload matches the hash voters approved.
+        let assembled_digest = compute_upgrade_digest(&metadata, &code);
+        assert!(assembled_digest == stored_hash, E_HASH_MISMATCH);
+
+        // Mark proposal executed BEFORE publish (preserve ordering vs single-tx execute).
+        let now = timestamp::now_seconds();
+        {
+            let state_mut = borrow_global_mut<GovernanceState>(@desnet);
+            let proposal_mut = smart_table::borrow_mut(&mut state_mut.proposals, proposal_id);
+            proposal_mut.executed_at_secs = option::some(now);
+        };
+
+        code::publish_package_txn(&pkg_signer, metadata, code);
 
         event::emit(ProposalExecuted {
             proposal_id,
@@ -580,12 +819,19 @@ module desnet::governance {
     /// rewards isolation) deferred to v0.3.2 — until then, voting power = min(LP-stake-
     /// earned-mixed, DESNET balance). Cross-token reward claims still inflate first
     /// term but bound by DESNET balance.
+    /// v0.3.2 (F7): per-token DESNET-only rewards if RegistryByToken initialized,
+    /// fallback to legacy mixed `rewards_earned_30d` otherwise. Eliminates cross-token
+    /// inflation surface — voting power becomes strictly DESNET-LP-earned.
     #[view]
     public fun voting_power(voter_addr: address): u64 acquires GovernanceState {
         let _ = borrow_global<GovernanceState>(@desnet);
         if (!aptos_framework::object::object_exists<aptos_framework::fungible_asset::Metadata>(DESNET_FA_ADDR))
             return 0;
-        let earned = voter_history::rewards_earned_30d(voter_addr);
+        let earned = if (voter_history::has_per_token_registry()) {
+            voter_history::rewards_earned_30d_for_token(voter_addr, DESNET_FA_ADDR)
+        } else {
+            voter_history::rewards_earned_30d(voter_addr)
+        };
         let fa_meta = aptos_framework::object::address_to_object<aptos_framework::fungible_asset::Metadata>(
             DESNET_FA_ADDR
         );
@@ -594,17 +840,19 @@ module desnet::governance {
     }
 
     #[view]
-    public fun proposal_threshold_amount(): u64 acquires GovernanceState {
-        let state = borrow_global<GovernanceState>(@desnet);
-        if (state.total_30d_emission == 0) return 18446744073709551615u64;
-        (state.total_30d_emission * PROPOSAL_THRESHOLD_BPS) / 10000
+    public fun proposal_threshold_amount(): u64 acquires GovernanceState, Emission30dRollingBucket {
+        // v0.3.2 (F6): use effective (max of auto-tracked, manual) for denominator.
+        let eff = effective_30d_emission();
+        if (eff == 0) return 18446744073709551615u64;
+        (eff * PROPOSAL_THRESHOLD_BPS) / 10000
     }
 
     #[view]
-    public fun quorum_amount(): u64 acquires GovernanceState {
-        let state = borrow_global<GovernanceState>(@desnet);
-        if (state.total_30d_emission == 0) return 18446744073709551615u64;
-        (state.total_30d_emission * QUORUM_BPS) / 10000
+    public fun quorum_amount(): u64 acquires GovernanceState, Emission30dRollingBucket {
+        // v0.3.2 (F6): use effective (max of auto-tracked, manual) for denominator.
+        let eff = effective_30d_emission();
+        if (eff == 0) return 18446744073709551615u64;
+        (eff * QUORUM_BPS) / 10000
     }
 
     // ============ ADMIN SETTERS (multisig-only) ============
@@ -623,16 +871,16 @@ module desnet::governance {
         abort E_NEUTERED
     }
 
-    /// Multisig sets 30d emission estimate (denominator for threshold/quorum).
-    /// v0.3.1: KEPT FUNCTIONAL (not yet neutered) — Item 1 auto-tracker deferred to
-    /// v0.3.2. Manual setting remains a manipulation surface; multisig discipline
-    /// required until v0.3.2 lands.
+    /// v0.3.2 (F6b): NEUTERED. Auto-tracker (Emission30dRollingBucket) is sole source
+    /// of truth via `effective_30d_emission()`. Manual setter eliminates manipulation
+    /// surface where multisig could pin denominator to favorable value.
+    /// Field `total_30d_emission` retained as vestigial (compat-only, not read).
     public entry fun update_total_30d_emission(
-        multisig: &signer,
-        amount: u64,
+        _multisig: &signer,
+        _amount: u64,
     ) acquires GovernanceState {
-        assert!(signer::address_of(multisig) == @origin, E_NOT_MULTISIG_ADMIN);
-        borrow_global_mut<GovernanceState>(@desnet).total_30d_emission = amount;
+        let _ = borrow_global<GovernanceState>(@desnet);
+        abort E_NEUTERED
     }
 
     #[view]

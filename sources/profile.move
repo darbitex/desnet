@@ -36,6 +36,7 @@ module desnet::profile {
     use desnet::reference_gate::{Self, ReferenceGate};
     use desnet::factory;
     use desnet::governance;
+    use desnet::handle_fee_vault;
 
     friend desnet::mint;
     friend desnet::link;
@@ -84,6 +85,8 @@ module desnet::profile {
     const E_SYNC_GATE_ALREADY_SET: u64 = 16;
     const E_RESERVED_HANDLE: u64 = 17;
     const E_INVALID_ADDRESS: u64 = 18;
+    /// v0.3.2 (F10): update_fee_receiver neutered after handle_fee_vault (F9) takes over fee routing.
+    const E_NEUTERED: u64 = 19;
 
     // ============ TYPES ============
 
@@ -229,15 +232,16 @@ module desnet::profile {
     /// Post-vault upgrade, register_handle body bypasses this field — handle_fee_vault
     /// is the immutable destination. Kept here for v0.3.0 baseline; body becomes
     /// `abort 0` in v0.3.1 compat upgrade.
+    /// v0.3.2 (F10): NEUTERED. With handle_fee_vault (F9), `state.fee_receiver` field
+    /// is no longer read by `register_handle` body — fees route directly to the vault.
+    /// Field retained as vestigial (compat-only). Eliminates the last admin knob over
+    /// fee destination once F9 is live.
     public entry fun update_fee_receiver(
-        admin: &signer,
-        new_fee_receiver: address,
+        _admin: &signer,
+        _new_fee_receiver: address,
     ) acquires ProtocolState {
-        // Gemini MED fix (audit R1): zero-addr check.
-        assert!(new_fee_receiver != @0x0, E_INVALID_ADDRESS);
-        let state = borrow_global_mut<ProtocolState>(@desnet);
-        assert!(signer::address_of(admin) == state.admin, E_NOT_ADMIN);
-        state.fee_receiver = new_fee_receiver;
+        let _ = borrow_global<ProtocolState>(@desnet);
+        abort E_NEUTERED
     }
 
     /// Admin rotates admin (e.g., to governance contract). One-way after PMF transition.
@@ -357,15 +361,19 @@ module desnet::profile {
         );
         assert!(!exists<Profile>(pid_addr), E_PID_ALREADY_EXISTS);
 
-        // 3. Fee in APT — withdraw from wallet, deposit to fee_receiver (state-tracked).
+        // 3. Fee in APT — v0.3.2 F9: route directly to handle_fee_vault
+        //    (10% deployer beneficiary / 90% DESNET buyback-burn).
+        //    state.fee_receiver field is now vestigial (compat-preserved); body bypasses it.
+        //    Borrow kept (unused) to preserve `acquires ProtocolState` annotation parity
+        //    with the deployed bytecode metadata.
         //    Plus pool_seed_apt (5 APT) — withdrawn as separate FA, passed to factory
         //    for atomic AMM pool seed.
-        let state = borrow_global<ProtocolState>(@desnet);
+        let _state = borrow_global<ProtocolState>(@desnet);
         let fee_raw = handle_fee_apt(vector::length(&handle));
         let apt_metadata = object::address_to_object<Metadata>(APT_FA_METADATA);
         if (fee_raw > 0) {
             let fee_fa = primary_fungible_store::withdraw(wallet, apt_metadata, fee_raw);
-            primary_fungible_store::deposit(state.fee_receiver, fee_fa);
+            handle_fee_vault::deposit_apt_fa(fee_fa);
         };
         let pool_seed_amount = factory::pool_seed_apt_amount();
         let pool_seed_fa = primary_fungible_store::withdraw(wallet, apt_metadata, pool_seed_amount);
@@ -724,6 +732,15 @@ module desnet::profile {
     public fun handle_of(pid_addr: address): String acquires Profile {
         assert!(exists<Profile>(pid_addr), E_PROFILE_NOT_FOUND);
         borrow_global<Profile>(pid_addr).handle
+    }
+
+    /// v0.3.2 (F1b): wallet→handle convenience. Derives PID from wallet, looks up
+    /// handle. Aborts E_PROFILE_NOT_FOUND if wallet has no registered PID.
+    /// (Lives here, not in factory.move, because profile→factory but not the reverse.)
+    #[view]
+    public fun handle_of_wallet(wallet_addr: address): String acquires Profile {
+        let pid_addr = derive_pid_address(wallet_addr);
+        handle_of(pid_addr)
     }
 
     #[view]
