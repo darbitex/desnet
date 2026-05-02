@@ -2,11 +2,11 @@
 
 R6 verification of v0.3.3 fix bundle BEFORE chunked deploy to mainnet.
 
-**Submission:** `../AUDIT-DESNET-V033-SUBMISSION.md`
-**Diff:** `../AUDIT-DESNET-V033-DIFF.md` (508 lines, 26KB)
-**Source bundle:** `../v033-source-bundle/PART-{1,2,3}-*.md` (~110-130KB each, 3 splits)
-**Manifest:** `../v033-source-bundle/MANIFEST.json` (per-module sha3_256)
-**Self-audit:** `../../v0.3.3-self-audit.md`
+**Submission:** `../00-SUBMISSION.md`
+**Diff:** `../01-DIFF.md` (508 lines, 26KB)
+**Source bundle:** `../PART-{1,2,3}-*.md` (~110-130KB each, 3 splits)
+**Manifest:** `../MANIFEST.json` (per-module sha3_256)
+**Self-audit:** `../SELF-AUDIT.md`
 
 **Date:** 2026-05-02
 **Source tag:** `v0.3.3-pre-deploy-r2` (= commit `93a05a2`)

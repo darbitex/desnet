@@ -73,20 +73,27 @@ Pkg size: 73,671 → 75,847 bytes (+2,176, well within 2-chunk deploy via existi
 | **S4** | INFO | Bounded gas-only grief — accept. |
 | **S5** | INFO | apt_balance_at_request now used by S1 fix. |
 
-Full self-audit doc: `docs/v0.3.3-self-audit.md`.
+Full self-audit doc: `SELF-AUDIT.md` (this folder).
 
 ---
 
 ## Submission package (LOCAL SOURCE, no chain bytecode)
 
-| File | Path | Contents |
+**ALL files consolidated in this folder** (`docs/audit/v033-r6-submission/`):
+
+| File | Size | Contents |
 |---|---|---|
-| Source bundle (3 paste-friendly parts) | `docs/audit/v033-source-bundle/PART-{1,2,3}-*.md` | Full source for all 18 modules, grouped by domain. ~110-130 KB each. |
-| MANIFEST.json | `docs/audit/v033-source-bundle/MANIFEST.json` | Per-module sha3_256 + concat hash for integrity check |
-| Diff vs v0.3.2 | `docs/audit/AUDIT-DESNET-V033-DIFF.md` | git diff `v0.3.2-mainnet-live..v0.3.3-pre-deploy-r2 -- sources/` (~508 lines, 26KB) |
-| Self-audit | `docs/v0.3.3-self-audit.md` | S1 found + fixed; S2-S5 documented |
-| This doc | `docs/audit/AUDIT-DESNET-V033-SUBMISSION.md` | What changed + areas of focus |
-| R5 context | `docs/audit/AUDIT-DESNET-V032-SUBMISSION.md` + `responses-v032/` | R5 verdicts that drove v0.3.3 |
+| `00-SUBMISSION.md` (this) | 12KB | What changed + areas of focus |
+| `01-DIFF.md` | 26KB / 508 lines | git diff `v0.3.2-mainnet-live..v0.3.3-pre-deploy-r2 -- sources/` |
+| `MANIFEST.json` | 4KB | Per-module sha3_256 + concat hash |
+| `PART-1-governance-auth.md` | 118KB | voter_history, governance, factory, profile (4 modules) |
+| `PART-2-financial.md` | 108KB | amm, apt_vault, lp_staking, lp_emission, reaction_emission, handle_fee_vault (6 modules) |
+| `PART-3-social-verbs.md` | 129KB | assets, reference_gate, history, link, mint, giveaway, press, pulse (8 modules) |
+| `SELF-AUDIT.md` | 8KB | S1 found + fixed; S2-S5 documented |
+| `responses/` | (empty, for output) | Drop LLM responses here as `{name}-v033.md` |
+
+Outside this folder (background context, not strictly needed for R6):
+- `../AUDIT-DESNET-V032-SUBMISSION.md` + `../responses-v032/` — R5 verdicts that drove v0.3.3
 
 ### Source integrity (verifiable)
 
@@ -151,6 +158,6 @@ Per-module sha3_256 in `v033-source-bundle/MANIFEST.json` (18 entries).
 - DeepSeek V3.2
 - Claude Opus 4.7
 
-Drop responses to `docs/audit/responses-v033/{name}-v033.md`.
+Drop responses to `responses/{name}-v033.md` (this folder).
 
 **Acceptance:** ≥4/6 GREEN with no unfixed HIGH for production-stability sign-off + safe-to-deploy.
