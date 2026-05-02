@@ -24,7 +24,6 @@ module desnet::apt_vault {
     use desnet::amm;
 
     friend desnet::factory;
-    friend desnet::handle_fee_vault;
 
     // ============ CONSTANTS ============
 
@@ -304,21 +303,6 @@ module desnet::apt_vault {
     public fun settle_executable_at_secs(vault_addr: address): u64 acquires Vault {
         let pending = borrow_global<Vault>(vault_addr).pending_settle_at_secs;
         if (pending == 0) 0 else pending + SETTLE_DELAY_SECS
-    }
-
-    // ============ DELEGATE BURN — friend (handle_fee_vault) ============
-
-    /// v0.3.1: handle_fee_vault swaps APT → DESNET via amm, then asks the DESNET
-    /// per-token vault to burn the FA via its held BurnRef. Direction-locked: the
-    /// caller hands a FA whose metadata MUST match `vault.token_metadata_addr` (the
-    /// fungible_asset::burn check enforces this — wrong-token FA aborts).
-    /// No state mutation, no event (handle_fee_vault::Settled covers it).
-    public(friend) fun burn_via_vault(
-        vault_addr: address,
-        fa: fungible_asset::FungibleAsset,
-    ) acquires Vault {
-        let vault = borrow_global<Vault>(vault_addr);
-        fungible_asset::burn(&vault.burn_ref, fa);
     }
 
     // ============ TEST-ONLY HELPERS ============

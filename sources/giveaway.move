@@ -518,4 +518,7 @@ module desnet::giveaway {
 
     #[view]
     public fun kind_nft(): u8 { KIND_NFT }
+
+    #[view]
+    public fun settle_bounty_bps(): u64 { SETTLE_BOUNTY_BPS }
 }
