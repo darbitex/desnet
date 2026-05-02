@@ -85,6 +85,8 @@ module desnet::governance {
     const E_NEUTERED: u64 = 22;
     /// v0.3.2 (F2): chunked-publish defense-in-depth — at least one module slot empty.
     const E_INCOMPLETE_CHUNKS: u64 = 23;
+    /// v0.3.3 (G2): caller is not the original DAO stager for this proposal.
+    const E_NOT_STAGER: u64 = 24;
     /// v0.3.2 (F6): 30-day rolling emission tracker constants.
     const SECONDS_PER_DAY: u64 = 86400;
     const ROLLING_WINDOW_DAYS: u64 = 30;
@@ -138,6 +140,20 @@ module desnet::governance {
     /// by `multisig_publish_chunked_upgrade` (final chunk + publish in single tx).
     /// Allows package upgrades larger than 64KB single-tx limit.
     struct UpgradeStaging has key, drop {
+        metadata: vector<u8>,
+        code: vector<vector<u8>>,
+    }
+
+    /// v0.3.3 (G2, R5 CONV-2 MED fix): isolated DAO chunked staging. Separate from
+    /// multisig `UpgradeStaging` — DAO + multisig paths can no longer collide.
+    /// `proposal_id` field binds staging to one proposal (stale staging for a
+    /// different proposal auto-clears on next stage call). `stager` field locks
+    /// further appends to original staging address (anti-grief).
+    /// Permissionless `dao_cleanup_upgrade_staging` allows recovery if stage
+    /// becomes corrupted or stale.
+    struct DaoUpgradeStaging has key, drop {
+        proposal_id: u64,
+        stager: address,
         metadata: vector<u8>,
         code: vector<vector<u8>>,
     }
@@ -473,13 +489,15 @@ module desnet::governance {
         sum
     }
 
-    /// max(auto-tracked, manually-set). Used by quorum + threshold computations.
-    /// Manual setter (`update_total_30d_emission`) kept functional for transition;
-    /// expected to be neutered in a future upgrade once auto-tracker proven reliable.
+    /// v0.3.3 (G4, R5 Deepseek HIGH): now reads ONLY auto-tracker. Manual field
+    /// `state.total_30d_emission` permanently ignored — eliminates latent overflow
+    /// vector where `(eff * BPS) / 10000` could abort if vestigial value was extreme.
+    /// `update_total_30d_emission` already neutered (E_NEUTERED) in v0.3.2 F6b, so
+    /// vestigial value is frozen at deploy-time state. Defense-in-depth for forks.
+    /// Borrow kept (unused) to preserve `acquires GovernanceState` annotation parity.
     fun effective_30d_emission(): u64 acquires GovernanceState, Emission30dRollingBucket {
-        let auto = total_30d_emission_auto();
-        let manual = borrow_global<GovernanceState>(@desnet).total_30d_emission;
-        if (auto > manual) auto else manual
+        let _ = borrow_global<GovernanceState>(@desnet);
+        total_30d_emission_auto()
     }
 
     #[view]
@@ -693,13 +711,62 @@ module desnet::governance {
     //   2. Anyone calls `dao_publish_chunked_upgrade(proposal_id, last_chunk, ...)` —
     //      stages final + verifies digest + publishes + marks proposal executed
 
-    public entry fun dao_stage_upgrade_chunk(
-        _caller: &signer,
+    /// v0.3.3 (G2): per-proposal staging via DaoUpgradeStaging. Auto-resets if
+    /// existing staging is for a different proposal. Locks appends to original
+    /// stager addr to prevent grief from concurrent callers on same proposal.
+    fun dao_stage_chunks_into_staging(
+        pkg_signer: &signer,
+        caller_addr: address,
         proposal_id: u64,
         metadata_chunk: vector<u8>,
         code_indices: vector<u16>,
         code_chunks: vector<vector<u8>>,
-    ) acquires GovernanceState, UpgradeStaging {
+    ) acquires DaoUpgradeStaging {
+        assert!(
+            vector::length(&code_indices) == vector::length(&code_chunks),
+            E_ARGS_LEN_MISMATCH
+        );
+        // Auto-reset if existing staging is for a different proposal (stale).
+        if (exists<DaoUpgradeStaging>(@desnet)) {
+            let staging_ref = borrow_global<DaoUpgradeStaging>(@desnet);
+            if (staging_ref.proposal_id != proposal_id) {
+                let _ = move_from<DaoUpgradeStaging>(@desnet);
+            } else {
+                // Same proposal — must be original stager (anti-grief append).
+                assert!(staging_ref.stager == caller_addr, E_NOT_STAGER);
+            };
+        };
+        if (!exists<DaoUpgradeStaging>(@desnet)) {
+            move_to(pkg_signer, DaoUpgradeStaging {
+                proposal_id,
+                stager: caller_addr,
+                metadata: vector::empty(),
+                code: vector::empty(),
+            });
+        };
+        let staging = borrow_global_mut<DaoUpgradeStaging>(@desnet);
+        vector::append(&mut staging.metadata, metadata_chunk);
+        let n = vector::length(&code_chunks);
+        let i = 0;
+        while (i < n) {
+            let idx = (*vector::borrow(&code_indices, i) as u64);
+            while (vector::length(&staging.code) <= idx) {
+                vector::push_back(&mut staging.code, vector::empty());
+            };
+            let target = vector::borrow_mut(&mut staging.code, idx);
+            let chunk = *vector::borrow(&code_chunks, i);
+            vector::append(target, chunk);
+            i = i + 1;
+        };
+    }
+
+    public entry fun dao_stage_upgrade_chunk(
+        caller: &signer,
+        proposal_id: u64,
+        metadata_chunk: vector<u8>,
+        code_indices: vector<u16>,
+        code_chunks: vector<vector<u8>>,
+    ) acquires GovernanceState, DaoUpgradeStaging {
         // Verify proposal is approved + ratified + timelock-elapsed (same as execute_proposal).
         let state = borrow_global<GovernanceState>(@desnet);
         assert!(smart_table::contains(&state.proposals, proposal_id), E_PROPOSAL_NOT_FOUND);
@@ -712,8 +779,9 @@ module desnet::governance {
         assert!(now >= approved_at + TIMELOCK_SECS, E_TIMELOCK_NOT_EXPIRED);
         assert!(proposal.target_package_addr == @desnet, E_INVALID_ADDRESS);
 
+        let caller_addr = signer::address_of(caller);
         let pkg_signer = derive_pkg_signer();
-        stage_chunks_into_staging(&pkg_signer, metadata_chunk, code_indices, code_chunks);
+        dao_stage_chunks_into_staging(&pkg_signer, caller_addr, proposal_id, metadata_chunk, code_indices, code_chunks);
     }
 
     public entry fun dao_publish_chunked_upgrade(
@@ -722,7 +790,7 @@ module desnet::governance {
         metadata_chunk: vector<u8>,
         code_indices: vector<u16>,
         code_chunks: vector<vector<u8>>,
-    ) acquires GovernanceState, UpgradeStaging {
+    ) acquires GovernanceState, DaoUpgradeStaging {
         // Re-verify (defense-in-depth — staging may span days; conditions can change).
         let target_package_addr;
         let stored_hash;
@@ -741,10 +809,11 @@ module desnet::governance {
             stored_hash = proposal.new_module_bytes_hash;
         };
 
+        let caller_addr = signer::address_of(caller);
         let pkg_signer = derive_pkg_signer();
-        stage_chunks_into_staging(&pkg_signer, metadata_chunk, code_indices, code_chunks);
+        dao_stage_chunks_into_staging(&pkg_signer, caller_addr, proposal_id, metadata_chunk, code_indices, code_chunks);
 
-        let UpgradeStaging { metadata, code } = move_from<UpgradeStaging>(@desnet);
+        let DaoUpgradeStaging { proposal_id: _, stager: _, metadata, code } = move_from<DaoUpgradeStaging>(@desnet);
 
         // Defense-in-depth — same empty-slot check as multisig variant.
         let i = 0;
@@ -755,6 +824,9 @@ module desnet::governance {
         };
 
         // Verify assembled payload matches the hash voters approved.
+        // v0.3.3 NOTE: on hash-fail, abort reverts entire tx including the move_from above
+        // → DaoUpgradeStaging stays UNTOUCHED (Move atomicity), so legitimate publisher can
+        // retry without a separate cleanup call.
         let assembled_digest = compute_upgrade_digest(&metadata, &code);
         assert!(assembled_digest == stored_hash, E_HASH_MISMATCH);
 
@@ -771,8 +843,27 @@ module desnet::governance {
         event::emit(ProposalExecuted {
             proposal_id,
             target_package_addr,
-            executor: signer::address_of(caller),
+            executor: caller_addr,
         });
+    }
+
+    /// v0.3.3 (G2): permissionless cleanup of DAO chunked staging. Anyone can wipe
+    /// `DaoUpgradeStaging` if it's stale or grief'd. Cost = gas only. Original stager
+    /// (or anyone else) can re-stage cleanly afterward. Multisig path's `cleanup_upgrade_staging`
+    /// remains multisig-only by design (different trust model).
+    public entry fun dao_cleanup_upgrade_staging(_caller: &signer) acquires DaoUpgradeStaging {
+        if (exists<DaoUpgradeStaging>(@desnet)) {
+            let _ = move_from<DaoUpgradeStaging>(@desnet);
+        };
+    }
+
+    #[view]
+    public fun dao_upgrade_staging_exists(): bool { exists<DaoUpgradeStaging>(@desnet) }
+
+    #[view]
+    public fun dao_upgrade_staging_proposal_id(): u64 acquires DaoUpgradeStaging {
+        if (!exists<DaoUpgradeStaging>(@desnet)) return 0;
+        borrow_global<DaoUpgradeStaging>(@desnet).proposal_id
     }
 
     /// Canonical digest of upgrade payload. Used by both `propose_upgrade` (off-chain
@@ -819,15 +910,19 @@ module desnet::governance {
     /// rewards isolation) deferred to v0.3.2 — until then, voting power = min(LP-stake-
     /// earned-mixed, DESNET balance). Cross-token reward claims still inflate first
     /// term but bound by DESNET balance.
-    /// v0.3.2 (F7): per-token DESNET-only rewards if RegistryByToken initialized,
-    /// fallback to legacy mixed `rewards_earned_30d` otherwise. Eliminates cross-token
-    /// inflation surface — voting power becomes strictly DESNET-LP-earned.
+    /// v0.3.3 (G1, R5 CONV-3 HIGH fix): per-USER fallback eliminates lazy-flip
+    /// disenfranchisement. Previous v0.3.2 logic checked GLOBAL `has_per_token_registry`
+    /// — first claimer post-v0.3.2 flipped the flag for everyone, instantly zeroing
+    /// voting_power for all other pre-existing voters until they claimed themselves.
+    /// New logic: per-user — read per-token if THIS voter has a per-token entry; else
+    /// fall back to legacy mixed for THIS voter. Each voter migrates individually
+    /// when they next claim. No cross-voter flip event.
     #[view]
     public fun voting_power(voter_addr: address): u64 acquires GovernanceState {
         let _ = borrow_global<GovernanceState>(@desnet);
         if (!aptos_framework::object::object_exists<aptos_framework::fungible_asset::Metadata>(DESNET_FA_ADDR))
             return 0;
-        let earned = if (voter_history::has_per_token_registry()) {
+        let earned = if (voter_history::has_per_token_entry(voter_addr)) {
             voter_history::rewards_earned_30d_for_token(voter_addr, DESNET_FA_ADDR)
         } else {
             voter_history::rewards_earned_30d(voter_addr)

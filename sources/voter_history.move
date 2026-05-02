@@ -269,8 +269,22 @@ module desnet::voter_history {
 
     /// v0.3.2 (F7): exists check — gates governance::voting_power's choice of
     /// per-token vs legacy-mixed read.
+    /// v0.3.3 (G1) NOTE: superseded for voting-power by per-USER `has_per_token_entry`
+    /// to fix lazy-flip disenfranchisement. Kept for indexer compatibility.
     #[view]
     public fun has_per_token_registry(): bool { exists<RegistryByToken>(@desnet) }
+
+    /// v0.3.3 (G1, R5 CONV-3 HIGH): per-USER existence check. Eliminates lazy-flip
+    /// disenfranchisement where the FIRST claimer post-v0.3.2 instantly zeroed
+    /// voting power for all OTHER pre-existing voters by triggering the global flag.
+    /// Returns true only when THIS voter has at least one per-token entry under any
+    /// token. Governance::voting_power should use this for per-user fallback to legacy.
+    #[view]
+    public fun has_per_token_entry(voter_addr: address): bool acquires RegistryByToken {
+        if (!exists<RegistryByToken>(@desnet)) return false;
+        let registry = borrow_global<RegistryByToken>(@desnet);
+        smart_table::contains(&registry.voters, voter_addr)
+    }
 
     /// Sum reward entries within last 30d window. Used as filter A in voting power.
     #[view]
