@@ -390,6 +390,43 @@ module desnet::governance {
         });
     }
 
+    /// v0.3.3 (G5, R5 Claude C7 LOW defense-in-depth): hash-verifying multisig publish.
+    /// Same as `multisig_publish_chunked_upgrade` but asserts assembled `(metadata, code)`
+    /// digest equals `expected_digest` parameter — pin the hash off-chain (e.g., from a
+    /// signed multisig review summary), preventing a single rogue signer from substituting
+    /// chunk bytes during multisig coordination.
+    public entry fun multisig_publish_chunked_upgrade_with_digest(
+        multisig: &signer,
+        metadata_chunk: vector<u8>,
+        code_indices: vector<u16>,
+        code_chunks: vector<vector<u8>>,
+        expected_digest: vector<u8>,
+    ) acquires GovernanceState, UpgradeStaging {
+        assert!(signer::address_of(multisig) == @origin, E_NOT_MULTISIG);
+        assert!(
+            !borrow_global<GovernanceState>(@desnet).multisig_upgrade_disabled,
+            E_MULTISIG_DISABLED
+        );
+        let pkg_signer = derive_pkg_signer();
+        stage_chunks_into_staging(&pkg_signer, metadata_chunk, code_indices, code_chunks);
+        let UpgradeStaging { metadata, code } = move_from<UpgradeStaging>(@desnet);
+        // Empty-slot defense (mirror multisig_publish_chunked_upgrade).
+        let i = 0;
+        let n = vector::length(&code);
+        while (i < n) {
+            assert!(!vector::is_empty(vector::borrow(&code, i)), E_INCOMPLETE_CHUNKS);
+            i = i + 1;
+        };
+        // v0.3.3 hash-verify: assembled payload must match pinned digest.
+        let assembled_digest = compute_upgrade_digest(&metadata, &code);
+        assert!(assembled_digest == expected_digest, E_HASH_MISMATCH);
+        code::publish_package_txn(&pkg_signer, metadata, code);
+        event::emit(MultisigUpgrade {
+            multisig: signer::address_of(multisig),
+            timestamp_secs: timestamp::now_seconds(),
+        });
+    }
+
     /// Discard a half-staged UpgradeStaging (e.g., aborted upgrade, restart).
     public entry fun cleanup_upgrade_staging(multisig: &signer) acquires UpgradeStaging {
         assert!(signer::address_of(multisig) == @origin, E_NOT_MULTISIG);

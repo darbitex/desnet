@@ -79,10 +79,14 @@ module desnet::handle_fee_vault {
         });
     }
 
+    /// v0.3.3 (G6, R5 Claude C8): added #[view] so frontend can call gas-free.
+    #[view]
     public fun vault_addr(): address {
         object::create_object_address(&@desnet, SEED_VAULT)
     }
 
+    /// v0.3.3 (G6): added #[view].
+    #[view]
     public fun vault_exists(): bool {
         exists<HandleFeeVault>(vault_addr())
     }

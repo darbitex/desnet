@@ -43,7 +43,7 @@ module desnet::amm {
     const SEED_POOL: vector<u8> = b"desnet::amm::pool::";
 
     /// On-chain user-facing risk disclosure (concise; off-chain docs hold full text).
-    const WARNING: vector<u8> = b"DESNET AMM x*y=k. AI-audited only. Use at own risk.";
+    const WARNING: vector<u8> = b"DESNET AMM x*y=k. Multi-LLM audited (R1-R5, mainnet live). Use at own risk.";
 
     // ============ ERROR CODES ============
 
