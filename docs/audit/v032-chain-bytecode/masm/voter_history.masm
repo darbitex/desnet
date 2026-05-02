@@ -1,0 +1,640 @@
+// Bytecode version v9
+module 0x7ba7ee5a93694aa5943f4ef344737d95795d51395e3d65a1b732c776d34be724::voter_history
+use 0x1::smart_table
+use 0x1::signer
+use 0x1::timestamp
+use 0x1::event
+friend 0x7ba7ee5a93694aa5943f4ef344737d95795d51395e3d65a1b732c776d34be724::governance
+friend 0x7ba7ee5a93694aa5943f4ef344737d95795d51395e3d65a1b732c776d34be724::lp_staking
+struct Registry has key
+  voters: smart_table::SmartTable<address, VoterHistory>
+
+struct RegistryByToken has key
+  voters: smart_table::SmartTable<address, smart_table::SmartTable<address, VoterHistory>>
+
+struct RewardEntry has copy + drop + store
+  timestamp_secs: u64
+  amount: u64
+
+struct VoterHistory has drop + store
+  rewards_history: vector<RewardEntry>
+  total_received: u64
+
+struct VoterHistoryPruned has drop + store
+  voter_addr: address
+  entries_removed: u64
+  timestamp_secs: u64
+
+struct VoterRegistryInitialized has drop + store
+  governance_addr: address
+  timestamp_secs: u64
+
+struct VoterRewardRecorded has drop + store
+  voter_addr: address
+  amount: u64
+  cumulative_received: u64
+  history_entry_index: u64
+  timestamp_secs: u64
+
+// Function definition at index 0
+#[persistent] public fun has_per_token_registry(): bool
+    ld_const<address> 55931188893109713473377936165989862777849437759270464167622070126626736957220
+    exists RegistryByToken
+    ret
+
+// Function definition at index 1
+#[persistent] public fun history_exists(l0: address): bool acquires Registry
+    ld_const<address> 55931188893109713473377936165989862777849437759270464167622070126626736957220
+    exists Registry
+    br_true l0
+    ld_false
+    ret
+    // @5
+l0: ld_const<address> 55931188893109713473377936165989862777849437759270464167622070126626736957220
+    borrow_global Registry
+    borrow_field Registry, voters
+    move_loc l0
+    call smart_table::contains<address, VoterHistory>
+    // @10
+    ret
+
+// Function definition at index 2
+friend fun init_registry(l0: &signer)
+    local l1: address
+    copy_loc l0
+    call signer::address_of
+    st_loc l1
+    copy_loc l1
+    exists Registry
+    // @5
+    br_true l0
+    move_loc l0
+    call smart_table::new<address, VoterHistory>
+    pack Registry
+    move_to Registry
+    // @10
+    move_loc l1
+    call timestamp::now_seconds
+    pack VoterRegistryInitialized
+    call event::emit<VoterRegistryInitialized>
+    ret
+    // @15
+l0: move_loc l0
+    pop
+    ld_u64 3
+    abort
+
+// Function definition at index 3
+#[persistent] entry public fun prune_voter_history(l0: &signer, l1: address) acquires Registry
+    local l2: &mut Registry
+    local l3: &mut VoterHistory
+    local l4: u64
+    local l5: u64
+    local l6: vector<RewardEntry>
+    local l7: u64
+    local l8: u64
+    local l9: u64
+    local l10: RewardEntry
+    local l11: &mut vector<RewardEntry>
+    ld_const<address> 55931188893109713473377936165989862777849437759270464167622070126626736957220
+    move_loc l0
+    pop
+    exists Registry
+    br_true l0
+    // @5
+    ret
+l0: ld_const<address> 55931188893109713473377936165989862777849437759270464167622070126626736957220
+    mut_borrow_global Registry
+    st_loc l2
+    copy_loc l2
+    // @10
+    borrow_field Registry, voters
+    copy_loc l1
+    call smart_table::contains<address, VoterHistory>
+    br_true l1
+    move_loc l2
+    // @15
+    pop
+    ret
+l1: move_loc l2
+    mut_borrow_field Registry, voters
+    copy_loc l1
+    // @20
+    call smart_table::borrow_mut<address, VoterHistory>
+    st_loc l3
+    call timestamp::now_seconds
+    st_loc l4
+    copy_loc l4
+    // @25
+    ld_u64 5184000
+    gt
+    br_false l2
+    copy_loc l4
+    ld_u64 5184000
+    // @30
+    sub
+    st_loc l5
+l8: vec_pack <RewardEntry>, 0
+    st_loc l6
+    ld_u64 0
+    // @35
+    st_loc l7
+    copy_loc l3
+    borrow_field VoterHistory, rewards_history
+    vec_len <RewardEntry>
+    st_loc l8
+    // @40
+    ld_u64 0
+    st_loc l9
+l5: copy_loc l9
+    copy_loc l8
+    lt
+    // @45
+    br_false l3
+    copy_loc l3
+    borrow_field VoterHistory, rewards_history
+    copy_loc l9
+    vec_borrow <RewardEntry>
+    // @50
+    read_ref
+    st_loc l10
+    borrow_loc l10
+    borrow_field RewardEntry, timestamp_secs
+    read_ref
+    // @55
+    copy_loc l5
+    ge
+    br_false l4
+    mut_borrow_loc l6
+    move_loc l10
+    // @60
+    vec_push_back <RewardEntry>
+l6: move_loc l9
+    ld_u64 1
+    add
+    st_loc l9
+    // @65
+    branch l5
+l4: move_loc l7
+    ld_u64 1
+    add
+    st_loc l7
+    // @70
+    branch l6
+l3: move_loc l3
+    mut_borrow_field VoterHistory, rewards_history
+    st_loc l11
+    move_loc l6
+    // @75
+    move_loc l11
+    write_ref
+    copy_loc l7
+    ld_u64 0
+    gt
+    // @80
+    br_false l7
+    move_loc l1
+    move_loc l7
+    move_loc l4
+    pack VoterHistoryPruned
+    // @85
+    call event::emit<VoterHistoryPruned>
+    ret
+l7: ret
+l2: ld_u64 0
+    st_loc l5
+    // @90
+    branch l8
+
+// Function definition at index 4
+friend fun record_reward_received(l0: &signer, l1: address, l2: u64) acquires Registry
+    local l3: &mut Registry
+    local l4: &mut VoterHistory
+    local l5: u64
+    local l6: RewardEntry
+    local l7: u64
+    move_loc l0
+    call signer::address_of
+    ld_const<address> 55931188893109713473377936165989862777849437759270464167622070126626736957220
+    eq
+    br_false l0
+    // @5
+    ld_const<address> 55931188893109713473377936165989862777849437759270464167622070126626736957220
+    exists Registry
+    br_false l1
+    ld_const<address> 55931188893109713473377936165989862777849437759270464167622070126626736957220
+    mut_borrow_global Registry
+    // @10
+    st_loc l3
+    copy_loc l3
+    borrow_field Registry, voters
+    copy_loc l1
+    call smart_table::contains<address, VoterHistory>
+    // @15
+    br_false l2
+    branch l3
+l2: copy_loc l3
+    mut_borrow_field Registry, voters
+    copy_loc l1
+    // @20
+    vec_pack <RewardEntry>, 0
+    ld_u64 0
+    pack VoterHistory
+    call smart_table::add<address, VoterHistory>
+l3: move_loc l3
+    // @25
+    mut_borrow_field Registry, voters
+    copy_loc l1
+    call smart_table::borrow_mut<address, VoterHistory>
+    st_loc l4
+    call timestamp::now_seconds
+    // @30
+    st_loc l5
+    copy_loc l5
+    copy_loc l2
+    pack RewardEntry
+    st_loc l6
+    // @35
+    copy_loc l4
+    mut_borrow_field VoterHistory, rewards_history
+    move_loc l6
+    vec_push_back <RewardEntry>
+    copy_loc l4
+    // @40
+    borrow_field VoterHistory, total_received
+    read_ref
+    copy_loc l2
+    add
+    copy_loc l4
+    // @45
+    mut_borrow_field VoterHistory, total_received
+    write_ref
+    copy_loc l4
+    borrow_field VoterHistory, rewards_history
+    vec_len <RewardEntry>
+    // @50
+    ld_u64 1
+    sub
+    st_loc l7
+    move_loc l1
+    move_loc l2
+    // @55
+    move_loc l4
+    borrow_field VoterHistory, total_received
+    read_ref
+    move_loc l7
+    move_loc l5
+    // @60
+    pack VoterRewardRecorded
+    call event::emit<VoterRewardRecorded>
+    ret
+l1: ld_u64 2
+    abort
+    // @65
+l0: ld_u64 1
+    abort
+
+// Function definition at index 5
+friend fun record_reward_received_for_token(l0: &signer, l1: address, l2: address, l3: u64) acquires Registry, RegistryByToken
+    local l4: &mut RegistryByToken
+    local l5: &mut smart_table::SmartTable<address, VoterHistory>
+    local l6: &mut VoterHistory
+    local l7: &mut vector<RewardEntry>
+    local l8: u64
+    local l9: RewardEntry
+    copy_loc l0
+    copy_loc l1
+    copy_loc l3
+    call record_reward_received
+    ld_const<address> 55931188893109713473377936165989862777849437759270464167622070126626736957220
+    // @5
+    exists RegistryByToken
+    br_true l0
+    move_loc l0
+    call smart_table::new<address, smart_table::SmartTable<address, VoterHistory>>
+    pack RegistryByToken
+    // @10
+    move_to RegistryByToken
+l5: ld_const<address> 55931188893109713473377936165989862777849437759270464167622070126626736957220
+    mut_borrow_global RegistryByToken
+    st_loc l4
+    copy_loc l4
+    // @15
+    borrow_field RegistryByToken, voters
+    copy_loc l1
+    call smart_table::contains<address, smart_table::SmartTable<address, VoterHistory>>
+    br_false l1
+    branch l2
+    // @20
+l1: copy_loc l4
+    mut_borrow_field RegistryByToken, voters
+    copy_loc l1
+    call smart_table::new<address, VoterHistory>
+    call smart_table::add<address, smart_table::SmartTable<address, VoterHistory>>
+    // @25
+l2: move_loc l4
+    mut_borrow_field RegistryByToken, voters
+    move_loc l1
+    call smart_table::borrow_mut<address, smart_table::SmartTable<address, VoterHistory>>
+    st_loc l5
+    // @30
+    copy_loc l5
+    freeze_ref
+    copy_loc l2
+    call smart_table::contains<address, VoterHistory>
+    br_false l3
+    // @35
+    branch l4
+l3: copy_loc l5
+    copy_loc l2
+    vec_pack <RewardEntry>, 0
+    ld_u64 0
+    // @40
+    pack VoterHistory
+    call smart_table::add<address, VoterHistory>
+l4: move_loc l5
+    move_loc l2
+    call smart_table::borrow_mut<address, VoterHistory>
+    // @45
+    st_loc l6
+    call timestamp::now_seconds
+    copy_loc l6
+    mut_borrow_field VoterHistory, rewards_history
+    st_loc l7
+    // @50
+    copy_loc l3
+    pack RewardEntry
+    st_loc l9
+    move_loc l7
+    move_loc l9
+    // @55
+    vec_push_back <RewardEntry>
+    copy_loc l6
+    borrow_field VoterHistory, total_received
+    read_ref
+    move_loc l3
+    // @60
+    add
+    move_loc l6
+    mut_borrow_field VoterHistory, total_received
+    write_ref
+    ret
+    // @65
+l0: move_loc l0
+    pop
+    branch l5
+
+// Function definition at index 6
+#[persistent] public fun rewards_earned_30d(l0: address): u64 acquires Registry
+    local l1: &Registry
+    local l2: &VoterHistory
+    local l3: u64
+    local l4: u64
+    local l5: u64
+    local l6: u64
+    local l7: u64
+    local l8: RewardEntry
+    ld_const<address> 55931188893109713473377936165989862777849437759270464167622070126626736957220
+    exists Registry
+    br_true l0
+    ld_u64 0
+    ret
+    // @5
+l0: ld_const<address> 55931188893109713473377936165989862777849437759270464167622070126626736957220
+    borrow_global Registry
+    st_loc l1
+    copy_loc l1
+    borrow_field Registry, voters
+    // @10
+    copy_loc l0
+    call smart_table::contains<address, VoterHistory>
+    br_true l1
+    move_loc l1
+    pop
+    // @15
+    ld_u64 0
+    ret
+l1: move_loc l1
+    borrow_field Registry, voters
+    move_loc l0
+    // @20
+    call smart_table::borrow<address, VoterHistory>
+    st_loc l2
+    call timestamp::now_seconds
+    st_loc l3
+    copy_loc l3
+    // @25
+    ld_u64 2592000
+    gt
+    br_false l2
+    move_loc l3
+    ld_u64 2592000
+    // @30
+    sub
+    st_loc l4
+l7: ld_u64 0
+    st_loc l5
+    copy_loc l2
+    // @35
+    borrow_field VoterHistory, rewards_history
+    vec_len <RewardEntry>
+    st_loc l6
+    ld_u64 0
+    st_loc l7
+    // @40
+l6: copy_loc l7
+    copy_loc l6
+    lt
+    br_false l3
+    copy_loc l2
+    // @45
+    borrow_field VoterHistory, rewards_history
+    copy_loc l7
+    vec_borrow <RewardEntry>
+    read_ref
+    st_loc l8
+    // @50
+    borrow_loc l8
+    borrow_field RewardEntry, timestamp_secs
+    read_ref
+    copy_loc l4
+    ge
+    // @55
+    br_true l4
+    branch l5
+l4: move_loc l5
+    borrow_loc l8
+    borrow_field RewardEntry, amount
+    // @60
+    read_ref
+    add
+    st_loc l5
+l5: move_loc l7
+    ld_u64 1
+    // @65
+    add
+    st_loc l7
+    branch l6
+l3: move_loc l2
+    pop
+    // @70
+    move_loc l5
+    ret
+l2: ld_u64 0
+    st_loc l4
+    branch l7
+
+// Function definition at index 7
+#[persistent] public fun rewards_earned_30d_for_token(l0: address, l1: address): u64 acquires RegistryByToken
+    local l2: &RegistryByToken
+    local l3: &smart_table::SmartTable<address, VoterHistory>
+    local l4: &VoterHistory
+    local l5: u64
+    local l6: u64
+    local l7: u64
+    local l8: u64
+    local l9: u64
+    local l10: &RewardEntry
+    ld_const<address> 55931188893109713473377936165989862777849437759270464167622070126626736957220
+    exists RegistryByToken
+    br_true l0
+    ld_u64 0
+    ret
+    // @5
+l0: ld_const<address> 55931188893109713473377936165989862777849437759270464167622070126626736957220
+    borrow_global RegistryByToken
+    st_loc l2
+    copy_loc l2
+    borrow_field RegistryByToken, voters
+    // @10
+    copy_loc l0
+    call smart_table::contains<address, smart_table::SmartTable<address, VoterHistory>>
+    br_true l1
+    move_loc l2
+    pop
+    // @15
+    ld_u64 0
+    ret
+l1: move_loc l2
+    borrow_field RegistryByToken, voters
+    move_loc l0
+    // @20
+    call smart_table::borrow<address, smart_table::SmartTable<address, VoterHistory>>
+    st_loc l3
+    copy_loc l3
+    copy_loc l1
+    call smart_table::contains<address, VoterHistory>
+    // @25
+    br_true l2
+    move_loc l3
+    pop
+    ld_u64 0
+    ret
+    // @30
+l2: move_loc l3
+    move_loc l1
+    call smart_table::borrow<address, VoterHistory>
+    st_loc l4
+    call timestamp::now_seconds
+    // @35
+    st_loc l5
+    copy_loc l5
+    ld_u64 2592000
+    gt
+    br_false l3
+    // @40
+    move_loc l5
+    ld_u64 2592000
+    sub
+    st_loc l6
+l8: ld_u64 0
+    // @45
+    st_loc l7
+    copy_loc l4
+    borrow_field VoterHistory, rewards_history
+    vec_len <RewardEntry>
+    st_loc l8
+    // @50
+    ld_u64 0
+    st_loc l9
+l6: copy_loc l9
+    copy_loc l8
+    lt
+    // @55
+    br_false l4
+    copy_loc l4
+    borrow_field VoterHistory, rewards_history
+    copy_loc l9
+    vec_borrow <RewardEntry>
+    // @60
+    st_loc l10
+    copy_loc l10
+    borrow_field RewardEntry, timestamp_secs
+    read_ref
+    copy_loc l6
+    // @65
+    ge
+    br_false l5
+    move_loc l7
+    move_loc l10
+    borrow_field RewardEntry, amount
+    // @70
+    read_ref
+    add
+    st_loc l7
+l7: move_loc l9
+    ld_u64 1
+    // @75
+    add
+    st_loc l9
+    branch l6
+l5: move_loc l10
+    pop
+    // @80
+    branch l7
+l4: move_loc l4
+    pop
+    move_loc l7
+    ret
+    // @85
+l3: ld_u64 0
+    st_loc l6
+    branch l8
+
+// Function definition at index 8
+#[persistent] public fun total_received(l0: address): u64 acquires Registry
+    local l1: &Registry
+    ld_const<address> 55931188893109713473377936165989862777849437759270464167622070126626736957220
+    exists Registry
+    br_true l0
+    ld_u64 0
+    ret
+    // @5
+l0: ld_const<address> 55931188893109713473377936165989862777849437759270464167622070126626736957220
+    borrow_global Registry
+    st_loc l1
+    copy_loc l1
+    borrow_field Registry, voters
+    // @10
+    copy_loc l0
+    call smart_table::contains<address, VoterHistory>
+    br_true l1
+    move_loc l1
+    pop
+    // @15
+    ld_u64 0
+    ret
+l1: move_loc l1
+    borrow_field Registry, voters
+    move_loc l0
+    // @20
+    call smart_table::borrow<address, VoterHistory>
+    borrow_field VoterHistory, total_received
+    read_ref
+    ret
+
+// Function definition at index 9
+#[persistent] public fun voting_window_secs(): u64
+    ld_u64 2592000
+    ret
+

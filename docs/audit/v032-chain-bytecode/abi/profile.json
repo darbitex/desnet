@@ -1,0 +1,701 @@
+{
+  "address": "0x7ba7ee5a93694aa5943f4ef344737d95795d51395e3d65a1b732c776d34be724",
+  "name": "profile",
+  "friends": [
+    "0x7ba7ee5a93694aa5943f4ef344737d95795d51395e3d65a1b732c776d34be724::history",
+    "0x7ba7ee5a93694aa5943f4ef344737d95795d51395e3d65a1b732c776d34be724::link",
+    "0x7ba7ee5a93694aa5943f4ef344737d95795d51395e3d65a1b732c776d34be724::mint",
+    "0x7ba7ee5a93694aa5943f4ef344737d95795d51395e3d65a1b732c776d34be724::giveaway",
+    "0x7ba7ee5a93694aa5943f4ef344737d95795d51395e3d65a1b732c776d34be724::press",
+    "0x7ba7ee5a93694aa5943f4ef344737d95795d51395e3d65a1b732c776d34be724::pulse"
+  ],
+  "exposed_functions": [
+    {
+      "name": "update_metadata",
+      "visibility": "public",
+      "is_entry": true,
+      "is_view": false,
+      "generic_type_params": [],
+      "params": [
+        "&signer",
+        "address",
+        "vector<u8>",
+        "vector<u8>",
+        "vector<u8>",
+        "vector<u8>"
+      ],
+      "return": []
+    },
+    {
+      "name": "rotate_admin",
+      "visibility": "public",
+      "is_entry": true,
+      "is_view": false,
+      "generic_type_params": [],
+      "params": [
+        "&signer",
+        "address"
+      ],
+      "return": []
+    },
+    {
+      "name": "add_signer",
+      "visibility": "public",
+      "is_entry": true,
+      "is_view": false,
+      "generic_type_params": [],
+      "params": [
+        "&signer",
+        "address",
+        "vector<u8>",
+        "vector<u8>"
+      ],
+      "return": []
+    },
+    {
+      "name": "assert_pid_exists",
+      "visibility": "friend",
+      "is_entry": false,
+      "is_view": false,
+      "generic_type_params": [],
+      "params": [
+        "address"
+      ],
+      "return": []
+    },
+    {
+      "name": "attach_sync_gate",
+      "visibility": "public",
+      "is_entry": true,
+      "is_view": false,
+      "generic_type_params": [],
+      "params": [
+        "&signer",
+        "address",
+        "address",
+        "u64",
+        "u64",
+        "u64"
+      ],
+      "return": []
+    },
+    {
+      "name": "clear_sync_gate",
+      "visibility": "public",
+      "is_entry": true,
+      "is_view": false,
+      "generic_type_params": [],
+      "params": [
+        "&signer",
+        "address"
+      ],
+      "return": []
+    },
+    {
+      "name": "controller_of",
+      "visibility": "public",
+      "is_entry": false,
+      "is_view": true,
+      "generic_type_params": [],
+      "params": [
+        "address"
+      ],
+      "return": [
+        "address"
+      ]
+    },
+    {
+      "name": "derive_pid_address",
+      "visibility": "public",
+      "is_entry": false,
+      "is_view": true,
+      "generic_type_params": [],
+      "params": [
+        "address"
+      ],
+      "return": [
+        "address"
+      ]
+    },
+    {
+      "name": "derive_pid_signer",
+      "visibility": "friend",
+      "is_entry": false,
+      "is_view": false,
+      "generic_type_params": [],
+      "params": [
+        "address"
+      ],
+      "return": [
+        "signer"
+      ]
+    },
+    {
+      "name": "get_sync_gate",
+      "visibility": "friend",
+      "is_entry": false,
+      "is_view": false,
+      "generic_type_params": [],
+      "params": [
+        "address"
+      ],
+      "return": [
+        "0x1::option::Option<0x7ba7ee5a93694aa5943f4ef344737d95795d51395e3d65a1b732c776d34be724::reference_gate::ReferenceGate>"
+      ]
+    },
+    {
+      "name": "handle_fee_apt",
+      "visibility": "public",
+      "is_entry": false,
+      "is_view": false,
+      "generic_type_params": [],
+      "params": [
+        "u64"
+      ],
+      "return": [
+        "u64"
+      ]
+    },
+    {
+      "name": "handle_max_len",
+      "visibility": "public",
+      "is_entry": false,
+      "is_view": true,
+      "generic_type_params": [],
+      "params": [],
+      "return": [
+        "u64"
+      ]
+    },
+    {
+      "name": "handle_of",
+      "visibility": "public",
+      "is_entry": false,
+      "is_view": true,
+      "generic_type_params": [],
+      "params": [
+        "address"
+      ],
+      "return": [
+        "0x1::string::String"
+      ]
+    },
+    {
+      "name": "handle_of_wallet",
+      "visibility": "public",
+      "is_entry": false,
+      "is_view": true,
+      "generic_type_params": [],
+      "params": [
+        "address"
+      ],
+      "return": [
+        "0x1::string::String"
+      ]
+    },
+    {
+      "name": "handle_to_wallet",
+      "visibility": "public",
+      "is_entry": false,
+      "is_view": true,
+      "generic_type_params": [],
+      "params": [
+        "vector<u8>"
+      ],
+      "return": [
+        "address"
+      ]
+    },
+    {
+      "name": "has_signer",
+      "visibility": "public",
+      "is_entry": false,
+      "is_view": true,
+      "generic_type_params": [],
+      "params": [
+        "address",
+        "vector<u8>"
+      ],
+      "return": [
+        "bool"
+      ]
+    },
+    {
+      "name": "is_registered",
+      "visibility": "public",
+      "is_entry": false,
+      "is_view": true,
+      "generic_type_params": [],
+      "params": [
+        "vector<u8>"
+      ],
+      "return": [
+        "bool"
+      ]
+    },
+    {
+      "name": "profile_exists",
+      "visibility": "public",
+      "is_entry": false,
+      "is_view": true,
+      "generic_type_params": [],
+      "params": [
+        "address"
+      ],
+      "return": [
+        "bool"
+      ]
+    },
+    {
+      "name": "register_handle",
+      "visibility": "public",
+      "is_entry": true,
+      "is_view": false,
+      "generic_type_params": [],
+      "params": [
+        "&signer",
+        "vector<u8>",
+        "address",
+        "vector<u8>",
+        "vector<u8>",
+        "vector<u8>",
+        "vector<u8>",
+        "vector<u8>",
+        "vector<u8>"
+      ],
+      "return": []
+    },
+    {
+      "name": "revoke_signer",
+      "visibility": "public",
+      "is_entry": true,
+      "is_view": false,
+      "generic_type_params": [],
+      "params": [
+        "&signer",
+        "address",
+        "vector<u8>"
+      ],
+      "return": []
+    },
+    {
+      "name": "rotate_controller",
+      "visibility": "public",
+      "is_entry": true,
+      "is_view": false,
+      "generic_type_params": [],
+      "params": [
+        "&signer",
+        "address",
+        "address"
+      ],
+      "return": []
+    },
+    {
+      "name": "update_fee_receiver",
+      "visibility": "public",
+      "is_entry": true,
+      "is_view": false,
+      "generic_type_params": [],
+      "params": [
+        "&signer",
+        "address"
+      ],
+      "return": []
+    },
+    {
+      "name": "withdraw_pid_token",
+      "visibility": "public",
+      "is_entry": true,
+      "is_view": false,
+      "generic_type_params": [],
+      "params": [
+        "&signer",
+        "address",
+        "address",
+        "u64",
+        "address"
+      ],
+      "return": []
+    }
+  ],
+  "structs": [
+    {
+      "name": "ControllerRotated",
+      "is_native": false,
+      "is_event": true,
+      "is_enum": false,
+      "abilities": [
+        "drop",
+        "store"
+      ],
+      "generic_type_params": [],
+      "fields": [
+        {
+          "name": "pid_addr",
+          "type": "address"
+        },
+        {
+          "name": "old_controller",
+          "type": "address"
+        },
+        {
+          "name": "new_controller",
+          "type": "address"
+        },
+        {
+          "name": "timestamp_secs",
+          "type": "u64"
+        }
+      ],
+      "variants": []
+    },
+    {
+      "name": "HandleRegistered",
+      "is_native": false,
+      "is_event": true,
+      "is_enum": false,
+      "abilities": [
+        "drop",
+        "store"
+      ],
+      "generic_type_params": [],
+      "fields": [
+        {
+          "name": "handle",
+          "type": "0x1::string::String"
+        },
+        {
+          "name": "wallet",
+          "type": "address"
+        },
+        {
+          "name": "pid_addr",
+          "type": "address"
+        },
+        {
+          "name": "fee_paid_apt",
+          "type": "u64"
+        },
+        {
+          "name": "timestamp_secs",
+          "type": "u64"
+        }
+      ],
+      "variants": []
+    },
+    {
+      "name": "HandleRegistry",
+      "is_native": false,
+      "is_event": false,
+      "is_enum": false,
+      "abilities": [
+        "key"
+      ],
+      "generic_type_params": [],
+      "fields": [
+        {
+          "name": "handle_to_wallet",
+          "type": "0x1::smart_table::SmartTable<0x1::string::String, address>"
+        }
+      ],
+      "variants": []
+    },
+    {
+      "name": "PidTokenWithdrawn",
+      "is_native": false,
+      "is_event": true,
+      "is_enum": false,
+      "abilities": [
+        "drop",
+        "store"
+      ],
+      "generic_type_params": [],
+      "fields": [
+        {
+          "name": "pid_addr",
+          "type": "address"
+        },
+        {
+          "name": "token_metadata",
+          "type": "address"
+        },
+        {
+          "name": "amount",
+          "type": "u64"
+        },
+        {
+          "name": "recipient",
+          "type": "address"
+        },
+        {
+          "name": "timestamp_secs",
+          "type": "u64"
+        }
+      ],
+      "variants": []
+    },
+    {
+      "name": "Profile",
+      "is_native": false,
+      "is_event": false,
+      "is_enum": false,
+      "abilities": [
+        "key"
+      ],
+      "generic_type_params": [],
+      "fields": [
+        {
+          "name": "handle",
+          "type": "0x1::string::String"
+        },
+        {
+          "name": "controller",
+          "type": "address"
+        },
+        {
+          "name": "signers_",
+          "type": "0x1::smart_table::SmartTable<vector<u8>, 0x7ba7ee5a93694aa5943f4ef344737d95795d51395e3d65a1b732c776d34be724::profile::SignerEntry>"
+        },
+        {
+          "name": "metadata_uri",
+          "type": "0x1::string::String"
+        },
+        {
+          "name": "avatar_blob_id",
+          "type": "vector<u8>"
+        },
+        {
+          "name": "banner_blob_id",
+          "type": "vector<u8>"
+        },
+        {
+          "name": "bio",
+          "type": "0x1::string::String"
+        },
+        {
+          "name": "sync_gate",
+          "type": "0x1::option::Option<0x7ba7ee5a93694aa5943f4ef344737d95795d51395e3d65a1b732c776d34be724::reference_gate::ReferenceGate>"
+        },
+        {
+          "name": "extend_ref",
+          "type": "0x1::object::ExtendRef"
+        },
+        {
+          "name": "registered_at_secs",
+          "type": "u64"
+        }
+      ],
+      "variants": []
+    },
+    {
+      "name": "ProfileMetadataUpdated",
+      "is_native": false,
+      "is_event": true,
+      "is_enum": false,
+      "abilities": [
+        "drop",
+        "store"
+      ],
+      "generic_type_params": [],
+      "fields": [
+        {
+          "name": "pid_addr",
+          "type": "address"
+        },
+        {
+          "name": "timestamp_secs",
+          "type": "u64"
+        }
+      ],
+      "variants": []
+    },
+    {
+      "name": "ProtocolInitialized",
+      "is_native": false,
+      "is_event": true,
+      "is_enum": false,
+      "abilities": [
+        "drop",
+        "store"
+      ],
+      "generic_type_params": [],
+      "fields": [
+        {
+          "name": "protocol_addr",
+          "type": "address"
+        },
+        {
+          "name": "timestamp_secs",
+          "type": "u64"
+        }
+      ],
+      "variants": []
+    },
+    {
+      "name": "ProtocolState",
+      "is_native": false,
+      "is_event": false,
+      "is_enum": false,
+      "abilities": [
+        "key"
+      ],
+      "generic_type_params": [],
+      "fields": [
+        {
+          "name": "fee_receiver",
+          "type": "address"
+        },
+        {
+          "name": "admin",
+          "type": "address"
+        }
+      ],
+      "variants": []
+    },
+    {
+      "name": "SignerAdded",
+      "is_native": false,
+      "is_event": true,
+      "is_enum": false,
+      "abilities": [
+        "drop",
+        "store"
+      ],
+      "generic_type_params": [],
+      "fields": [
+        {
+          "name": "pid_addr",
+          "type": "address"
+        },
+        {
+          "name": "pubkey",
+          "type": "vector<u8>"
+        },
+        {
+          "name": "app_label",
+          "type": "0x1::string::String"
+        },
+        {
+          "name": "timestamp_secs",
+          "type": "u64"
+        }
+      ],
+      "variants": []
+    },
+    {
+      "name": "SignerEntry",
+      "is_native": false,
+      "is_event": false,
+      "is_enum": false,
+      "abilities": [
+        "copy",
+        "drop",
+        "store"
+      ],
+      "generic_type_params": [],
+      "fields": [
+        {
+          "name": "app_label",
+          "type": "0x1::string::String"
+        },
+        {
+          "name": "added_at_secs",
+          "type": "u64"
+        },
+        {
+          "name": "last_used_secs",
+          "type": "u64"
+        }
+      ],
+      "variants": []
+    },
+    {
+      "name": "SignerRevoked",
+      "is_native": false,
+      "is_event": true,
+      "is_enum": false,
+      "abilities": [
+        "drop",
+        "store"
+      ],
+      "generic_type_params": [],
+      "fields": [
+        {
+          "name": "pid_addr",
+          "type": "address"
+        },
+        {
+          "name": "pubkey",
+          "type": "vector<u8>"
+        },
+        {
+          "name": "timestamp_secs",
+          "type": "u64"
+        }
+      ],
+      "variants": []
+    },
+    {
+      "name": "SyncGateAttached",
+      "is_native": false,
+      "is_event": true,
+      "is_enum": false,
+      "abilities": [
+        "drop",
+        "store"
+      ],
+      "generic_type_params": [],
+      "fields": [
+        {
+          "name": "pid_addr",
+          "type": "address"
+        },
+        {
+          "name": "timestamp_secs",
+          "type": "u64"
+        }
+      ],
+      "variants": []
+    },
+    {
+      "name": "SyncGateCleared",
+      "is_native": false,
+      "is_event": true,
+      "is_enum": false,
+      "abilities": [
+        "drop",
+        "store"
+      ],
+      "generic_type_params": [],
+      "fields": [
+        {
+          "name": "pid_addr",
+          "type": "address"
+        },
+        {
+          "name": "timestamp_secs",
+          "type": "u64"
+        }
+      ],
+      "variants": []
+    },
+    {
+      "name": "TransferVault",
+      "is_native": false,
+      "is_event": false,
+      "is_enum": false,
+      "abilities": [
+        "key"
+      ],
+      "generic_type_params": [],
+      "fields": [
+        {
+          "name": "transfer_ref",
+          "type": "0x1::object::TransferRef"
+        }
+      ],
+      "variants": []
+    }
+  ]
+}

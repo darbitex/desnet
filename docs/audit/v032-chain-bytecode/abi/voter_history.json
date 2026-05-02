@@ -1,0 +1,298 @@
+{
+  "address": "0x7ba7ee5a93694aa5943f4ef344737d95795d51395e3d65a1b732c776d34be724",
+  "name": "voter_history",
+  "friends": [
+    "0x7ba7ee5a93694aa5943f4ef344737d95795d51395e3d65a1b732c776d34be724::governance",
+    "0x7ba7ee5a93694aa5943f4ef344737d95795d51395e3d65a1b732c776d34be724::lp_staking"
+  ],
+  "exposed_functions": [
+    {
+      "name": "has_per_token_registry",
+      "visibility": "public",
+      "is_entry": false,
+      "is_view": true,
+      "generic_type_params": [],
+      "params": [],
+      "return": [
+        "bool"
+      ]
+    },
+    {
+      "name": "history_exists",
+      "visibility": "public",
+      "is_entry": false,
+      "is_view": true,
+      "generic_type_params": [],
+      "params": [
+        "address"
+      ],
+      "return": [
+        "bool"
+      ]
+    },
+    {
+      "name": "init_registry",
+      "visibility": "friend",
+      "is_entry": false,
+      "is_view": false,
+      "generic_type_params": [],
+      "params": [
+        "&signer"
+      ],
+      "return": []
+    },
+    {
+      "name": "prune_voter_history",
+      "visibility": "public",
+      "is_entry": true,
+      "is_view": false,
+      "generic_type_params": [],
+      "params": [
+        "&signer",
+        "address"
+      ],
+      "return": []
+    },
+    {
+      "name": "record_reward_received",
+      "visibility": "friend",
+      "is_entry": false,
+      "is_view": false,
+      "generic_type_params": [],
+      "params": [
+        "&signer",
+        "address",
+        "u64"
+      ],
+      "return": []
+    },
+    {
+      "name": "record_reward_received_for_token",
+      "visibility": "friend",
+      "is_entry": false,
+      "is_view": false,
+      "generic_type_params": [],
+      "params": [
+        "&signer",
+        "address",
+        "address",
+        "u64"
+      ],
+      "return": []
+    },
+    {
+      "name": "rewards_earned_30d",
+      "visibility": "public",
+      "is_entry": false,
+      "is_view": true,
+      "generic_type_params": [],
+      "params": [
+        "address"
+      ],
+      "return": [
+        "u64"
+      ]
+    },
+    {
+      "name": "rewards_earned_30d_for_token",
+      "visibility": "public",
+      "is_entry": false,
+      "is_view": true,
+      "generic_type_params": [],
+      "params": [
+        "address",
+        "address"
+      ],
+      "return": [
+        "u64"
+      ]
+    },
+    {
+      "name": "total_received",
+      "visibility": "public",
+      "is_entry": false,
+      "is_view": true,
+      "generic_type_params": [],
+      "params": [
+        "address"
+      ],
+      "return": [
+        "u64"
+      ]
+    },
+    {
+      "name": "voting_window_secs",
+      "visibility": "public",
+      "is_entry": false,
+      "is_view": true,
+      "generic_type_params": [],
+      "params": [],
+      "return": [
+        "u64"
+      ]
+    }
+  ],
+  "structs": [
+    {
+      "name": "Registry",
+      "is_native": false,
+      "is_event": false,
+      "is_enum": false,
+      "abilities": [
+        "key"
+      ],
+      "generic_type_params": [],
+      "fields": [
+        {
+          "name": "voters",
+          "type": "0x1::smart_table::SmartTable<address, 0x7ba7ee5a93694aa5943f4ef344737d95795d51395e3d65a1b732c776d34be724::voter_history::VoterHistory>"
+        }
+      ],
+      "variants": []
+    },
+    {
+      "name": "RegistryByToken",
+      "is_native": false,
+      "is_event": false,
+      "is_enum": false,
+      "abilities": [
+        "key"
+      ],
+      "generic_type_params": [],
+      "fields": [
+        {
+          "name": "voters",
+          "type": "0x1::smart_table::SmartTable<address, 0x1::smart_table::SmartTable<address, 0x7ba7ee5a93694aa5943f4ef344737d95795d51395e3d65a1b732c776d34be724::voter_history::VoterHistory>>"
+        }
+      ],
+      "variants": []
+    },
+    {
+      "name": "RewardEntry",
+      "is_native": false,
+      "is_event": false,
+      "is_enum": false,
+      "abilities": [
+        "copy",
+        "drop",
+        "store"
+      ],
+      "generic_type_params": [],
+      "fields": [
+        {
+          "name": "timestamp_secs",
+          "type": "u64"
+        },
+        {
+          "name": "amount",
+          "type": "u64"
+        }
+      ],
+      "variants": []
+    },
+    {
+      "name": "VoterHistory",
+      "is_native": false,
+      "is_event": false,
+      "is_enum": false,
+      "abilities": [
+        "drop",
+        "store"
+      ],
+      "generic_type_params": [],
+      "fields": [
+        {
+          "name": "rewards_history",
+          "type": "vector<0x7ba7ee5a93694aa5943f4ef344737d95795d51395e3d65a1b732c776d34be724::voter_history::RewardEntry>"
+        },
+        {
+          "name": "total_received",
+          "type": "u64"
+        }
+      ],
+      "variants": []
+    },
+    {
+      "name": "VoterHistoryPruned",
+      "is_native": false,
+      "is_event": true,
+      "is_enum": false,
+      "abilities": [
+        "drop",
+        "store"
+      ],
+      "generic_type_params": [],
+      "fields": [
+        {
+          "name": "voter_addr",
+          "type": "address"
+        },
+        {
+          "name": "entries_removed",
+          "type": "u64"
+        },
+        {
+          "name": "timestamp_secs",
+          "type": "u64"
+        }
+      ],
+      "variants": []
+    },
+    {
+      "name": "VoterRegistryInitialized",
+      "is_native": false,
+      "is_event": true,
+      "is_enum": false,
+      "abilities": [
+        "drop",
+        "store"
+      ],
+      "generic_type_params": [],
+      "fields": [
+        {
+          "name": "governance_addr",
+          "type": "address"
+        },
+        {
+          "name": "timestamp_secs",
+          "type": "u64"
+        }
+      ],
+      "variants": []
+    },
+    {
+      "name": "VoterRewardRecorded",
+      "is_native": false,
+      "is_event": true,
+      "is_enum": false,
+      "abilities": [
+        "drop",
+        "store"
+      ],
+      "generic_type_params": [],
+      "fields": [
+        {
+          "name": "voter_addr",
+          "type": "address"
+        },
+        {
+          "name": "amount",
+          "type": "u64"
+        },
+        {
+          "name": "cumulative_received",
+          "type": "u64"
+        },
+        {
+          "name": "history_entry_index",
+          "type": "u64"
+        },
+        {
+          "name": "timestamp_secs",
+          "type": "u64"
+        }
+      ],
+      "variants": []
+    }
+  ]
+}

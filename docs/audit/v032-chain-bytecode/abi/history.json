@@ -1,0 +1,382 @@
+{
+  "address": "0x7ba7ee5a93694aa5943f4ef344737d95795d51395e3d65a1b732c776d34be724",
+  "name": "history",
+  "friends": [
+    "0x7ba7ee5a93694aa5943f4ef344737d95795d51395e3d65a1b732c776d34be724::link",
+    "0x7ba7ee5a93694aa5943f4ef344737d95795d51395e3d65a1b732c776d34be724::mint",
+    "0x7ba7ee5a93694aa5943f4ef344737d95795d51395e3d65a1b732c776d34be724::press",
+    "0x7ba7ee5a93694aa5943f4ef344737d95795d51395e3d65a1b732c776d34be724::pulse"
+  ],
+  "exposed_functions": [
+    {
+      "name": "append",
+      "visibility": "friend",
+      "is_entry": false,
+      "is_view": false,
+      "generic_type_params": [],
+      "params": [
+        "address",
+        "0x7ba7ee5a93694aa5943f4ef344737d95795d51395e3d65a1b732c776d34be724::history::Entry"
+      ],
+      "return": []
+    },
+    {
+      "name": "history_exists",
+      "visibility": "public",
+      "is_entry": false,
+      "is_view": true,
+      "generic_type_params": [],
+      "params": [
+        "address"
+      ],
+      "return": [
+        "bool"
+      ]
+    },
+    {
+      "name": "chunk_entries_count",
+      "visibility": "public",
+      "is_entry": false,
+      "is_view": true,
+      "generic_type_params": [],
+      "params": [
+        "address"
+      ],
+      "return": [
+        "u64"
+      ]
+    },
+    {
+      "name": "chunk_entry_at",
+      "visibility": "public",
+      "is_entry": false,
+      "is_view": true,
+      "generic_type_params": [],
+      "params": [
+        "address",
+        "u64"
+      ],
+      "return": [
+        "u8",
+        "u64",
+        "0x1::option::Option<address>",
+        "vector<u8>",
+        "0x1::option::Option<address>"
+      ]
+    },
+    {
+      "name": "chunk_is_sealed",
+      "visibility": "public",
+      "is_entry": false,
+      "is_view": true,
+      "generic_type_params": [],
+      "params": [
+        "address"
+      ],
+      "return": [
+        "bool"
+      ]
+    },
+    {
+      "name": "chunk_rotate_threshold",
+      "visibility": "public",
+      "is_entry": false,
+      "is_view": true,
+      "generic_type_params": [],
+      "params": [],
+      "return": [
+        "u64"
+      ]
+    },
+    {
+      "name": "count_verb",
+      "visibility": "public",
+      "is_entry": false,
+      "is_view": true,
+      "generic_type_params": [],
+      "params": [
+        "address",
+        "u8"
+      ],
+      "return": [
+        "u64"
+      ]
+    },
+    {
+      "name": "head_chunk_addr",
+      "visibility": "public",
+      "is_entry": false,
+      "is_view": true,
+      "generic_type_params": [],
+      "params": [
+        "address"
+      ],
+      "return": [
+        "address"
+      ]
+    },
+    {
+      "name": "max_payload_bytes",
+      "visibility": "public",
+      "is_entry": false,
+      "is_view": true,
+      "generic_type_params": [],
+      "params": [],
+      "return": [
+        "u64"
+      ]
+    },
+    {
+      "name": "new_entry",
+      "visibility": "friend",
+      "is_entry": false,
+      "is_view": false,
+      "generic_type_params": [],
+      "params": [
+        "u8",
+        "u64",
+        "0x1::option::Option<address>",
+        "vector<u8>",
+        "0x1::option::Option<address>"
+      ],
+      "return": [
+        "0x7ba7ee5a93694aa5943f4ef344737d95795d51395e3d65a1b732c776d34be724::history::Entry"
+      ]
+    },
+    {
+      "name": "sealed_chunks_list",
+      "visibility": "public",
+      "is_entry": false,
+      "is_view": true,
+      "generic_type_params": [],
+      "params": [
+        "address"
+      ],
+      "return": [
+        "vector<address>"
+      ]
+    },
+    {
+      "name": "total_bytes",
+      "visibility": "public",
+      "is_entry": false,
+      "is_view": true,
+      "generic_type_params": [],
+      "params": [
+        "address"
+      ],
+      "return": [
+        "u64"
+      ]
+    },
+    {
+      "name": "total_entries",
+      "visibility": "public",
+      "is_entry": false,
+      "is_view": true,
+      "generic_type_params": [],
+      "params": [
+        "address"
+      ],
+      "return": [
+        "u64"
+      ]
+    },
+    {
+      "name": "verb_echo",
+      "visibility": "public",
+      "is_entry": false,
+      "is_view": true,
+      "generic_type_params": [],
+      "params": [],
+      "return": [
+        "u8"
+      ]
+    },
+    {
+      "name": "verb_mint",
+      "visibility": "public",
+      "is_entry": false,
+      "is_view": true,
+      "generic_type_params": [],
+      "params": [],
+      "return": [
+        "u8"
+      ]
+    },
+    {
+      "name": "verb_press",
+      "visibility": "public",
+      "is_entry": false,
+      "is_view": true,
+      "generic_type_params": [],
+      "params": [],
+      "return": [
+        "u8"
+      ]
+    },
+    {
+      "name": "verb_remix",
+      "visibility": "public",
+      "is_entry": false,
+      "is_view": true,
+      "generic_type_params": [],
+      "params": [],
+      "return": [
+        "u8"
+      ]
+    },
+    {
+      "name": "verb_spark",
+      "visibility": "public",
+      "is_entry": false,
+      "is_view": true,
+      "generic_type_params": [],
+      "params": [],
+      "return": [
+        "u8"
+      ]
+    },
+    {
+      "name": "verb_sync",
+      "visibility": "public",
+      "is_entry": false,
+      "is_view": true,
+      "generic_type_params": [],
+      "params": [],
+      "return": [
+        "u8"
+      ]
+    },
+    {
+      "name": "verb_voice",
+      "visibility": "public",
+      "is_entry": false,
+      "is_view": true,
+      "generic_type_params": [],
+      "params": [],
+      "return": [
+        "u8"
+      ]
+    }
+  ],
+  "structs": [
+    {
+      "name": "Entry",
+      "is_native": false,
+      "is_event": false,
+      "is_enum": false,
+      "abilities": [
+        "copy",
+        "drop",
+        "store"
+      ],
+      "generic_type_params": [],
+      "fields": [
+        {
+          "name": "verb",
+          "type": "u8"
+        },
+        {
+          "name": "timestamp_secs",
+          "type": "u64"
+        },
+        {
+          "name": "target",
+          "type": "0x1::option::Option<address>"
+        },
+        {
+          "name": "payload",
+          "type": "vector<u8>"
+        },
+        {
+          "name": "asset",
+          "type": "0x1::option::Option<address>"
+        }
+      ],
+      "variants": []
+    },
+    {
+      "name": "HistoryChunk",
+      "is_native": false,
+      "is_event": false,
+      "is_enum": false,
+      "abilities": [
+        "key"
+      ],
+      "generic_type_params": [],
+      "fields": [
+        {
+          "name": "entries",
+          "type": "vector<0x7ba7ee5a93694aa5943f4ef344737d95795d51395e3d65a1b732c776d34be724::history::Entry>"
+        },
+        {
+          "name": "sealed",
+          "type": "bool"
+        }
+      ],
+      "variants": []
+    },
+    {
+      "name": "HistoryLog",
+      "is_native": false,
+      "is_event": false,
+      "is_enum": false,
+      "abilities": [
+        "key"
+      ],
+      "generic_type_params": [],
+      "fields": [
+        {
+          "name": "head_chunk",
+          "type": "address"
+        },
+        {
+          "name": "sealed_chunks",
+          "type": "vector<address>"
+        },
+        {
+          "name": "entry_count",
+          "type": "u64"
+        },
+        {
+          "name": "total_bytes",
+          "type": "u64"
+        },
+        {
+          "name": "head_chunk_bytes",
+          "type": "u64"
+        },
+        {
+          "name": "mint_count",
+          "type": "u64"
+        },
+        {
+          "name": "spark_count",
+          "type": "u64"
+        },
+        {
+          "name": "voice_count",
+          "type": "u64"
+        },
+        {
+          "name": "echo_count",
+          "type": "u64"
+        },
+        {
+          "name": "remix_count",
+          "type": "u64"
+        },
+        {
+          "name": "press_count",
+          "type": "u64"
+        },
+        {
+          "name": "sync_count",
+          "type": "u64"
+        }
+      ],
+      "variants": []
+    }
+  ]
+}

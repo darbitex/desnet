@@ -1,0 +1,142 @@
+{
+  "address": "0x7ba7ee5a93694aa5943f4ef344737d95795d51395e3d65a1b732c776d34be724",
+  "name": "reference_gate",
+  "friends": [],
+  "exposed_functions": [
+    {
+      "name": "new",
+      "visibility": "public",
+      "is_entry": false,
+      "is_view": false,
+      "generic_type_params": [],
+      "params": [
+        "address",
+        "u64",
+        "u64",
+        "u64"
+      ],
+      "return": [
+        "0x7ba7ee5a93694aa5943f4ef344737d95795d51395e3d65a1b732c776d34be724::reference_gate::ReferenceGate"
+      ]
+    },
+    {
+      "name": "check",
+      "visibility": "public",
+      "is_entry": false,
+      "is_view": false,
+      "generic_type_params": [],
+      "params": [
+        "&0x7ba7ee5a93694aa5943f4ef344737d95795d51395e3d65a1b732c776d34be724::reference_gate::ReferenceGate",
+        "address",
+        "bool",
+        "bool",
+        "address"
+      ],
+      "return": [
+        "bool"
+      ]
+    },
+    {
+      "name": "is_open_for",
+      "visibility": "public",
+      "is_entry": false,
+      "is_view": false,
+      "generic_type_params": [],
+      "params": [
+        "&0x1::option::Option<0x7ba7ee5a93694aa5943f4ef344737d95795d51395e3d65a1b732c776d34be724::reference_gate::ReferenceGate>",
+        "address",
+        "bool",
+        "bool",
+        "address"
+      ],
+      "return": [
+        "bool"
+      ]
+    },
+    {
+      "name": "max_token_balance",
+      "visibility": "public",
+      "is_entry": false,
+      "is_view": false,
+      "generic_type_params": [],
+      "params": [
+        "&0x7ba7ee5a93694aa5943f4ef344737d95795d51395e3d65a1b732c776d34be724::reference_gate::ReferenceGate"
+      ],
+      "return": [
+        "u64"
+      ]
+    },
+    {
+      "name": "min_lp_stake",
+      "visibility": "public",
+      "is_entry": false,
+      "is_view": false,
+      "generic_type_params": [],
+      "params": [
+        "&0x7ba7ee5a93694aa5943f4ef344737d95795d51395e3d65a1b732c776d34be724::reference_gate::ReferenceGate"
+      ],
+      "return": [
+        "u64"
+      ]
+    },
+    {
+      "name": "min_token_balance",
+      "visibility": "public",
+      "is_entry": false,
+      "is_view": false,
+      "generic_type_params": [],
+      "params": [
+        "&0x7ba7ee5a93694aa5943f4ef344737d95795d51395e3d65a1b732c776d34be724::reference_gate::ReferenceGate"
+      ],
+      "return": [
+        "u64"
+      ]
+    },
+    {
+      "name": "target_pid",
+      "visibility": "public",
+      "is_entry": false,
+      "is_view": false,
+      "generic_type_params": [],
+      "params": [
+        "&0x7ba7ee5a93694aa5943f4ef344737d95795d51395e3d65a1b732c776d34be724::reference_gate::ReferenceGate"
+      ],
+      "return": [
+        "address"
+      ]
+    }
+  ],
+  "structs": [
+    {
+      "name": "ReferenceGate",
+      "is_native": false,
+      "is_event": false,
+      "is_enum": false,
+      "abilities": [
+        "copy",
+        "drop",
+        "store"
+      ],
+      "generic_type_params": [],
+      "fields": [
+        {
+          "name": "target_pid",
+          "type": "address"
+        },
+        {
+          "name": "min_token_balance",
+          "type": "u64"
+        },
+        {
+          "name": "max_token_balance",
+          "type": "u64"
+        },
+        {
+          "name": "min_lp_stake",
+          "type": "u64"
+        }
+      ],
+      "variants": []
+    }
+  ]
+}

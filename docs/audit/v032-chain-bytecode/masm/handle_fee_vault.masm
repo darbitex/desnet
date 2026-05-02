@@ -1,0 +1,273 @@
+// Bytecode version v9
+module 0x7ba7ee5a93694aa5943f4ef344737d95795d51395e3d65a1b732c776d34be724::handle_fee_vault
+use 0x1::object
+use 0x1::fungible_asset
+use 0x1::primary_fungible_store
+use 0x7ba7ee5a93694aa5943f4ef344737d95795d51395e3d65a1b732c776d34be724::governance
+use 0x7ba7ee5a93694aa5943f4ef344737d95795d51395e3d65a1b732c776d34be724::amm
+use 0x7ba7ee5a93694aa5943f4ef344737d95795d51395e3d65a1b732c776d34be724::factory
+use 0x7ba7ee5a93694aa5943f4ef344737d95795d51395e3d65a1b732c776d34be724::apt_vault
+use 0x1::event
+friend 0x7ba7ee5a93694aa5943f4ef344737d95795d51395e3d65a1b732c776d34be724::profile
+struct HandleFeeVault has key
+  deployer_beneficiary: address
+  extend_ref: object::ExtendRef
+
+struct Settled has drop + store
+  total_apt: u64
+  to_deployer: u64
+  desnet_burned: u64
+
+// Function definition at index 0
+fun init_module(l0: &signer)
+    local l1: object::ConstructorRef
+    local l2: signer
+    local l3: object::ExtendRef
+    local l4: object::TransferRef
+    move_loc l0
+    ld_const<vector<u8>> [104, 97, 110, 100, 108, 101, 95, 102, 101, 101, 95, 118, 97, 117, 108, 116]
+    call object::create_named_object
+    st_loc l1
+    borrow_loc l1
+    // @5
+    call object::generate_signer
+    st_loc l2
+    borrow_loc l1
+    call object::generate_extend_ref
+    st_loc l3
+    // @10
+    borrow_loc l1
+    call object::generate_transfer_ref
+    st_loc l4
+    borrow_loc l4
+    call object::disable_ungated_transfer
+    // @15
+    borrow_loc l2
+    ld_const<address> 799008279626092026266606374476533705615973526478392622784892721766771113
+    move_loc l3
+    pack HandleFeeVault
+    move_to HandleFeeVault
+    // @20
+    ret
+
+// Function definition at index 1
+#[persistent] public fun apt_balance(): u64
+    local l0: object::Object<fungible_asset::Metadata>
+    local l1: address
+    call vault_addr
+    ld_const<address> 10
+    call object::address_to_object<fungible_asset::Metadata>
+    call primary_fungible_store::balance<fungible_asset::Metadata>
+    ret
+
+// Function definition at index 2
+#[persistent] public fun vault_addr(): address
+    local l0: address
+    ld_const<address> 55931188893109713473377936165989862777849437759270464167622070126626736957220
+    st_loc l0
+    borrow_loc l0
+    ld_const<vector<u8>> [104, 97, 110, 100, 108, 101, 95, 102, 101, 101, 95, 118, 97, 117, 108, 116]
+    call object::create_object_address
+    // @5
+    ret
+
+// Function definition at index 3
+#[persistent] entry public fun deposit_apt(l0: &signer, l1: u64)
+    local l2: object::Object<fungible_asset::Metadata>
+    ld_const<address> 10
+    call object::address_to_object<fungible_asset::Metadata>
+    st_loc l2
+    move_loc l0
+    move_loc l2
+    // @5
+    move_loc l1
+    call primary_fungible_store::withdraw<fungible_asset::Metadata>
+    call deposit_apt_fa
+    ret
+
+// Function definition at index 4
+#[persistent] public fun deployer_beneficiary(): address acquires HandleFeeVault
+    local l0: address
+    call vault_addr
+    st_loc l0
+    copy_loc l0
+    exists HandleFeeVault
+    br_false l0
+    // @5
+    move_loc l0
+    borrow_global HandleFeeVault
+    borrow_field HandleFeeVault, deployer_beneficiary
+    read_ref
+    ret
+    // @10
+l0: ld_u64 2
+    abort
+
+// Function definition at index 5
+friend fun deposit_apt_fa(l0: fungible_asset::FungibleAsset)
+    call vault_addr
+    move_loc l0
+    call primary_fungible_store::deposit
+    ret
+
+// Function definition at index 6
+#[persistent] entry public fun migrate_legacy_fees(l0: &signer)
+    local l1: object::Object<fungible_asset::Metadata>
+    local l2: u64
+    local l3: signer
+    ld_const<address> 10
+    move_loc l0
+    pop
+    call object::address_to_object<fungible_asset::Metadata>
+    st_loc l1
+    // @5
+    ld_const<address> 55931188893109713473377936165989862777849437759270464167622070126626736957220
+    copy_loc l1
+    call primary_fungible_store::balance<fungible_asset::Metadata>
+    st_loc l2
+    copy_loc l2
+    // @10
+    ld_u64 0
+    eq
+    br_false l0
+    ret
+l0: call governance::derive_pkg_signer
+    // @15
+    st_loc l3
+    borrow_loc l3
+    move_loc l1
+    move_loc l2
+    call primary_fungible_store::withdraw<fungible_asset::Metadata>
+    // @20
+    call deposit_apt_fa
+    ret
+
+// Function definition at index 7
+#[persistent] entry public fun settle(l0: &signer) acquires HandleFeeVault
+    local l1: address
+    local l2: object::Object<fungible_asset::Metadata>
+    local l3: u64
+    local l4: u64
+    local l5: u64
+    local l6: &HandleFeeVault
+    local l7: signer
+    local l8: object::Object<fungible_asset::Metadata>
+    local l9: fungible_asset::FungibleAsset
+    local l10: fungible_asset::FungibleAsset
+    call vault_addr
+    st_loc l1
+    move_loc l0
+    pop
+    copy_loc l1
+    // @5
+    exists HandleFeeVault
+    br_false l0
+    ld_const<address> 10
+    call object::address_to_object<fungible_asset::Metadata>
+    st_loc l2
+    // @10
+    copy_loc l1
+    copy_loc l2
+    call primary_fungible_store::balance<fungible_asset::Metadata>
+    st_loc l3
+    copy_loc l3
+    // @15
+    ld_u64 10000000
+    ge
+    br_false l1
+    copy_loc l3
+    ld_u64 1000
+    // @20
+    mul
+    ld_u64 10000
+    div
+    st_loc l4
+    copy_loc l3
+    // @25
+    copy_loc l4
+    sub
+    st_loc l5
+    move_loc l1
+    borrow_global HandleFeeVault
+    // @30
+    st_loc l6
+    copy_loc l6
+    borrow_field HandleFeeVault, extend_ref
+    call object::generate_signer_for_extending
+    st_loc l7
+    // @35
+    borrow_loc l7
+    st_loc l0
+    copy_loc l2
+    st_loc l8
+    move_loc l0
+    // @40
+    move_loc l8
+    copy_loc l4
+    call primary_fungible_store::withdraw<fungible_asset::Metadata>
+    st_loc l9
+    move_loc l6
+    // @45
+    borrow_field HandleFeeVault, deployer_beneficiary
+    read_ref
+    move_loc l9
+    call primary_fungible_store::deposit
+    borrow_loc l7
+    // @50
+    st_loc l0
+    move_loc l2
+    st_loc l8
+    move_loc l0
+    move_loc l8
+    // @55
+    move_loc l5
+    call primary_fungible_store::withdraw<fungible_asset::Metadata>
+    st_loc l9
+    ld_const<vector<u8>> [100, 101, 115, 110, 101, 116]
+    move_loc l9
+    // @60
+    ld_u64 0
+    call amm::swap_exact_apt_in
+    st_loc l10
+    borrow_loc l10
+    call fungible_asset::amount
+    // @65
+    st_loc l5
+    ld_const<vector<u8>> [100, 101, 115, 110, 101, 116]
+    call factory::vault_addr_of_handle
+    move_loc l10
+    call apt_vault::burn_via_vault
+    // @70
+    move_loc l3
+    move_loc l4
+    move_loc l5
+    pack Settled
+    call event::emit<Settled>
+    // @75
+    ret
+l1: ld_u64 1
+    abort
+l0: ld_u64 2
+    abort
+
+// Function definition at index 8
+#[persistent] public fun settle_threshold(): u64
+    ld_u64 10000000
+    ret
+
+// Function definition at index 9
+#[persistent] public fun split_burn_bps(): u64
+    ld_u64 9000
+    ret
+
+// Function definition at index 10
+#[persistent] public fun split_deployer_bps(): u64
+    ld_u64 1000
+    ret
+
+// Function definition at index 11
+#[persistent] public fun vault_exists(): bool
+    call vault_addr
+    exists HandleFeeVault
+    ret
+

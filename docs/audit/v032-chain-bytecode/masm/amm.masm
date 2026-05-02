@@ -1,0 +1,2096 @@
+// Bytecode version v9
+module 0x7ba7ee5a93694aa5943f4ef344737d95795d51395e3d65a1b732c776d34be724::amm
+use 0x1::object
+use 0x1::fungible_asset
+use 0x1::event
+use 0x1::vector
+use 0x7ba7ee5a93694aa5943f4ef344737d95795d51395e3d65a1b732c776d34be724::governance
+use 0x1::math128
+use 0x1::signer
+use 0x1::aptos_coin
+use 0x1::coin
+use 0x1::primary_fungible_store
+friend 0x7ba7ee5a93694aa5943f4ef344737d95795d51395e3d65a1b732c776d34be724::apt_vault
+friend 0x7ba7ee5a93694aa5943f4ef344737d95795d51395e3d65a1b732c776d34be724::lp_staking
+friend 0x7ba7ee5a93694aa5943f4ef344737d95795d51395e3d65a1b732c776d34be724::factory
+struct Pool has key
+  handle: vector<u8>
+  apt_reserve: object::Object<fungible_asset::FungibleStore>
+  token_reserve: object::Object<fungible_asset::FungibleStore>
+  apt_fees: object::Object<fungible_asset::FungibleStore>
+  token_fees: object::Object<fungible_asset::FungibleStore>
+  token_metadata_addr: address
+  lp_supply: u128
+  fee_per_lp_apt: u128
+  fee_per_lp_token: u128
+  creator_pid: address
+  locked: bool
+  extend_ref: object::ExtendRef
+
+struct FeesExtractedForClaim has drop + store
+  handle: vector<u8>
+  pool_addr: address
+  apt_extracted: u64
+  token_extracted: u64
+
+struct FlashBorrowed has drop + store
+  pool_addr: address
+  metadata_addr: address
+  amount: u64
+  fee: u64
+
+struct FlashReceipt
+  pool_addr: address
+  metadata_addr: address
+  amount: u64
+  fee: u64
+
+struct FlashRepaid has drop + store
+  pool_addr: address
+  metadata_addr: address
+  repaid: u64
+
+struct LiquidityAdded has drop + store
+  handle: vector<u8>
+  pool_addr: address
+  apt_in: u64
+  token_in: u64
+  lp_minted: u128
+  new_apt_reserve: u64
+  new_token_reserve: u64
+  new_lp_supply: u128
+
+struct LiquidityRemoved has drop + store
+  handle: vector<u8>
+  pool_addr: address
+  lp_burned: u128
+  apt_out: u64
+  token_out: u64
+  new_apt_reserve: u64
+  new_token_reserve: u64
+  new_lp_supply: u128
+
+struct PoolCreated has drop + store
+  handle: vector<u8>
+  pool_addr: address
+  token_metadata_addr: address
+  apt_in: u64
+  token_in: u64
+  lp_minted: u128
+  creator_pid: address
+
+struct Swapped has drop + store
+  handle: vector<u8>
+  pool_addr: address
+  actor: address
+  apt_to_token: bool
+  amount_in: u64
+  amount_out: u64
+  fee_amount: u64
+  new_apt_reserve: u64
+  new_token_reserve: u64
+
+// Function definition at index 0
+#[persistent] public fun swap(l0: address, l1: address, l2: fungible_asset::FungibleAsset, l3: u64): fungible_asset::FungibleAsset acquires Pool
+    local l4: vector<u8>
+    local l5: object::Object<fungible_asset::Metadata>
+    copy_loc l0
+    exists Pool
+    br_false l0
+    move_loc l0
+    borrow_global Pool
+    // @5
+    borrow_field Pool, handle
+    read_ref
+    st_loc l4
+    borrow_loc l2
+    call fungible_asset::metadata_from_asset
+    // @10
+    st_loc l5
+    borrow_loc l5
+    call object::object_address<fungible_asset::Metadata>
+    ld_const<address> 10
+    eq
+    // @15
+    br_false l1
+    move_loc l4
+    move_loc l2
+    move_loc l3
+    call swap_exact_apt_in
+    // @20
+    ret
+l1: move_loc l4
+    move_loc l2
+    move_loc l3
+    call swap_exact_token_in
+    // @25
+    ret
+l0: ld_u64 1
+    abort
+
+// Function definition at index 1
+friend fun add_liquidity_internal(l0: vector<u8>, l1: fungible_asset::FungibleAsset, l2: fungible_asset::FungibleAsset, l3: u64): (u128, fungible_asset::FungibleAsset, fungible_asset::FungibleAsset) acquires Pool
+    local l4: address
+    local l5: u64
+    local l6: u64
+    local l7: bool
+    local l8: object::Object<fungible_asset::Metadata>
+    local l9: &mut Pool
+    local l10: object::Object<fungible_asset::Metadata>
+    local l11: u64
+    local l12: u64
+    local l13: bool
+    local l14: u128
+    local l15: u128
+    local l16: u128
+    local l17: u128
+    local l18: u128
+    local l19: fungible_asset::FungibleAsset
+    local l20: fungible_asset::FungibleAsset
+    move_loc l0
+    call pool_address_of_handle
+    st_loc l4
+    copy_loc l4
+    exists Pool
+    // @5
+    br_false l0
+    borrow_loc l1
+    call fungible_asset::amount
+    st_loc l5
+    borrow_loc l2
+    // @10
+    call fungible_asset::amount
+    st_loc l6
+    copy_loc l5
+    ld_u64 0
+    gt
+    // @15
+    br_false l1
+    copy_loc l6
+    ld_u64 0
+    gt
+    st_loc l7
+    // @20
+l17: move_loc l7
+    br_false l2
+    borrow_loc l1
+    call fungible_asset::metadata_from_asset
+    st_loc l8
+    // @25
+    borrow_loc l8
+    call object::object_address<fungible_asset::Metadata>
+    ld_const<address> 10
+    eq
+    br_false l3
+    // @30
+    copy_loc l4
+    mut_borrow_global Pool
+    st_loc l9
+    copy_loc l9
+    borrow_field Pool, locked
+    // @35
+    read_ref
+    br_true l4
+    borrow_loc l2
+    call fungible_asset::metadata_from_asset
+    st_loc l10
+    // @40
+    borrow_loc l10
+    call object::object_address<fungible_asset::Metadata>
+    copy_loc l9
+    borrow_field Pool, token_metadata_addr
+    read_ref
+    // @45
+    eq
+    br_false l5
+    copy_loc l9
+    borrow_field Pool, apt_reserve
+    read_ref
+    // @50
+    call fungible_asset::balance<fungible_asset::FungibleStore>
+    st_loc l11
+    copy_loc l9
+    borrow_field Pool, token_reserve
+    read_ref
+    // @55
+    call fungible_asset::balance<fungible_asset::FungibleStore>
+    st_loc l12
+    copy_loc l11
+    ld_u64 0
+    gt
+    // @60
+    br_false l6
+    copy_loc l12
+    ld_u64 0
+    gt
+    st_loc l13
+    // @65
+l16: move_loc l13
+    br_false l7
+    copy_loc l5
+    cast_u128
+    copy_loc l9
+    // @70
+    borrow_field Pool, lp_supply
+    read_ref
+    mul
+    copy_loc l11
+    cast_u128
+    // @75
+    div
+    st_loc l14
+    copy_loc l6
+    cast_u128
+    copy_loc l9
+    // @80
+    borrow_field Pool, lp_supply
+    read_ref
+    mul
+    copy_loc l12
+    cast_u128
+    // @85
+    div
+    st_loc l15
+    copy_loc l14
+    copy_loc l15
+    lt
+    // @90
+    br_false l8
+    move_loc l14
+    st_loc l16
+l15: copy_loc l16
+    ld_u128 0
+    // @95
+    gt
+    br_false l9
+    copy_loc l16
+    move_loc l3
+    cast_u128
+    // @100
+    ge
+    br_false l10
+    copy_loc l16
+    move_loc l11
+    cast_u128
+    // @105
+    mul
+    copy_loc l9
+    borrow_field Pool, lp_supply
+    read_ref
+    div
+    // @110
+    st_loc l17
+    copy_loc l16
+    move_loc l12
+    cast_u128
+    mul
+    // @115
+    copy_loc l9
+    borrow_field Pool, lp_supply
+    read_ref
+    div
+    st_loc l18
+    // @120
+    copy_loc l5
+    cast_u128
+    move_loc l17
+    sub
+    st_loc l17
+    // @125
+    copy_loc l6
+    cast_u128
+    move_loc l18
+    sub
+    st_loc l18
+    // @130
+    copy_loc l17
+    ld_u128 0
+    gt
+    br_false l11
+    mut_borrow_loc l1
+    // @135
+    copy_loc l17
+    cast_u64
+    call fungible_asset::extract
+    st_loc l19
+l14: copy_loc l18
+    // @140
+    ld_u128 0
+    gt
+    br_false l12
+    mut_borrow_loc l2
+    copy_loc l18
+    // @145
+    cast_u64
+    call fungible_asset::extract
+    st_loc l20
+l13: copy_loc l9
+    borrow_field Pool, apt_reserve
+    // @150
+    read_ref
+    move_loc l1
+    call fungible_asset::deposit<fungible_asset::FungibleStore>
+    copy_loc l9
+    borrow_field Pool, token_reserve
+    // @155
+    read_ref
+    move_loc l2
+    call fungible_asset::deposit<fungible_asset::FungibleStore>
+    copy_loc l9
+    borrow_field Pool, lp_supply
+    // @160
+    read_ref
+    copy_loc l16
+    add
+    copy_loc l9
+    mut_borrow_field Pool, lp_supply
+    // @165
+    write_ref
+    copy_loc l9
+    borrow_field Pool, handle
+    read_ref
+    move_loc l4
+    // @170
+    move_loc l5
+    move_loc l17
+    cast_u64
+    sub
+    move_loc l6
+    // @175
+    move_loc l18
+    cast_u64
+    sub
+    copy_loc l16
+    copy_loc l9
+    // @180
+    borrow_field Pool, apt_reserve
+    read_ref
+    call fungible_asset::balance<fungible_asset::FungibleStore>
+    copy_loc l9
+    borrow_field Pool, token_reserve
+    // @185
+    read_ref
+    call fungible_asset::balance<fungible_asset::FungibleStore>
+    move_loc l9
+    borrow_field Pool, lp_supply
+    read_ref
+    // @190
+    pack LiquidityAdded
+    call event::emit<LiquidityAdded>
+    move_loc l16
+    move_loc l19
+    move_loc l20
+    // @195
+    ret
+l12: move_loc l10
+    call fungible_asset::zero<fungible_asset::Metadata>
+    st_loc l20
+    branch l13
+    // @200
+l11: move_loc l8
+    call fungible_asset::zero<fungible_asset::Metadata>
+    st_loc l19
+    branch l14
+l10: move_loc l9
+    // @205
+    pop
+    ld_u64 4
+    abort
+l9: move_loc l9
+    pop
+    // @210
+    ld_u64 3
+    abort
+l8: move_loc l15
+    st_loc l16
+    branch l15
+    // @215
+l7: move_loc l9
+    pop
+    ld_u64 3
+    abort
+l6: ld_false
+    // @220
+    st_loc l13
+    branch l16
+l5: move_loc l9
+    pop
+    ld_u64 6
+    // @225
+    abort
+l4: move_loc l9
+    pop
+    ld_u64 12
+    abort
+    // @230
+l3: ld_u64 6
+    abort
+l2: ld_u64 5
+    abort
+l1: ld_false
+    // @235
+    st_loc l7
+    branch l17
+l0: ld_u64 1
+    abort
+
+// Function definition at index 2
+#[persistent] public fun compute_amount_out(l0: u64, l1: u64, l2: u64): u64
+    local l3: u128
+    local l4: u128
+    move_loc l2
+    cast_u128
+    ld_u128 9990
+    mul
+    st_loc l3
+    // @5
+    copy_loc l3
+    move_loc l1
+    cast_u128
+    mul
+    move_loc l0
+    // @10
+    cast_u128
+    ld_u128 10000
+    mul
+    move_loc l3
+    add
+    // @15
+    div
+    cast_u64
+    ret
+
+// Function definition at index 3
+#[persistent] public fun compute_flash_fee(l0: u64): u64
+    move_loc l0
+    ld_u64 10
+    mul
+    ld_u64 10000
+    div
+    // @5
+    ret
+
+// Function definition at index 4
+friend fun create_pool_atomic(l0: vector<u8>, l1: fungible_asset::FungibleAsset, l2: fungible_asset::FungibleAsset, l3: address): u128
+    local l4: address
+    local l5: u64
+    local l6: u64
+    local l7: bool
+    local l8: object::Object<fungible_asset::Metadata>
+    local l9: object::Object<fungible_asset::Metadata>
+    local l10: address
+    local l11: signer
+    local l12: object::ConstructorRef
+    local l13: signer
+    local l14: object::ExtendRef
+    local l15: object::TransferRef
+    local l16: object::Object<fungible_asset::FungibleStore>
+    local l17: object::Object<fungible_asset::FungibleStore>
+    local l18: object::Object<fungible_asset::FungibleStore>
+    local l19: object::Object<fungible_asset::FungibleStore>
+    local l20: u128
+    borrow_loc l0
+    call vector::is_empty<u8>
+    br_true l0
+    copy_loc l0
+    call pool_address_of_handle
+    // @5
+    st_loc l4
+    copy_loc l4
+    exists Pool
+    br_true l1
+    borrow_loc l1
+    // @10
+    call fungible_asset::amount
+    st_loc l5
+    borrow_loc l2
+    call fungible_asset::amount
+    st_loc l6
+    // @15
+    copy_loc l5
+    ld_u64 0
+    gt
+    br_false l2
+    copy_loc l6
+    // @20
+    ld_u64 0
+    gt
+    st_loc l7
+l6: move_loc l7
+    br_false l3
+    // @25
+    borrow_loc l1
+    call fungible_asset::metadata_from_asset
+    st_loc l8
+    borrow_loc l8
+    call object::object_address<fungible_asset::Metadata>
+    // @30
+    ld_const<address> 10
+    eq
+    br_false l4
+    borrow_loc l2
+    call fungible_asset::metadata_from_asset
+    // @35
+    st_loc l9
+    borrow_loc l9
+    call object::object_address<fungible_asset::Metadata>
+    st_loc l10
+    call governance::derive_pkg_signer
+    // @40
+    st_loc l11
+    borrow_loc l11
+    borrow_loc l0
+    call pool_seed
+    call object::create_named_object
+    // @45
+    st_loc l12
+    borrow_loc l12
+    call object::generate_signer
+    st_loc l13
+    borrow_loc l12
+    // @50
+    call object::generate_extend_ref
+    st_loc l14
+    borrow_loc l12
+    call object::generate_transfer_ref
+    st_loc l15
+    // @55
+    borrow_loc l15
+    call object::disable_ungated_transfer
+    copy_loc l4
+    copy_loc l8
+    call create_store_at_pool
+    // @60
+    st_loc l16
+    copy_loc l4
+    copy_loc l9
+    call create_store_at_pool
+    st_loc l17
+    // @65
+    copy_loc l4
+    move_loc l8
+    call create_store_at_pool
+    st_loc l18
+    copy_loc l4
+    // @70
+    move_loc l9
+    call create_store_at_pool
+    st_loc l19
+    copy_loc l5
+    copy_loc l6
+    // @75
+    call mint_lp_initial
+    st_loc l20
+    copy_loc l20
+    ld_u128 1000
+    ge
+    // @80
+    br_false l5
+    copy_loc l16
+    move_loc l1
+    call fungible_asset::deposit<fungible_asset::FungibleStore>
+    copy_loc l17
+    // @85
+    move_loc l2
+    call fungible_asset::deposit<fungible_asset::FungibleStore>
+    borrow_loc l13
+    copy_loc l0
+    move_loc l16
+    // @90
+    move_loc l17
+    move_loc l18
+    move_loc l19
+    copy_loc l10
+    copy_loc l20
+    // @95
+    ld_u128 0
+    ld_u128 0
+    copy_loc l3
+    ld_false
+    move_loc l14
+    // @100
+    pack Pool
+    move_to Pool
+    move_loc l0
+    move_loc l4
+    move_loc l10
+    // @105
+    move_loc l5
+    move_loc l6
+    copy_loc l20
+    move_loc l3
+    pack PoolCreated
+    // @110
+    call event::emit<PoolCreated>
+    move_loc l20
+    ret
+l5: ld_u64 9
+    abort
+    // @115
+l4: ld_u64 6
+    abort
+l3: ld_u64 5
+    abort
+l2: ld_false
+    // @120
+    st_loc l7
+    branch l6
+l1: ld_u64 2
+    abort
+l0: ld_u64 7
+    // @125
+    abort
+
+// Function definition at index 5
+#[persistent] public fun creator_pid(l0: vector<u8>): address acquires Pool
+    local l1: address
+    move_loc l0
+    call pool_address_of_handle
+    st_loc l1
+    copy_loc l1
+    exists Pool
+    // @5
+    br_false l0
+    move_loc l1
+    borrow_global Pool
+    borrow_field Pool, creator_pid
+    read_ref
+    // @10
+    ret
+l0: ld_u64 1
+    abort
+
+// Function definition at index 6
+fun create_store_at_pool(l0: address, l1: object::Object<fungible_asset::Metadata>): object::Object<fungible_asset::FungibleStore>
+    local l2: object::ConstructorRef
+    move_loc l0
+    call object::create_object
+    st_loc l2
+    borrow_loc l2
+    move_loc l1
+    // @5
+    call fungible_asset::create_store<fungible_asset::Metadata>
+    ret
+
+// Function definition at index 7
+#[persistent] public fun creator_pid_at(l0: address): address acquires Pool
+    copy_loc l0
+    exists Pool
+    br_false l0
+    move_loc l0
+    borrow_global Pool
+    // @5
+    borrow_field Pool, creator_pid
+    read_ref
+    ret
+l0: ld_u64 1
+    abort
+
+// Function definition at index 8
+friend fun extract_fees_for_claim(l0: vector<u8>, l1: u64, l2: u64): (fungible_asset::FungibleAsset, fungible_asset::FungibleAsset) acquires Pool
+    local l3: address
+    local l4: &Pool
+    local l5: signer
+    local l6: fungible_asset::FungibleAsset
+    local l7: fungible_asset::FungibleAsset
+    move_loc l0
+    call pool_address_of_handle
+    st_loc l3
+    copy_loc l3
+    exists Pool
+    // @5
+    br_false l0
+    copy_loc l3
+    borrow_global Pool
+    st_loc l4
+    copy_loc l4
+    // @10
+    borrow_field Pool, locked
+    read_ref
+    br_true l1
+    copy_loc l4
+    borrow_field Pool, apt_fees
+    // @15
+    read_ref
+    call fungible_asset::balance<fungible_asset::FungibleStore>
+    copy_loc l1
+    ge
+    br_false l2
+    // @20
+    copy_loc l4
+    borrow_field Pool, token_fees
+    read_ref
+    call fungible_asset::balance<fungible_asset::FungibleStore>
+    copy_loc l2
+    // @25
+    ge
+    br_false l3
+    copy_loc l4
+    borrow_field Pool, extend_ref
+    call object::generate_signer_for_extending
+    // @30
+    st_loc l5
+    borrow_loc l5
+    copy_loc l4
+    borrow_field Pool, apt_fees
+    read_ref
+    // @35
+    copy_loc l1
+    call fungible_asset::withdraw<fungible_asset::FungibleStore>
+    borrow_loc l5
+    copy_loc l4
+    borrow_field Pool, token_fees
+    // @40
+    read_ref
+    copy_loc l2
+    call fungible_asset::withdraw<fungible_asset::FungibleStore>
+    move_loc l4
+    borrow_field Pool, handle
+    // @45
+    read_ref
+    move_loc l3
+    move_loc l1
+    move_loc l2
+    pack FeesExtractedForClaim
+    // @50
+    call event::emit<FeesExtractedForClaim>
+    ret
+l3: move_loc l4
+    pop
+    ld_u64 11
+    // @55
+    abort
+l2: move_loc l4
+    pop
+    ld_u64 11
+    abort
+    // @60
+l1: move_loc l4
+    pop
+    ld_u64 12
+    abort
+l0: ld_u64 1
+    // @65
+    abort
+
+// Function definition at index 9
+#[persistent] public fun fee_acc_scale(): u128
+    ld_u128 1000000000000000000
+    ret
+
+// Function definition at index 10
+#[persistent] public fun fee_bps(l0: vector<u8>): u64
+    ld_u64 10
+    ret
+
+// Function definition at index 11
+#[persistent] public fun fee_buckets(l0: vector<u8>): (u64, u64) acquires Pool
+    local l1: address
+    local l2: &Pool
+    move_loc l0
+    call pool_address_of_handle
+    st_loc l1
+    copy_loc l1
+    exists Pool
+    // @5
+    br_false l0
+    move_loc l1
+    borrow_global Pool
+    st_loc l2
+    copy_loc l2
+    // @10
+    borrow_field Pool, apt_fees
+    read_ref
+    call fungible_asset::balance<fungible_asset::FungibleStore>
+    move_loc l2
+    borrow_field Pool, token_fees
+    // @15
+    read_ref
+    call fungible_asset::balance<fungible_asset::FungibleStore>
+    ret
+l0: ld_u64 1
+    abort
+
+// Function definition at index 12
+#[persistent] public fun fee_buckets_at(l0: address): (u64, u64) acquires Pool
+    local l1: &Pool
+    copy_loc l0
+    exists Pool
+    br_false l0
+    move_loc l0
+    borrow_global Pool
+    // @5
+    st_loc l1
+    copy_loc l1
+    borrow_field Pool, apt_fees
+    read_ref
+    call fungible_asset::balance<fungible_asset::FungibleStore>
+    // @10
+    move_loc l1
+    borrow_field Pool, token_fees
+    read_ref
+    call fungible_asset::balance<fungible_asset::FungibleStore>
+    ret
+    // @15
+l0: ld_u64 1
+    abort
+
+// Function definition at index 13
+#[persistent] public fun fee_per_lp(l0: vector<u8>): (u128, u128) acquires Pool
+    local l1: address
+    local l2: &Pool
+    move_loc l0
+    call pool_address_of_handle
+    st_loc l1
+    copy_loc l1
+    exists Pool
+    // @5
+    br_false l0
+    move_loc l1
+    borrow_global Pool
+    st_loc l2
+    copy_loc l2
+    // @10
+    borrow_field Pool, fee_per_lp_apt
+    read_ref
+    move_loc l2
+    borrow_field Pool, fee_per_lp_token
+    read_ref
+    // @15
+    ret
+l0: ld_u64 1
+    abort
+
+// Function definition at index 14
+#[persistent] public fun flash_borrow(l0: address, l1: object::Object<fungible_asset::Metadata>, l2: u64): (fungible_asset::FungibleAsset, FlashReceipt) acquires Pool
+    local l3: &mut Pool
+    local l4: address
+    local l5: object::Object<fungible_asset::FungibleStore>
+    local l6: u64
+    local l7: signer
+    local l8: FlashReceipt
+    local l9: fungible_asset::FungibleAsset
+    copy_loc l0
+    exists Pool
+    br_false l0
+    copy_loc l2
+    ld_u64 0
+    // @5
+    gt
+    br_false l1
+    copy_loc l0
+    mut_borrow_global Pool
+    st_loc l3
+    // @10
+    copy_loc l3
+    borrow_field Pool, locked
+    read_ref
+    br_true l2
+    ld_true
+    // @15
+    copy_loc l3
+    mut_borrow_field Pool, locked
+    write_ref
+    borrow_loc l1
+    call object::object_address<fungible_asset::Metadata>
+    // @20
+    st_loc l4
+    copy_loc l4
+    ld_const<address> 10
+    eq
+    br_false l3
+    // @25
+    copy_loc l3
+    borrow_field Pool, apt_reserve
+    read_ref
+    st_loc l5
+l6: copy_loc l5
+    // @30
+    call fungible_asset::balance<fungible_asset::FungibleStore>
+    copy_loc l2
+    ge
+    br_false l4
+    copy_loc l2
+    // @35
+    ld_u64 10
+    mul
+    ld_u64 10000
+    div
+    st_loc l6
+    // @40
+    move_loc l3
+    borrow_field Pool, extend_ref
+    call object::generate_signer_for_extending
+    st_loc l7
+    borrow_loc l7
+    // @45
+    move_loc l5
+    copy_loc l2
+    call fungible_asset::withdraw<fungible_asset::FungibleStore>
+    copy_loc l0
+    copy_loc l4
+    // @50
+    copy_loc l2
+    copy_loc l6
+    pack FlashReceipt
+    move_loc l0
+    move_loc l4
+    // @55
+    move_loc l2
+    move_loc l6
+    pack FlashBorrowed
+    call event::emit<FlashBorrowed>
+    ret
+    // @60
+l4: move_loc l3
+    pop
+    ld_u64 3
+    abort
+l3: copy_loc l4
+    // @65
+    copy_loc l3
+    borrow_field Pool, token_metadata_addr
+    read_ref
+    eq
+    br_false l5
+    // @70
+    copy_loc l3
+    borrow_field Pool, token_reserve
+    read_ref
+    st_loc l5
+    branch l6
+    // @75
+l5: move_loc l3
+    pop
+    ld_u64 15
+    abort
+l2: move_loc l3
+    // @80
+    pop
+    ld_u64 12
+    abort
+l1: ld_u64 5
+    abort
+    // @85
+l0: ld_u64 1
+    abort
+
+// Function definition at index 15
+#[persistent] public fun flash_fee_bps(): u64
+    ld_u64 10
+    ret
+
+// Function definition at index 16
+#[persistent] public fun flash_repay(l0: address, l1: fungible_asset::FungibleAsset, l2: FlashReceipt) acquires Pool
+    local l3: u64
+    local l4: u64
+    local l5: address
+    local l6: address
+    local l7: u64
+    local l8: object::Object<fungible_asset::Metadata>
+    local l9: &mut Pool
+    local l10: object::Object<fungible_asset::FungibleStore>
+    local l11: object::Object<fungible_asset::FungibleStore>
+    local l12: bool
+    local l13: fungible_asset::FungibleAsset
+    local l14: u128
+    move_loc l2
+    unpack FlashReceipt
+    st_loc l3
+    st_loc l4
+    st_loc l5
+    // @5
+    st_loc l6
+    copy_loc l0
+    move_loc l6
+    eq
+    br_false l0
+    // @10
+    borrow_loc l1
+    call fungible_asset::amount
+    st_loc l7
+    copy_loc l7
+    move_loc l4
+    // @15
+    copy_loc l3
+    add
+    eq
+    br_false l1
+    borrow_loc l1
+    // @20
+    call fungible_asset::metadata_from_asset
+    st_loc l8
+    borrow_loc l8
+    call object::object_address<fungible_asset::Metadata>
+    copy_loc l5
+    // @25
+    eq
+    br_false l2
+    copy_loc l0
+    mut_borrow_global Pool
+    st_loc l9
+    // @30
+    copy_loc l5
+    ld_const<address> 10
+    eq
+    br_false l3
+    copy_loc l9
+    // @35
+    borrow_field Pool, apt_reserve
+    read_ref
+    st_loc l10
+    copy_loc l9
+    borrow_field Pool, apt_fees
+    // @40
+    read_ref
+    st_loc l11
+    ld_true
+    st_loc l12
+l7: mut_borrow_loc l1
+    // @45
+    copy_loc l3
+    call fungible_asset::extract
+    st_loc l13
+    move_loc l11
+    move_loc l13
+    // @50
+    call fungible_asset::deposit<fungible_asset::FungibleStore>
+    move_loc l10
+    move_loc l1
+    call fungible_asset::deposit<fungible_asset::FungibleStore>
+    copy_loc l9
+    // @55
+    borrow_field Pool, lp_supply
+    read_ref
+    ld_u128 0
+    gt
+    br_true l4
+    // @60
+    branch l5
+l4: move_loc l3
+    cast_u128
+    ld_u128 1000000000000000000
+    mul
+    // @65
+    copy_loc l9
+    borrow_field Pool, lp_supply
+    read_ref
+    div
+    st_loc l14
+    // @70
+    move_loc l12
+    br_false l6
+    copy_loc l9
+    borrow_field Pool, fee_per_lp_apt
+    read_ref
+    // @75
+    move_loc l14
+    add
+    copy_loc l9
+    mut_borrow_field Pool, fee_per_lp_apt
+    write_ref
+    // @80
+l5: ld_false
+    move_loc l9
+    mut_borrow_field Pool, locked
+    write_ref
+    move_loc l0
+    // @85
+    move_loc l5
+    move_loc l7
+    pack FlashRepaid
+    call event::emit<FlashRepaid>
+    ret
+    // @90
+l6: copy_loc l9
+    borrow_field Pool, fee_per_lp_token
+    read_ref
+    move_loc l14
+    add
+    // @95
+    copy_loc l9
+    mut_borrow_field Pool, fee_per_lp_token
+    write_ref
+    branch l5
+l3: copy_loc l9
+    // @100
+    borrow_field Pool, token_reserve
+    read_ref
+    st_loc l10
+    copy_loc l9
+    borrow_field Pool, token_fees
+    // @105
+    read_ref
+    st_loc l11
+    ld_false
+    st_loc l12
+    branch l7
+    // @110
+l2: ld_u64 15
+    abort
+l1: ld_u64 14
+    abort
+l0: ld_u64 13
+    // @115
+    abort
+
+// Function definition at index 17
+#[persistent] public fun lp_fee_per_share(l0: address): (u128, u128) acquires Pool
+    local l1: &Pool
+    copy_loc l0
+    exists Pool
+    br_false l0
+    move_loc l0
+    borrow_global Pool
+    // @5
+    st_loc l1
+    copy_loc l1
+    borrow_field Pool, fee_per_lp_apt
+    read_ref
+    move_loc l1
+    // @10
+    borrow_field Pool, fee_per_lp_token
+    read_ref
+    ret
+l0: ld_u64 1
+    abort
+
+// Function definition at index 18
+#[persistent] public fun lp_fee_per_share_by_handle(l0: vector<u8>): (u128, u128) acquires Pool
+    move_loc l0
+    call pool_address_of_handle
+    call lp_fee_per_share
+    ret
+
+// Function definition at index 19
+#[persistent] public fun lp_supply(l0: vector<u8>): u128 acquires Pool
+    local l1: address
+    move_loc l0
+    call pool_address_of_handle
+    st_loc l1
+    copy_loc l1
+    exists Pool
+    // @5
+    br_false l0
+    move_loc l1
+    borrow_global Pool
+    borrow_field Pool, lp_supply
+    read_ref
+    // @10
+    ret
+l0: ld_u64 1
+    abort
+
+// Function definition at index 20
+#[persistent] public fun lp_supply_at(l0: address): u128 acquires Pool
+    copy_loc l0
+    exists Pool
+    br_false l0
+    move_loc l0
+    borrow_global Pool
+    // @5
+    borrow_field Pool, lp_supply
+    read_ref
+    ret
+l0: ld_u64 1
+    abort
+
+// Function definition at index 21
+fun mint_lp_initial(l0: u64, l1: u64): u128
+    move_loc l0
+    cast_u128
+    move_loc l1
+    cast_u128
+    mul
+    // @5
+    call math128::sqrt
+    ret
+
+// Function definition at index 22
+#[persistent] public fun pool_address_of_handle(l0: vector<u8>): address
+    local l1: vector<u8>
+    local l2: address
+    borrow_loc l0
+    call pool_seed
+    st_loc l1
+    ld_const<address> 55931188893109713473377936165989862777849437759270464167622070126626736957220
+    st_loc l2
+    // @5
+    borrow_loc l2
+    move_loc l1
+    call object::create_object_address
+    ret
+
+// Function definition at index 23
+#[persistent] public fun pool_exists(l0: vector<u8>): bool
+    move_loc l0
+    call pool_address_of_handle
+    exists Pool
+    ret
+
+// Function definition at index 24
+#[persistent] public fun pool_exists_at(l0: address): bool
+    move_loc l0
+    exists Pool
+    ret
+
+// Function definition at index 25
+#[persistent] public fun pool_locked(l0: address): bool acquires Pool
+    copy_loc l0
+    exists Pool
+    br_false l0
+    move_loc l0
+    borrow_global Pool
+    // @5
+    borrow_field Pool, locked
+    read_ref
+    ret
+l0: ld_u64 1
+    abort
+
+// Function definition at index 26
+#[persistent] public fun pool_locked_by_handle(l0: vector<u8>): bool acquires Pool
+    move_loc l0
+    call pool_address_of_handle
+    call pool_locked
+    ret
+
+// Function definition at index 27
+fun pool_seed(l0: &vector<u8>): vector<u8>
+    local l1: vector<u8>
+    ld_const<vector<u8>> [100, 101, 115, 110, 101, 116, 58, 58, 97, 109, 109, 58, 58, 112, 111, 111, 108, 58, 58]
+    st_loc l1
+    mut_borrow_loc l1
+    move_loc l0
+    read_ref
+    // @5
+    call vector::append<u8>
+    move_loc l1
+    ret
+
+// Function definition at index 28
+#[persistent] public fun pool_tokens(l0: address): (object::Object<fungible_asset::Metadata>, object::Object<fungible_asset::Metadata>) acquires Pool
+    local l1: &Pool
+    local l2: object::Object<fungible_asset::Metadata>
+    local l3: object::Object<fungible_asset::Metadata>
+    copy_loc l0
+    exists Pool
+    br_false l0
+    move_loc l0
+    borrow_global Pool
+    // @5
+    st_loc l1
+    ld_const<address> 10
+    call object::address_to_object<fungible_asset::Metadata>
+    move_loc l1
+    borrow_field Pool, token_metadata_addr
+    // @10
+    read_ref
+    call object::address_to_object<fungible_asset::Metadata>
+    ret
+l0: ld_u64 1
+    abort
+
+// Function definition at index 29
+#[persistent] public fun quote_swap_exact_in(l0: vector<u8>, l1: u64, l2: bool): u64 acquires Pool
+    local l3: address
+    local l4: &Pool
+    local l5: u64
+    local l6: u64
+    move_loc l0
+    call pool_address_of_handle
+    st_loc l3
+    copy_loc l3
+    exists Pool
+    // @5
+    br_false l0
+    move_loc l3
+    borrow_global Pool
+    st_loc l4
+    copy_loc l4
+    // @10
+    borrow_field Pool, apt_reserve
+    read_ref
+    call fungible_asset::balance<fungible_asset::FungibleStore>
+    st_loc l5
+    move_loc l4
+    // @15
+    borrow_field Pool, token_reserve
+    read_ref
+    call fungible_asset::balance<fungible_asset::FungibleStore>
+    st_loc l6
+    move_loc l2
+    // @20
+    br_false l1
+    move_loc l5
+    move_loc l6
+    move_loc l1
+    call compute_amount_out
+    // @25
+    ret
+l1: move_loc l6
+    move_loc l5
+    move_loc l1
+    call compute_amount_out
+    // @30
+    ret
+l0: ld_u64 1
+    abort
+
+// Function definition at index 30
+#[persistent] public fun quote_swap_exact_in_at(l0: address, l1: u64, l2: bool): u64 acquires Pool
+    local l3: &Pool
+    local l4: u64
+    local l5: u64
+    copy_loc l0
+    exists Pool
+    br_false l0
+    move_loc l0
+    borrow_global Pool
+    // @5
+    st_loc l3
+    copy_loc l3
+    borrow_field Pool, apt_reserve
+    read_ref
+    call fungible_asset::balance<fungible_asset::FungibleStore>
+    // @10
+    st_loc l4
+    move_loc l3
+    borrow_field Pool, token_reserve
+    read_ref
+    call fungible_asset::balance<fungible_asset::FungibleStore>
+    // @15
+    st_loc l5
+    move_loc l2
+    br_false l1
+    move_loc l4
+    move_loc l5
+    // @20
+    move_loc l1
+    call compute_amount_out
+    ret
+l1: move_loc l5
+    move_loc l4
+    // @25
+    move_loc l1
+    call compute_amount_out
+    ret
+l0: ld_u64 1
+    abort
+
+// Function definition at index 31
+#[persistent] public fun read_warning(): vector<u8>
+    ld_const<vector<u8>> [68, 69, 83, 78, 69, 84, 32, 65, 77, 77, 32, 120, 42, 121, 61, 107, 46, 32, 65, 73, 45, 97, 117, 100, 105, 116, 101, 100, 32, 111, 110, 108, 121, 46, 32, 85, 115, 101, 32, 97, 116, 32, 111, 119, 110, 32, 114, 105, 115, 107, 46]
+    ret
+
+// Function definition at index 32
+friend fun remove_liquidity_internal(l0: vector<u8>, l1: u128, l2: u64, l3: u64): (fungible_asset::FungibleAsset, fungible_asset::FungibleAsset) acquires Pool
+    local l4: address
+    local l5: &mut Pool
+    local l6: u64
+    local l7: u128
+    local l8: u64
+    local l9: bool
+    local l10: signer
+    local l11: fungible_asset::FungibleAsset
+    local l12: fungible_asset::FungibleAsset
+    move_loc l0
+    call pool_address_of_handle
+    st_loc l4
+    copy_loc l4
+    exists Pool
+    // @5
+    br_false l0
+    copy_loc l1
+    ld_u128 0
+    gt
+    br_false l1
+    // @10
+    copy_loc l4
+    mut_borrow_global Pool
+    st_loc l5
+    copy_loc l5
+    borrow_field Pool, locked
+    // @15
+    read_ref
+    br_true l2
+    copy_loc l5
+    borrow_field Pool, lp_supply
+    read_ref
+    // @20
+    copy_loc l1
+    ge
+    br_false l3
+    copy_loc l5
+    borrow_field Pool, apt_reserve
+    // @25
+    read_ref
+    call fungible_asset::balance<fungible_asset::FungibleStore>
+    copy_loc l5
+    borrow_field Pool, token_reserve
+    read_ref
+    // @30
+    call fungible_asset::balance<fungible_asset::FungibleStore>
+    st_loc l6
+    cast_u128
+    copy_loc l1
+    mul
+    // @35
+    copy_loc l5
+    borrow_field Pool, lp_supply
+    read_ref
+    div
+    move_loc l6
+    // @40
+    cast_u128
+    copy_loc l1
+    mul
+    copy_loc l5
+    borrow_field Pool, lp_supply
+    // @45
+    read_ref
+    div
+    st_loc l7
+    cast_u64
+    st_loc l8
+    // @50
+    move_loc l7
+    cast_u64
+    st_loc l6
+    copy_loc l8
+    move_loc l2
+    // @55
+    ge
+    br_false l4
+    copy_loc l6
+    move_loc l3
+    ge
+    // @60
+    br_false l5
+    copy_loc l8
+    ld_u64 0
+    gt
+    br_false l6
+    // @65
+    copy_loc l6
+    ld_u64 0
+    gt
+    st_loc l9
+l8: move_loc l9
+    // @70
+    br_false l7
+    copy_loc l5
+    borrow_field Pool, lp_supply
+    read_ref
+    copy_loc l1
+    // @75
+    sub
+    copy_loc l5
+    mut_borrow_field Pool, lp_supply
+    write_ref
+    copy_loc l5
+    // @80
+    borrow_field Pool, extend_ref
+    call object::generate_signer_for_extending
+    st_loc l10
+    borrow_loc l10
+    copy_loc l5
+    // @85
+    borrow_field Pool, apt_reserve
+    read_ref
+    copy_loc l8
+    call fungible_asset::withdraw<fungible_asset::FungibleStore>
+    borrow_loc l10
+    // @90
+    copy_loc l5
+    borrow_field Pool, token_reserve
+    read_ref
+    copy_loc l6
+    call fungible_asset::withdraw<fungible_asset::FungibleStore>
+    // @95
+    copy_loc l5
+    borrow_field Pool, handle
+    read_ref
+    move_loc l4
+    move_loc l1
+    // @100
+    move_loc l8
+    move_loc l6
+    copy_loc l5
+    borrow_field Pool, apt_reserve
+    read_ref
+    // @105
+    call fungible_asset::balance<fungible_asset::FungibleStore>
+    copy_loc l5
+    borrow_field Pool, token_reserve
+    read_ref
+    call fungible_asset::balance<fungible_asset::FungibleStore>
+    // @110
+    move_loc l5
+    borrow_field Pool, lp_supply
+    read_ref
+    pack LiquidityRemoved
+    call event::emit<LiquidityRemoved>
+    // @115
+    ret
+l7: move_loc l5
+    pop
+    ld_u64 3
+    abort
+    // @120
+l6: ld_false
+    st_loc l9
+    branch l8
+l5: move_loc l5
+    pop
+    // @125
+    ld_u64 4
+    abort
+l4: move_loc l5
+    pop
+    ld_u64 4
+    // @130
+    abort
+l3: move_loc l5
+    pop
+    ld_u64 8
+    abort
+    // @135
+l2: move_loc l5
+    pop
+    ld_u64 12
+    abort
+l1: ld_u64 5
+    // @140
+    abort
+l0: ld_u64 1
+    abort
+
+// Function definition at index 33
+#[persistent] public fun reserves(l0: vector<u8>): (u64, u64) acquires Pool
+    local l1: address
+    local l2: &Pool
+    move_loc l0
+    call pool_address_of_handle
+    st_loc l1
+    copy_loc l1
+    exists Pool
+    // @5
+    br_false l0
+    move_loc l1
+    borrow_global Pool
+    st_loc l2
+    copy_loc l2
+    // @10
+    borrow_field Pool, apt_reserve
+    read_ref
+    call fungible_asset::balance<fungible_asset::FungibleStore>
+    move_loc l2
+    borrow_field Pool, token_reserve
+    // @15
+    read_ref
+    call fungible_asset::balance<fungible_asset::FungibleStore>
+    ret
+l0: ld_u64 1
+    abort
+
+// Function definition at index 34
+#[persistent] public fun reserves_at(l0: address): (u64, u64) acquires Pool
+    local l1: &Pool
+    copy_loc l0
+    exists Pool
+    br_false l0
+    move_loc l0
+    borrow_global Pool
+    // @5
+    st_loc l1
+    copy_loc l1
+    borrow_field Pool, apt_reserve
+    read_ref
+    call fungible_asset::balance<fungible_asset::FungibleStore>
+    // @10
+    move_loc l1
+    borrow_field Pool, token_reserve
+    read_ref
+    call fungible_asset::balance<fungible_asset::FungibleStore>
+    ret
+    // @15
+l0: ld_u64 1
+    abort
+
+// Function definition at index 35
+#[persistent] entry public fun swap_apt_for_token(l0: &signer, l1: vector<u8>, l2: u64, l3: u64) acquires Pool
+    local l4: address
+    local l5: fungible_asset::FungibleAsset
+    copy_loc l0
+    call signer::address_of
+    st_loc l4
+    move_loc l0
+    move_loc l2
+    // @5
+    call coin::withdraw<aptos_coin::AptosCoin>
+    call coin::coin_to_fungible_asset<aptos_coin::AptosCoin>
+    st_loc l5
+    move_loc l1
+    move_loc l5
+    // @10
+    move_loc l3
+    copy_loc l4
+    call swap_exact_apt_in_actor
+    st_loc l5
+    move_loc l4
+    // @15
+    move_loc l5
+    call primary_fungible_store::deposit
+    ret
+
+// Function definition at index 36
+#[persistent] public fun swap_exact_apt_in(l0: vector<u8>, l1: fungible_asset::FungibleAsset, l2: u64): fungible_asset::FungibleAsset acquires Pool
+    move_loc l0
+    move_loc l1
+    move_loc l2
+    ld_const<address> 0
+    call swap_exact_apt_in_actor
+    // @5
+    ret
+
+// Function definition at index 37
+#[persistent] public fun swap_exact_apt_in_actor(l0: vector<u8>, l1: fungible_asset::FungibleAsset, l2: u64, l3: address): fungible_asset::FungibleAsset acquires Pool
+    local l4: address
+    local l5: u64
+    local l6: object::Object<fungible_asset::Metadata>
+    local l7: &mut Pool
+    local l8: u64
+    local l9: u64
+    local l10: u64
+    local l11: fungible_asset::FungibleAsset
+    local l12: u128
+    local l13: signer
+    move_loc l0
+    call pool_address_of_handle
+    st_loc l4
+    copy_loc l4
+    exists Pool
+    // @5
+    br_false l0
+    borrow_loc l1
+    call fungible_asset::amount
+    st_loc l5
+    copy_loc l5
+    // @10
+    ld_u64 0
+    gt
+    br_false l1
+    borrow_loc l1
+    call fungible_asset::metadata_from_asset
+    // @15
+    st_loc l6
+    borrow_loc l6
+    call object::object_address<fungible_asset::Metadata>
+    ld_const<address> 10
+    eq
+    // @20
+    br_false l2
+    copy_loc l4
+    mut_borrow_global Pool
+    st_loc l7
+    copy_loc l7
+    // @25
+    borrow_field Pool, locked
+    read_ref
+    br_true l3
+    copy_loc l7
+    borrow_field Pool, apt_reserve
+    // @30
+    read_ref
+    call fungible_asset::balance<fungible_asset::FungibleStore>
+    copy_loc l7
+    borrow_field Pool, token_reserve
+    read_ref
+    // @35
+    call fungible_asset::balance<fungible_asset::FungibleStore>
+    copy_loc l5
+    ld_u64 10
+    mul
+    ld_u64 10000
+    // @40
+    div
+    st_loc l8
+    copy_loc l5
+    call compute_amount_out
+    st_loc l10
+    // @45
+    copy_loc l10
+    move_loc l2
+    ge
+    br_false l4
+    copy_loc l10
+    // @50
+    ld_u64 0
+    gt
+    br_false l5
+    mut_borrow_loc l1
+    copy_loc l8
+    // @55
+    call fungible_asset::extract
+    st_loc l11
+    copy_loc l7
+    borrow_field Pool, apt_fees
+    read_ref
+    // @60
+    move_loc l11
+    call fungible_asset::deposit<fungible_asset::FungibleStore>
+    copy_loc l7
+    borrow_field Pool, lp_supply
+    read_ref
+    // @65
+    ld_u128 0
+    gt
+    br_true l6
+    branch l7
+l6: copy_loc l8
+    // @70
+    cast_u128
+    ld_u128 1000000000000000000
+    mul
+    copy_loc l7
+    borrow_field Pool, lp_supply
+    // @75
+    read_ref
+    div
+    st_loc l12
+    copy_loc l7
+    borrow_field Pool, fee_per_lp_apt
+    // @80
+    read_ref
+    move_loc l12
+    add
+    copy_loc l7
+    mut_borrow_field Pool, fee_per_lp_apt
+    // @85
+    write_ref
+l7: copy_loc l7
+    borrow_field Pool, apt_reserve
+    read_ref
+    move_loc l1
+    // @90
+    call fungible_asset::deposit<fungible_asset::FungibleStore>
+    copy_loc l7
+    borrow_field Pool, extend_ref
+    call object::generate_signer_for_extending
+    st_loc l13
+    // @95
+    borrow_loc l13
+    copy_loc l7
+    borrow_field Pool, token_reserve
+    read_ref
+    copy_loc l10
+    // @100
+    call fungible_asset::withdraw<fungible_asset::FungibleStore>
+    copy_loc l7
+    borrow_field Pool, handle
+    read_ref
+    move_loc l4
+    // @105
+    move_loc l3
+    ld_true
+    move_loc l5
+    move_loc l10
+    move_loc l8
+    // @110
+    copy_loc l7
+    borrow_field Pool, apt_reserve
+    read_ref
+    call fungible_asset::balance<fungible_asset::FungibleStore>
+    move_loc l7
+    // @115
+    borrow_field Pool, token_reserve
+    read_ref
+    call fungible_asset::balance<fungible_asset::FungibleStore>
+    pack Swapped
+    call event::emit<Swapped>
+    // @120
+    ret
+l5: move_loc l7
+    pop
+    ld_u64 3
+    abort
+    // @125
+l4: move_loc l7
+    pop
+    ld_u64 4
+    abort
+l3: move_loc l7
+    // @130
+    pop
+    ld_u64 12
+    abort
+l2: ld_u64 6
+    abort
+    // @135
+l1: ld_u64 5
+    abort
+l0: ld_u64 1
+    abort
+
+// Function definition at index 38
+#[persistent] public fun swap_exact_token_in(l0: vector<u8>, l1: fungible_asset::FungibleAsset, l2: u64): fungible_asset::FungibleAsset acquires Pool
+    move_loc l0
+    move_loc l1
+    move_loc l2
+    ld_const<address> 0
+    call swap_exact_token_in_actor
+    // @5
+    ret
+
+// Function definition at index 39
+#[persistent] public fun swap_exact_token_in_actor(l0: vector<u8>, l1: fungible_asset::FungibleAsset, l2: u64, l3: address): fungible_asset::FungibleAsset acquires Pool
+    local l4: address
+    local l5: u64
+    local l6: &mut Pool
+    local l7: object::Object<fungible_asset::Metadata>
+    local l8: u64
+    local l9: u64
+    local l10: fungible_asset::FungibleAsset
+    local l11: u128
+    local l12: signer
+    move_loc l0
+    call pool_address_of_handle
+    st_loc l4
+    copy_loc l4
+    exists Pool
+    // @5
+    br_false l0
+    borrow_loc l1
+    call fungible_asset::amount
+    st_loc l5
+    copy_loc l5
+    // @10
+    ld_u64 0
+    gt
+    br_false l1
+    copy_loc l4
+    mut_borrow_global Pool
+    // @15
+    st_loc l6
+    copy_loc l6
+    borrow_field Pool, locked
+    read_ref
+    br_true l2
+    // @20
+    borrow_loc l1
+    call fungible_asset::metadata_from_asset
+    st_loc l7
+    borrow_loc l7
+    call object::object_address<fungible_asset::Metadata>
+    // @25
+    copy_loc l6
+    borrow_field Pool, token_metadata_addr
+    read_ref
+    eq
+    br_false l3
+    // @30
+    copy_loc l6
+    borrow_field Pool, apt_reserve
+    read_ref
+    call fungible_asset::balance<fungible_asset::FungibleStore>
+    st_loc l8
+    // @35
+    copy_loc l6
+    borrow_field Pool, token_reserve
+    read_ref
+    call fungible_asset::balance<fungible_asset::FungibleStore>
+    copy_loc l5
+    // @40
+    ld_u64 10
+    mul
+    ld_u64 10000
+    div
+    st_loc l9
+    // @45
+    move_loc l8
+    copy_loc l5
+    call compute_amount_out
+    st_loc l8
+    copy_loc l8
+    // @50
+    move_loc l2
+    ge
+    br_false l4
+    copy_loc l8
+    ld_u64 0
+    // @55
+    gt
+    br_false l5
+    mut_borrow_loc l1
+    copy_loc l9
+    call fungible_asset::extract
+    // @60
+    st_loc l10
+    copy_loc l6
+    borrow_field Pool, token_fees
+    read_ref
+    move_loc l10
+    // @65
+    call fungible_asset::deposit<fungible_asset::FungibleStore>
+    copy_loc l6
+    borrow_field Pool, lp_supply
+    read_ref
+    ld_u128 0
+    // @70
+    gt
+    br_true l6
+    branch l7
+l6: copy_loc l9
+    cast_u128
+    // @75
+    ld_u128 1000000000000000000
+    mul
+    copy_loc l6
+    borrow_field Pool, lp_supply
+    read_ref
+    // @80
+    div
+    st_loc l11
+    copy_loc l6
+    borrow_field Pool, fee_per_lp_token
+    read_ref
+    // @85
+    move_loc l11
+    add
+    copy_loc l6
+    mut_borrow_field Pool, fee_per_lp_token
+    write_ref
+    // @90
+l7: copy_loc l6
+    borrow_field Pool, token_reserve
+    read_ref
+    move_loc l1
+    call fungible_asset::deposit<fungible_asset::FungibleStore>
+    // @95
+    copy_loc l6
+    borrow_field Pool, extend_ref
+    call object::generate_signer_for_extending
+    st_loc l12
+    borrow_loc l12
+    // @100
+    copy_loc l6
+    borrow_field Pool, apt_reserve
+    read_ref
+    copy_loc l8
+    call fungible_asset::withdraw<fungible_asset::FungibleStore>
+    // @105
+    copy_loc l6
+    borrow_field Pool, handle
+    read_ref
+    move_loc l4
+    move_loc l3
+    // @110
+    ld_false
+    move_loc l5
+    move_loc l8
+    move_loc l9
+    copy_loc l6
+    // @115
+    borrow_field Pool, apt_reserve
+    read_ref
+    call fungible_asset::balance<fungible_asset::FungibleStore>
+    move_loc l6
+    borrow_field Pool, token_reserve
+    // @120
+    read_ref
+    call fungible_asset::balance<fungible_asset::FungibleStore>
+    pack Swapped
+    call event::emit<Swapped>
+    ret
+    // @125
+l5: move_loc l6
+    pop
+    ld_u64 3
+    abort
+l4: move_loc l6
+    // @130
+    pop
+    ld_u64 4
+    abort
+l3: move_loc l6
+    pop
+    // @135
+    ld_u64 6
+    abort
+l2: move_loc l6
+    pop
+    ld_u64 12
+    // @140
+    abort
+l1: ld_u64 5
+    abort
+l0: ld_u64 1
+    abort
+
+// Function definition at index 40
+#[persistent] entry public fun swap_token_for_apt(l0: &signer, l1: vector<u8>, l2: u64, l3: u64) acquires Pool
+    local l4: address
+    local l5: address
+    local l6: object::Object<fungible_asset::Metadata>
+    local l7: fungible_asset::FungibleAsset
+    copy_loc l0
+    call signer::address_of
+    st_loc l4
+    copy_loc l1
+    call pool_address_of_handle
+    // @5
+    st_loc l5
+    copy_loc l5
+    exists Pool
+    br_false l0
+    move_loc l5
+    // @10
+    borrow_global Pool
+    borrow_field Pool, token_metadata_addr
+    read_ref
+    call object::address_to_object<fungible_asset::Metadata>
+    st_loc l6
+    // @15
+    move_loc l0
+    move_loc l6
+    move_loc l2
+    call primary_fungible_store::withdraw<fungible_asset::Metadata>
+    st_loc l7
+    // @20
+    move_loc l1
+    move_loc l7
+    move_loc l3
+    copy_loc l4
+    call swap_exact_token_in_actor
+    // @25
+    st_loc l7
+    move_loc l4
+    move_loc l7
+    call primary_fungible_store::deposit
+    ret
+    // @30
+l0: move_loc l0
+    pop
+    ld_u64 1
+    abort
+
+// Function definition at index 41
+#[persistent] public fun token_metadata_addr(l0: vector<u8>): address acquires Pool
+    local l1: address
+    move_loc l0
+    call pool_address_of_handle
+    st_loc l1
+    copy_loc l1
+    exists Pool
+    // @5
+    br_false l0
+    move_loc l1
+    borrow_global Pool
+    borrow_field Pool, token_metadata_addr
+    read_ref
+    // @10
+    ret
+l0: ld_u64 1
+    abort
+

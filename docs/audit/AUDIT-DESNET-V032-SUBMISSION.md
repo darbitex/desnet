@@ -136,14 +136,71 @@ ABI compat-check method documented in `docs/v0.3.1-post-mainnet-audit.md` §6 (d
 
 ## Submission package
 
+**🔍 GROUND TRUTH = ON-CHAIN BYTECODE.** Source files are provided for cross-reference, but auditors should primarily verify what's actually deployed.
+
 | File | Path | Contents |
 |---|---|---|
-| Source bundle | `sources/*.move` (18 files, 8591 LoC) | Full v0.3.2 source state |
-| Diff vs R3 | `docs/audit/AUDIT-DESNET-V032-DIFF.md` | git diff `v0.3.0-mainnet-baseline-r3..HEAD` -- sources/ |
+| **Chain bytecode bundle (ground truth)** | `docs/audit/v032-chain-bytecode/` | Fetched directly from mainnet `@desnet`: 18 `bytecode/{name}.mv` (binary) + `bytecode/{name}.hex` (textual) + `abi/{name}.json` (REST `/v1/accounts/.../module/{name}.abi`) + `masm/{name}.masm` (disassembled via `aptos move disassemble`) + `MANIFEST.json` (per-module sha3_256 + pkg metadata) |
+| Source bundle (cross-reference) | `sources/*.move` (18 files, 8591 LoC) | Full v0.3.2 source — for reading intent. **Not authoritative.** |
+| Diff vs R3 (cross-reference) | `docs/audit/AUDIT-DESNET-V032-DIFF.md` | git diff `v0.3.0-mainnet-baseline-r3..HEAD` -- sources/ |
 | This submission doc | `docs/audit/AUDIT-DESNET-V032-SUBMISSION.md` | What changed + areas of focus |
 | Prior audit context | `docs/audit/AUDIT-DESNET-V030-R2-SUBMISSION.md` + `responses-r2/` | R2 review context |
 | Self-audit (v0.3.1) | `docs/v0.3.1-post-mainnet-audit.md` | R4 self-audit + compat-check method |
 | v0.3.2 roadmap | `docs/v0.3.2-upgrade-roadmap.md` | Original 14-fix planning doc |
+
+### Bytecode integrity (verifiable by auditor)
+
+```json
+{
+  "desnet_addr": "0x7ba7ee5a93694aa5943f4ef344737d95795d51395e3d65a1b732c776d34be724",
+  "pkg_name": "Desnet",
+  "upgrade_number": 4,
+  "source_digest": "404D8C42C1DFCFDD4FBB522936146642CCC0734618380B4B34DA582C368C...",
+  "total_module_bytes": 71968,
+  "pkg_concat_sha3_256": "6b5326ff446d35323332a879e152654dee2e7fbcc836be97a49516ffe1f73472",
+  "modules": 18
+}
+```
+
+Auditor verification recipe:
+```bash
+# 1. Fetch each module fresh from mainnet REST
+for m in voter_history governance amm apt_vault assets reaction_emission \
+         lp_emission lp_staking factory reference_gate handle_fee_vault \
+         profile history link mint giveaway press pulse; do
+    curl -sS "https://fullnode.mainnet.aptoslabs.com/v1/accounts/0x7ba7ee5a.../module/$m" \
+        | jq -r .bytecode | xxd -r -p > /tmp/v032/$m.mv
+done
+
+# 2. Compute sha3_256 of each, compare to MANIFEST.json
+sha3sum /tmp/v032/*.mv
+
+# 3. Compare to bundled bytecode/*.mv (should be byte-identical)
+diff -r docs/audit/v032-chain-bytecode/bytecode/ /tmp/v032/
+```
+
+### Per-module sha3_256 (from chain, 2026-05-02)
+
+| # | module | bytes | sha3_256 |
+|---|---|---:|---|
+| 0 | voter_history | 2,785 | `b69051e8...8bf2bc50` |
+| 1 | governance | 7,972 | `2e5057dd...39d31092` |
+| 2 | amm | 8,165 | `e0a984d0...cd302618` |
+| 3 | apt_vault | 3,004 | `764df544...ae6fb04f` |
+| 4 | assets | 2,950 | `8de46f4e...41472e55` |
+| 5 | reaction_emission | 2,195 | `f6c103a8...4bab79f0` |
+| 6 | lp_emission | 1,929 | `015edb50...39026745` |
+| 7 | lp_staking | 6,047 | `754a12aa...ede01c27` |
+| 8 | factory | 5,721 | `b477bdfe...95cdddca` |
+| 9 | reference_gate | 1,363 | `cd27eaf0...162c6c67` |
+| 10 | handle_fee_vault (NEW) | 2,115 | `c6caf6b4...ecf15430` |
+| 11 | profile | 6,403 | `b61420ac...e6332d60` |
+| 12 | history | 2,934 | `19bf456b...bf5eaee0` |
+| 13 | link | 1,981 | `ab14968a...b1df9133` |
+| 14 | mint | 4,704 | `2c4f9f3e...c74b609a` |
+| 15 | giveaway | 4,753 | `946ef6e5...2075c570` |
+| 16 | press | 4,457 | `c3259a61...a56c43893` |
+| 17 | pulse | 2,490 | `42e1ceef...015b11327` |
 
 ---
 

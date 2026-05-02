@@ -1,0 +1,229 @@
+{
+  "address": "0x7ba7ee5a93694aa5943f4ef344737d95795d51395e3d65a1b732c776d34be724",
+  "name": "lp_emission",
+  "friends": [
+    "0x7ba7ee5a93694aa5943f4ef344737d95795d51395e3d65a1b732c776d34be724::lp_staking",
+    "0x7ba7ee5a93694aa5943f4ef344737d95795d51395e3d65a1b732c776d34be724::factory"
+  ],
+  "exposed_functions": [
+    {
+      "name": "token_metadata_addr",
+      "visibility": "public",
+      "is_entry": false,
+      "is_view": true,
+      "generic_type_params": [],
+      "params": [
+        "address"
+      ],
+      "return": [
+        "address"
+      ]
+    },
+    {
+      "name": "deploy",
+      "visibility": "friend",
+      "is_entry": false,
+      "is_view": false,
+      "generic_type_params": [],
+      "params": [
+        "&signer",
+        "vector<u8>",
+        "address",
+        "0x1::fungible_asset::FungibleAsset"
+      ],
+      "return": [
+        "address"
+      ]
+    },
+    {
+      "name": "reserve_balance",
+      "visibility": "public",
+      "is_entry": false,
+      "is_view": true,
+      "generic_type_params": [],
+      "params": [
+        "address",
+        "0x1::object::Object<0x1::fungible_asset::Metadata>"
+      ],
+      "return": [
+        "u64"
+      ]
+    },
+    {
+      "name": "topup_reserve",
+      "visibility": "public",
+      "is_entry": true,
+      "is_view": false,
+      "generic_type_params": [],
+      "params": [
+        "&signer",
+        "address",
+        "0x1::object::Object<0x1::fungible_asset::Metadata>",
+        "u64"
+      ],
+      "return": []
+    },
+    {
+      "name": "total_distributed",
+      "visibility": "public",
+      "is_entry": false,
+      "is_view": true,
+      "generic_type_params": [],
+      "params": [
+        "address"
+      ],
+      "return": [
+        "u64"
+      ]
+    },
+    {
+      "name": "deployed_at_secs",
+      "visibility": "public",
+      "is_entry": false,
+      "is_view": true,
+      "generic_type_params": [],
+      "params": [
+        "address"
+      ],
+      "return": [
+        "u64"
+      ]
+    },
+    {
+      "name": "pull_for_claim",
+      "visibility": "friend",
+      "is_entry": false,
+      "is_view": false,
+      "generic_type_params": [],
+      "params": [
+        "address",
+        "0x1::object::Object<0x1::fungible_asset::Metadata>",
+        "u64"
+      ],
+      "return": [
+        "0x1::fungible_asset::FungibleAsset"
+      ]
+    }
+  ],
+  "structs": [
+    {
+      "name": "LpPulledForClaim",
+      "is_native": false,
+      "is_event": true,
+      "is_enum": false,
+      "abilities": [
+        "drop",
+        "store"
+      ],
+      "generic_type_params": [],
+      "fields": [
+        {
+          "name": "reserve_addr",
+          "type": "address"
+        },
+        {
+          "name": "amount",
+          "type": "u64"
+        },
+        {
+          "name": "new_balance",
+          "type": "u64"
+        }
+      ],
+      "variants": []
+    },
+    {
+      "name": "LpReserve",
+      "is_native": false,
+      "is_event": false,
+      "is_enum": false,
+      "abilities": [
+        "key"
+      ],
+      "generic_type_params": [],
+      "fields": [
+        {
+          "name": "token_metadata_addr",
+          "type": "address"
+        },
+        {
+          "name": "spec_version",
+          "type": "u32"
+        },
+        {
+          "name": "extend_ref",
+          "type": "0x1::object::ExtendRef"
+        },
+        {
+          "name": "total_distributed",
+          "type": "u64"
+        },
+        {
+          "name": "deployed_at_secs",
+          "type": "u64"
+        }
+      ],
+      "variants": []
+    },
+    {
+      "name": "LpReserveDeployed",
+      "is_native": false,
+      "is_event": true,
+      "is_enum": false,
+      "abilities": [
+        "drop",
+        "store"
+      ],
+      "generic_type_params": [],
+      "fields": [
+        {
+          "name": "reserve_addr",
+          "type": "address"
+        },
+        {
+          "name": "token_metadata_addr",
+          "type": "address"
+        },
+        {
+          "name": "initial_amount",
+          "type": "u64"
+        },
+        {
+          "name": "timestamp_secs",
+          "type": "u64"
+        }
+      ],
+      "variants": []
+    },
+    {
+      "name": "LpReserveToppedUp",
+      "is_native": false,
+      "is_event": true,
+      "is_enum": false,
+      "abilities": [
+        "drop",
+        "store"
+      ],
+      "generic_type_params": [],
+      "fields": [
+        {
+          "name": "reserve_addr",
+          "type": "address"
+        },
+        {
+          "name": "depositor",
+          "type": "address"
+        },
+        {
+          "name": "amount",
+          "type": "u64"
+        },
+        {
+          "name": "new_balance",
+          "type": "u64"
+        }
+      ],
+      "variants": []
+    }
+  ]
+}

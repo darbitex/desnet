@@ -1,0 +1,327 @@
+// Bytecode version v9
+module 0x7ba7ee5a93694aa5943f4ef344737d95795d51395e3d65a1b732c776d34be724::link
+use 0x1::smart_table
+use 0x7ba7ee5a93694aa5943f4ef344737d95795d51395e3d65a1b732c776d34be724::profile
+use 0x1::signer
+use 0x1::option
+use 0x7ba7ee5a93694aa5943f4ef344737d95795d51395e3d65a1b732c776d34be724::reference_gate
+use 0x1::timestamp
+use 0x1::bcs
+use 0x7ba7ee5a93694aa5943f4ef344737d95795d51395e3d65a1b732c776d34be724::history
+friend 0x7ba7ee5a93694aa5943f4ef344737d95795d51395e3d65a1b732c776d34be724::mint
+friend 0x7ba7ee5a93694aa5943f4ef344737d95795d51395e3d65a1b732c776d34be724::giveaway
+friend 0x7ba7ee5a93694aa5943f4ef344737d95795d51395e3d65a1b732c776d34be724::press
+friend 0x7ba7ee5a93694aa5943f4ef344737d95795d51395e3d65a1b732c776d34be724::pulse
+struct LinkEvent has drop + store
+  actor_pid: address
+  target_pid: address
+  link_kind: u8
+  state: u8
+  timestamp_secs: u64
+
+struct PidSyncSet has key
+  syncs: smart_table::SmartTable<address, bool>
+  sync_count: u64
+  synced_by_count: u64
+
+// Function definition at index 0
+#[persistent] public fun sync_count(l0: address): u64 acquires PidSyncSet
+    copy_loc l0
+    exists PidSyncSet
+    br_true l0
+    ld_u64 0
+    ret
+    // @5
+l0: move_loc l0
+    borrow_global PidSyncSet
+    borrow_field PidSyncSet, sync_count
+    read_ref
+    ret
+
+// Function definition at index 1
+fun ensure_sync_set(l0: address)
+    local l1: signer
+    copy_loc l0
+    exists PidSyncSet
+    br_true l0
+    move_loc l0
+    call profile::derive_pid_signer
+    // @5
+    st_loc l1
+    borrow_loc l1
+    call smart_table::new<address, bool>
+    ld_u64 0
+    ld_u64 0
+    // @10
+    pack PidSyncSet
+    move_to PidSyncSet
+    ret
+l0: ret
+
+// Function definition at index 2
+#[persistent] public fun is_synced(l0: address, l1: address): bool acquires PidSyncSet
+    copy_loc l0
+    exists PidSyncSet
+    br_true l0
+    ld_false
+    ret
+    // @5
+l0: move_loc l0
+    borrow_global PidSyncSet
+    borrow_field PidSyncSet, syncs
+    move_loc l1
+    call smart_table::contains<address, bool>
+    // @10
+    ret
+
+// Function definition at index 3
+#[persistent] public fun state_add(): u8
+    ld_u8 1
+    ret
+
+// Function definition at index 4
+#[persistent] public fun state_remove(): u8
+    ld_u8 2
+    ret
+
+// Function definition at index 5
+#[persistent] entry public fun sync(l0: &signer, l1: address, l2: address) acquires PidSyncSet
+    local l3: address
+    local l4: address
+    local l5: option::Option<reference_gate::ReferenceGate>
+    local l6: &mut PidSyncSet
+    local l7: &mut PidSyncSet
+    local l8: u64
+    local l9: LinkEvent
+    local l10: vector<u8>
+    move_loc l0
+    call signer::address_of
+    st_loc l3
+    copy_loc l3
+    call profile::derive_pid_address
+    // @5
+    st_loc l4
+    copy_loc l4
+    call profile::assert_pid_exists
+    copy_loc l1
+    call profile::assert_pid_exists
+    // @10
+    copy_loc l4
+    copy_loc l1
+    neq
+    br_false l0
+    copy_loc l1
+    // @15
+    call profile::get_sync_gate
+    st_loc l5
+    borrow_loc l5
+    move_loc l3
+    ld_false
+    // @20
+    ld_true
+    move_loc l2
+    call reference_gate::is_open_for
+    br_false l1
+    copy_loc l4
+    // @25
+    call ensure_sync_set
+    copy_loc l1
+    call ensure_sync_set
+    copy_loc l4
+    mut_borrow_global PidSyncSet
+    // @30
+    st_loc l6
+    copy_loc l6
+    borrow_field PidSyncSet, syncs
+    copy_loc l1
+    call smart_table::contains<address, bool>
+    // @35
+    br_true l2
+    copy_loc l6
+    mut_borrow_field PidSyncSet, syncs
+    copy_loc l1
+    ld_true
+    // @40
+    call smart_table::add<address, bool>
+    copy_loc l6
+    borrow_field PidSyncSet, sync_count
+    read_ref
+    ld_u64 1
+    // @45
+    add
+    move_loc l6
+    mut_borrow_field PidSyncSet, sync_count
+    write_ref
+    copy_loc l1
+    // @50
+    mut_borrow_global PidSyncSet
+    st_loc l7
+    copy_loc l7
+    borrow_field PidSyncSet, synced_by_count
+    read_ref
+    // @55
+    ld_u64 1
+    add
+    move_loc l7
+    mut_borrow_field PidSyncSet, synced_by_count
+    write_ref
+    // @60
+    call timestamp::now_seconds
+    st_loc l8
+    copy_loc l4
+    copy_loc l1
+    ld_u8 1
+    // @65
+    ld_u8 1
+    copy_loc l8
+    pack LinkEvent
+    st_loc l9
+    borrow_loc l9
+    // @70
+    call bcs::to_bytes<LinkEvent>
+    st_loc l10
+    move_loc l4
+    call history::verb_sync
+    move_loc l8
+    // @75
+    move_loc l1
+    call option::some<address>
+    move_loc l10
+    call option::none<address>
+    call history::new_entry
+    // @80
+    call history::append
+    ret
+l2: move_loc l6
+    pop
+    ld_u64 4
+    // @85
+    abort
+l1: ld_u64 3
+    abort
+l0: ld_u64 6
+    abort
+
+// Function definition at index 6
+#[persistent] public fun sync_kind(): u8
+    ld_u8 1
+    ret
+
+// Function definition at index 7
+#[persistent] public fun synced_by_count(l0: address): u64 acquires PidSyncSet
+    copy_loc l0
+    exists PidSyncSet
+    br_true l0
+    ld_u64 0
+    ret
+    // @5
+l0: move_loc l0
+    borrow_global PidSyncSet
+    borrow_field PidSyncSet, synced_by_count
+    read_ref
+    ret
+
+// Function definition at index 8
+#[persistent] entry public fun unsync(l0: &signer, l1: address) acquires PidSyncSet
+    local l2: address
+    local l3: &mut PidSyncSet
+    local l4: &mut PidSyncSet
+    local l5: u64
+    local l6: LinkEvent
+    local l7: vector<u8>
+    move_loc l0
+    call signer::address_of
+    call profile::derive_pid_address
+    st_loc l2
+    copy_loc l2
+    // @5
+    exists PidSyncSet
+    br_false l0
+    copy_loc l2
+    mut_borrow_global PidSyncSet
+    st_loc l3
+    // @10
+    copy_loc l3
+    borrow_field PidSyncSet, syncs
+    copy_loc l1
+    call smart_table::contains<address, bool>
+    br_false l1
+    // @15
+    copy_loc l3
+    mut_borrow_field PidSyncSet, syncs
+    copy_loc l1
+    call smart_table::remove<address, bool>
+    pop
+    // @20
+    copy_loc l3
+    borrow_field PidSyncSet, sync_count
+    read_ref
+    ld_u64 1
+    sub
+    // @25
+    move_loc l3
+    mut_borrow_field PidSyncSet, sync_count
+    write_ref
+    copy_loc l1
+    exists PidSyncSet
+    // @30
+    br_true l2
+    branch l3
+l2: copy_loc l1
+    mut_borrow_global PidSyncSet
+    st_loc l4
+    // @35
+    copy_loc l4
+    borrow_field PidSyncSet, synced_by_count
+    read_ref
+    ld_u64 0
+    gt
+    // @40
+    br_false l4
+    copy_loc l4
+    borrow_field PidSyncSet, synced_by_count
+    read_ref
+    ld_u64 1
+    // @45
+    sub
+    move_loc l4
+    mut_borrow_field PidSyncSet, synced_by_count
+    write_ref
+l3: call timestamp::now_seconds
+    // @50
+    st_loc l5
+    copy_loc l2
+    copy_loc l1
+    ld_u8 1
+    ld_u8 2
+    // @55
+    copy_loc l5
+    pack LinkEvent
+    st_loc l6
+    borrow_loc l6
+    call bcs::to_bytes<LinkEvent>
+    // @60
+    st_loc l7
+    move_loc l2
+    call history::verb_sync
+    move_loc l5
+    move_loc l1
+    // @65
+    call option::some<address>
+    move_loc l7
+    call option::none<address>
+    call history::new_entry
+    call history::append
+    // @70
+    ret
+l4: move_loc l4
+    pop
+    branch l3
+l1: move_loc l3
+    // @75
+    pop
+    ld_u64 5
+    abort
+l0: ld_u64 7
+    abort
+

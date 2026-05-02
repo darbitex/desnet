@@ -1,0 +1,1327 @@
+// Bytecode version v9
+module 0x7ba7ee5a93694aa5943f4ef344737d95795d51395e3d65a1b732c776d34be724::lp_staking
+use 0x1::object
+use 0x1::vector
+use 0x1::timestamp
+use 0x1::signer
+use 0x1::aptos_coin
+use 0x1::coin
+use 0x1::fungible_asset
+use 0x1::primary_fungible_store
+use 0x7ba7ee5a93694aa5943f4ef344737d95795d51395e3d65a1b732c776d34be724::amm
+use 0x1::event
+use 0x7ba7ee5a93694aa5943f4ef344737d95795d51395e3d65a1b732c776d34be724::lp_emission
+use 0x7ba7ee5a93694aa5943f4ef344737d95795d51395e3d65a1b732c776d34be724::governance
+use 0x7ba7ee5a93694aa5943f4ef344737d95795d51395e3d65a1b732c776d34be724::voter_history
+friend 0x7ba7ee5a93694aa5943f4ef344737d95795d51395e3d65a1b732c776d34be724::factory
+struct Position has key
+  pool_addr: address
+  handle: vector<u8>
+  shares: u128
+  last_acc_per_share: u128
+  last_fee_per_lp_apt: u128
+  last_fee_per_lp_token: u128
+  unlock_at_secs: u64
+  recipient_pid: address
+
+struct Claimed has drop + store
+  handle: vector<u8>
+  position_addr: address
+  recipient: address
+  emission_amount: u64
+  apt_fee_amount: u64
+  token_fee_amount: u64
+
+struct PositionCreated has drop + store
+  handle: vector<u8>
+  position_addr: address
+  owner: address
+  shares: u128
+  unlock_at_secs: u64
+  recipient_pid: address
+  kind: u8
+
+struct PositionRemoved has drop + store
+  handle: vector<u8>
+  position_addr: address
+  owner: address
+  shares: u128
+  apt_returned: u64
+  token_returned: u64
+
+struct StakingPool has key
+  handle: vector<u8>
+  token_metadata_addr: address
+  rate_per_sec: u64
+  accumulated_per_share: u128
+  last_update_secs: u64
+  emission_reserve_addr: address
+  extend_ref: object::ExtendRef
+
+struct StakingPoolCreated has drop + store
+  handle: vector<u8>
+  pool_addr: address
+  token_metadata_addr: address
+  emission_reserve_addr: address
+  rate_per_sec: u64
+
+// Function definition at index 0
+fun pool_seed(l0: &vector<u8>): vector<u8>
+    local l1: vector<u8>
+    ld_const<vector<u8>> [100, 101, 115, 110, 101, 116, 58, 58, 108, 112, 95, 115, 116, 97, 107, 105, 110, 103, 58, 58, 112, 111, 111, 108, 58, 58]
+    st_loc l1
+    mut_borrow_loc l1
+    move_loc l0
+    read_ref
+    // @5
+    call vector::append<u8>
+    move_loc l1
+    ret
+
+// Function definition at index 1
+#[persistent] public fun acc_scale(): u128
+    ld_u128 1000000000000000000
+    ret
+
+// Function definition at index 2
+#[persistent] entry public fun add_liquidity(l0: &signer, l1: vector<u8>, l2: u64, l3: u64, l4: u64) acquires StakingPool
+    move_loc l0
+    move_loc l1
+    move_loc l2
+    move_loc l3
+    move_loc l4
+    // @5
+    ld_u64 0
+    call add_liquidity_with_lock_internal
+    ret
+
+// Function definition at index 3
+#[persistent] entry public fun add_liquidity_with_lock(l0: &signer, l1: vector<u8>, l2: u64, l3: u64, l4: u64, l5: u64) acquires StakingPool
+    local l6: u64
+    call timestamp::now_seconds
+    st_loc l6
+    copy_loc l5
+    move_loc l6
+    gt
+    // @5
+    br_false l0
+    move_loc l0
+    move_loc l1
+    move_loc l2
+    move_loc l3
+    // @10
+    move_loc l4
+    move_loc l5
+    call add_liquidity_with_lock_internal
+    ret
+l0: move_loc l0
+    // @15
+    pop
+    ld_u64 8
+    abort
+
+// Function definition at index 4
+fun add_liquidity_with_lock_internal(l0: &signer, l1: vector<u8>, l2: u64, l3: u64, l4: u64, l5: u64) acquires StakingPool
+    local l6: address
+    local l7: address
+    local l8: fungible_asset::FungibleAsset
+    local l9: object::Object<fungible_asset::Metadata>
+    local l10: fungible_asset::FungibleAsset
+    local l11: fungible_asset::FungibleAsset
+    local l12: fungible_asset::FungibleAsset
+    local l13: u128
+    local l14: &StakingPool
+    local l15: u128
+    local l16: vector<u8>
+    local l17: u128
+    local l18: u128
+    local l19: object::ConstructorRef
+    local l20: signer
+    local l21: address
+    local l22: u8
+    copy_loc l0
+    call signer::address_of
+    st_loc l6
+    copy_loc l1
+    call staking_pool_address_of_handle
+    // @5
+    st_loc l7
+    copy_loc l7
+    exists StakingPool
+    br_false l0
+    copy_loc l0
+    // @10
+    move_loc l2
+    call coin::withdraw<aptos_coin::AptosCoin>
+    call coin::coin_to_fungible_asset<aptos_coin::AptosCoin>
+    st_loc l8
+    copy_loc l7
+    // @15
+    borrow_global StakingPool
+    borrow_field StakingPool, token_metadata_addr
+    read_ref
+    call object::address_to_object<fungible_asset::Metadata>
+    st_loc l9
+    // @20
+    move_loc l0
+    move_loc l9
+    move_loc l3
+    call primary_fungible_store::withdraw<fungible_asset::Metadata>
+    st_loc l10
+    // @25
+    copy_loc l1
+    move_loc l8
+    move_loc l10
+    move_loc l4
+    call amm::add_liquidity_internal
+    // @30
+    st_loc l11
+    st_loc l12
+    st_loc l13
+    copy_loc l13
+    ld_u128 0
+    // @35
+    gt
+    br_false l1
+    borrow_loc l12
+    call fungible_asset::amount
+    ld_u64 0
+    // @40
+    gt
+    br_false l2
+    copy_loc l6
+    move_loc l12
+    call primary_fungible_store::deposit
+    // @45
+l7: borrow_loc l11
+    call fungible_asset::amount
+    ld_u64 0
+    gt
+    br_false l3
+    // @50
+    copy_loc l6
+    move_loc l11
+    call primary_fungible_store::deposit
+l6: copy_loc l7
+    call update_pool
+    // @55
+    copy_loc l7
+    borrow_global StakingPool
+    st_loc l14
+    copy_loc l14
+    borrow_field StakingPool, accumulated_per_share
+    // @60
+    read_ref
+    st_loc l15
+    move_loc l14
+    borrow_field StakingPool, handle
+    read_ref
+    // @65
+    st_loc l16
+    copy_loc l1
+    call amm::fee_per_lp
+    st_loc l17
+    st_loc l18
+    // @70
+    copy_loc l6
+    call object::create_object
+    st_loc l19
+    borrow_loc l19
+    call object::generate_signer
+    // @75
+    st_loc l20
+    borrow_loc l20
+    call signer::address_of
+    st_loc l21
+    borrow_loc l20
+    // @80
+    move_loc l7
+    move_loc l1
+    copy_loc l13
+    move_loc l15
+    move_loc l18
+    // @85
+    move_loc l17
+    copy_loc l5
+    ld_const<address> 0
+    pack Position
+    move_to Position
+    // @90
+    copy_loc l5
+    ld_u64 0
+    eq
+    br_false l4
+    ld_u8 2
+    // @95
+    st_loc l22
+l5: move_loc l16
+    move_loc l21
+    move_loc l6
+    move_loc l13
+    // @100
+    move_loc l5
+    ld_const<address> 0
+    move_loc l22
+    pack PositionCreated
+    call event::emit<PositionCreated>
+    // @105
+    ret
+l4: ld_u8 3
+    st_loc l22
+    branch l5
+l3: move_loc l11
+    // @110
+    call fungible_asset::destroy_zero
+    branch l6
+l2: move_loc l12
+    call fungible_asset::destroy_zero
+    branch l7
+    // @115
+l1: ld_u64 5
+    abort
+l0: move_loc l0
+    pop
+    ld_u64 1
+    // @120
+    abort
+
+// Function definition at index 5
+#[persistent] entry public fun claim(l0: &signer, l1: address) acquires Position, StakingPool
+    copy_loc l1
+    exists Position
+    move_loc l0
+    pop
+    br_false l0
+    // @5
+    move_loc l1
+    call claim_internal
+    ret
+l0: ld_u64 3
+    abort
+
+// Function definition at index 6
+fun claim_internal(l0: address) acquires Position, StakingPool
+    local l1: &mut Position
+    local l2: address
+    local l3: vector<u8>
+    local l4: u128
+    local l5: &StakingPool
+    local l6: u128
+    local l7: &mut u128
+    local l8: u128
+    local l9: u128
+    local l10: u128
+    local l11: u64
+    local l12: u64
+    local l13: u64
+    local l14: object::Object<fungible_asset::Metadata>
+    local l15: fungible_asset::FungibleAsset
+    local l16: u64
+    local l17: signer
+    local l18: bool
+    local l19: fungible_asset::FungibleAsset
+    local l20: fungible_asset::FungibleAsset
+    local l21: bool
+    local l22: bool
+    copy_loc l0
+    mut_borrow_global Position
+    st_loc l1
+    copy_loc l1
+    borrow_field Position, pool_addr
+    // @5
+    read_ref
+    st_loc l2
+    copy_loc l1
+    borrow_field Position, handle
+    read_ref
+    // @10
+    st_loc l3
+    copy_loc l1
+    borrow_field Position, shares
+    read_ref
+    st_loc l4
+    // @15
+    copy_loc l2
+    call update_pool
+    move_loc l2
+    borrow_global StakingPool
+    st_loc l5
+    // @20
+    copy_loc l5
+    borrow_field StakingPool, accumulated_per_share
+    read_ref
+    st_loc l6
+    copy_loc l6
+    // @25
+    copy_loc l1
+    borrow_field Position, last_acc_per_share
+    read_ref
+    sub
+    copy_loc l4
+    // @30
+    mul
+    ld_u128 1000000000000000000
+    div
+    copy_loc l1
+    mut_borrow_field Position, last_acc_per_share
+    // @35
+    st_loc l7
+    move_loc l6
+    move_loc l7
+    write_ref
+    copy_loc l3
+    // @40
+    call amm::fee_per_lp
+    st_loc l8
+    st_loc l6
+    call amm::fee_acc_scale
+    st_loc l9
+    // @45
+    copy_loc l6
+    copy_loc l1
+    borrow_field Position, last_fee_per_lp_apt
+    read_ref
+    sub
+    // @50
+    copy_loc l4
+    mul
+    copy_loc l9
+    div
+    st_loc l10
+    // @55
+    copy_loc l8
+    copy_loc l1
+    borrow_field Position, last_fee_per_lp_token
+    read_ref
+    sub
+    // @60
+    move_loc l4
+    mul
+    move_loc l9
+    div
+    st_loc l4
+    // @65
+    copy_loc l1
+    mut_borrow_field Position, last_fee_per_lp_apt
+    st_loc l7
+    move_loc l6
+    move_loc l7
+    // @70
+    write_ref
+    copy_loc l1
+    mut_borrow_field Position, last_fee_per_lp_token
+    st_loc l7
+    move_loc l8
+    // @75
+    move_loc l7
+    write_ref
+    cast_u64
+    st_loc l11
+    move_loc l10
+    // @80
+    cast_u64
+    st_loc l12
+    move_loc l4
+    cast_u64
+    st_loc l13
+    // @85
+    move_loc l1
+    borrow_field Position, recipient_pid
+    read_ref
+    copy_loc l0
+    call resolve_recipient
+    // @90
+    st_loc l2
+    copy_loc l11
+    ld_u64 0
+    gt
+    br_true l0
+    // @95
+    branch l1
+l0: copy_loc l5
+    borrow_field StakingPool, token_metadata_addr
+    read_ref
+    call object::address_to_object<fungible_asset::Metadata>
+    // @100
+    st_loc l14
+    copy_loc l5
+    borrow_field StakingPool, emission_reserve_addr
+    read_ref
+    move_loc l14
+    // @105
+    copy_loc l11
+    call lp_emission::pull_for_claim
+    st_loc l15
+    borrow_loc l15
+    call fungible_asset::amount
+    // @110
+    st_loc l16
+    copy_loc l2
+    move_loc l15
+    call primary_fungible_store::deposit
+    copy_loc l16
+    // @115
+    ld_u64 0
+    gt
+    br_true l2
+    branch l1
+l2: call governance::derive_pkg_signer
+    // @120
+    st_loc l17
+    borrow_loc l17
+    copy_loc l2
+    copy_loc l5
+    borrow_field StakingPool, token_metadata_addr
+    // @125
+    read_ref
+    copy_loc l16
+    call voter_history::record_reward_received_for_token
+    move_loc l16
+    call governance::record_emission_for_window
+    // @130
+l1: copy_loc l12
+    ld_u64 0
+    gt
+    br_false l3
+    ld_true
+    // @135
+    st_loc l18
+l14: move_loc l18
+    br_true l4
+    branch l5
+l4: move_loc l3
+    // @140
+    copy_loc l12
+    copy_loc l13
+    call amm::extract_fees_for_claim
+    st_loc l19
+    st_loc l20
+    // @145
+    borrow_loc l20
+    call fungible_asset::amount
+    ld_u64 0
+    gt
+    br_false l6
+    // @150
+    copy_loc l2
+    move_loc l20
+    call primary_fungible_store::deposit
+l13: borrow_loc l19
+    call fungible_asset::amount
+    // @155
+    ld_u64 0
+    gt
+    br_false l7
+    copy_loc l2
+    move_loc l19
+    // @160
+    call primary_fungible_store::deposit
+l5: copy_loc l11
+    ld_u64 0
+    eq
+    br_false l8
+    // @165
+    copy_loc l12
+    ld_u64 0
+    eq
+    st_loc l21
+l12: move_loc l21
+    // @170
+    br_false l9
+    copy_loc l13
+    ld_u64 0
+    eq
+    st_loc l22
+    // @175
+l11: move_loc l22
+    br_false l10
+    move_loc l5
+    pop
+    ret
+    // @180
+l10: move_loc l5
+    borrow_field StakingPool, handle
+    read_ref
+    move_loc l0
+    move_loc l2
+    // @185
+    move_loc l11
+    move_loc l12
+    move_loc l13
+    pack Claimed
+    call event::emit<Claimed>
+    // @190
+    ret
+l9: ld_false
+    st_loc l22
+    branch l11
+l8: ld_false
+    // @195
+    st_loc l21
+    branch l12
+l7: move_loc l19
+    call fungible_asset::destroy_zero
+    branch l5
+    // @200
+l6: move_loc l20
+    call fungible_asset::destroy_zero
+    branch l13
+l3: copy_loc l13
+    ld_u64 0
+    // @205
+    gt
+    st_loc l18
+    branch l14
+
+// Function definition at index 7
+friend fun create_pool_and_lock(l0: vector<u8>, l1: address, l2: address, l3: address, l4: &signer, l5: u128): address
+    local l6: address
+    local l7: signer
+    local l8: object::ConstructorRef
+    local l9: signer
+    local l10: object::ExtendRef
+    local l11: object::TransferRef
+    local l12: u64
+    local l13: u128
+    local l14: u128
+    copy_loc l0
+    call staking_pool_address_of_handle
+    st_loc l6
+    copy_loc l6
+    exists StakingPool
+    // @5
+    br_true l0
+    copy_loc l5
+    ld_u128 0
+    gt
+    br_false l1
+    // @10
+    copy_loc l4
+    call signer::address_of
+    copy_loc l3
+    eq
+    br_false l2
+    // @15
+    copy_loc l3
+    exists Position
+    br_true l3
+    call governance::derive_pkg_signer
+    st_loc l7
+    // @20
+    borrow_loc l7
+    borrow_loc l0
+    call pool_seed
+    call object::create_named_object
+    st_loc l8
+    // @25
+    borrow_loc l8
+    call object::generate_signer
+    st_loc l9
+    borrow_loc l8
+    call object::generate_extend_ref
+    // @30
+    st_loc l10
+    borrow_loc l8
+    call object::generate_transfer_ref
+    st_loc l11
+    borrow_loc l11
+    // @35
+    call object::disable_ungated_transfer
+    call timestamp::now_seconds
+    st_loc l12
+    borrow_loc l9
+    copy_loc l0
+    // @40
+    copy_loc l1
+    ld_u64 1000000000
+    ld_u128 0
+    move_loc l12
+    copy_loc l2
+    // @45
+    move_loc l10
+    pack StakingPool
+    move_to StakingPool
+    copy_loc l0
+    copy_loc l6
+    // @50
+    move_loc l1
+    move_loc l2
+    ld_u64 1000000000
+    pack StakingPoolCreated
+    call event::emit<StakingPoolCreated>
+    // @55
+    copy_loc l0
+    call amm::fee_per_lp
+    st_loc l13
+    st_loc l14
+    move_loc l4
+    // @60
+    copy_loc l6
+    copy_loc l0
+    copy_loc l5
+    ld_u128 0
+    move_loc l14
+    // @65
+    move_loc l13
+    ld_u64 18446744073709551615
+    copy_loc l3
+    pack Position
+    move_to Position
+    // @70
+    move_loc l0
+    copy_loc l3
+    copy_loc l3
+    call object::address_to_object<object::ObjectCore>
+    call object::owner<object::ObjectCore>
+    // @75
+    move_loc l5
+    ld_u64 18446744073709551615
+    move_loc l3
+    ld_u8 1
+    pack PositionCreated
+    // @80
+    call event::emit<PositionCreated>
+    move_loc l6
+    ret
+l3: move_loc l4
+    pop
+    // @85
+    ld_u64 9
+    abort
+l2: move_loc l4
+    pop
+    ld_u64 10
+    // @90
+    abort
+l1: move_loc l4
+    pop
+    ld_u64 5
+    abort
+    // @95
+l0: move_loc l4
+    pop
+    ld_u64 2
+    abort
+
+// Function definition at index 8
+#[persistent] public fun default_rate_per_sec(): u64
+    ld_u64 1000000000
+    ret
+
+// Function definition at index 9
+#[persistent] public fun has_position(l0: address): bool
+    move_loc l0
+    exists Position
+    ret
+
+// Function definition at index 10
+#[persistent] public fun pool_acc_per_share(l0: address): u128 acquires StakingPool
+    copy_loc l0
+    exists StakingPool
+    br_false l0
+    move_loc l0
+    borrow_global StakingPool
+    // @5
+    borrow_field StakingPool, accumulated_per_share
+    read_ref
+    ret
+l0: ld_u64 1
+    abort
+
+// Function definition at index 11
+#[persistent] public fun pool_rate_per_sec(l0: address): u64 acquires StakingPool
+    copy_loc l0
+    exists StakingPool
+    br_false l0
+    move_loc l0
+    borrow_global StakingPool
+    // @5
+    borrow_field StakingPool, rate_per_sec
+    read_ref
+    ret
+l0: ld_u64 1
+    abort
+
+// Function definition at index 12
+#[persistent] public fun position_fee_debt(l0: object::Object<Position>): (u128, u128) acquires Position
+    local l1: address
+    local l2: &Position
+    borrow_loc l0
+    call object::object_address<Position>
+    st_loc l1
+    copy_loc l1
+    exists Position
+    // @5
+    br_false l0
+    move_loc l1
+    borrow_global Position
+    st_loc l2
+    copy_loc l2
+    // @10
+    borrow_field Position, last_fee_per_lp_apt
+    read_ref
+    move_loc l2
+    borrow_field Position, last_fee_per_lp_token
+    read_ref
+    // @15
+    ret
+l0: ld_u64 3
+    abort
+
+// Function definition at index 13
+#[persistent] public fun position_owner(l0: address): address
+    move_loc l0
+    call object::address_to_object<Position>
+    call object::owner<Position>
+    ret
+
+// Function definition at index 14
+#[persistent] public fun position_pending_all(l0: address): (u64, u64, u64) acquires Position, StakingPool
+    local l1: &Position
+    local l2: &StakingPool
+    local l3: u128
+    local l4: u64
+    local l5: u128
+    local l6: bool
+    local l7: u128
+    local l8: u128
+    local l9: u128
+    local l10: u64
+    local l11: u64
+    local l12: u64
+    copy_loc l0
+    exists Position
+    br_true l0
+    ld_u64 0
+    ld_u64 0
+    // @5
+    ld_u64 0
+    ret
+l0: move_loc l0
+    borrow_global Position
+    st_loc l1
+    // @10
+    copy_loc l1
+    borrow_field Position, pool_addr
+    read_ref
+    st_loc l0
+    copy_loc l0
+    // @15
+    exists StakingPool
+    br_true l1
+    move_loc l1
+    pop
+    ld_u64 0
+    // @20
+    ld_u64 0
+    ld_u64 0
+    ret
+l1: move_loc l0
+    borrow_global StakingPool
+    // @25
+    st_loc l2
+    copy_loc l1
+    borrow_field Position, handle
+    read_ref
+    call amm::lp_supply
+    // @30
+    st_loc l3
+    call timestamp::now_seconds
+    st_loc l4
+    copy_loc l2
+    borrow_field StakingPool, accumulated_per_share
+    // @35
+    read_ref
+    st_loc l5
+    copy_loc l4
+    copy_loc l2
+    borrow_field StakingPool, last_update_secs
+    // @40
+    read_ref
+    gt
+    br_false l2
+    copy_loc l3
+    ld_u128 0
+    // @45
+    gt
+    st_loc l6
+l5: move_loc l6
+    br_false l3
+    move_loc l4
+    // @50
+    copy_loc l2
+    borrow_field StakingPool, last_update_secs
+    read_ref
+    sub
+    cast_u128
+    // @55
+    move_loc l2
+    borrow_field StakingPool, rate_per_sec
+    read_ref
+    cast_u128
+    mul
+    // @60
+    ld_u128 1000000000000000000
+    mul
+    move_loc l3
+    div
+    st_loc l7
+    // @65
+    move_loc l5
+    move_loc l7
+    add
+    st_loc l5
+l4: move_loc l5
+    // @70
+    copy_loc l1
+    borrow_field Position, last_acc_per_share
+    read_ref
+    sub
+    copy_loc l1
+    // @75
+    borrow_field Position, shares
+    read_ref
+    mul
+    ld_u128 1000000000000000000
+    div
+    // @80
+    cast_u64
+    copy_loc l1
+    borrow_field Position, handle
+    read_ref
+    call amm::fee_per_lp
+    // @85
+    call amm::fee_acc_scale
+    st_loc l8
+    st_loc l9
+    copy_loc l1
+    borrow_field Position, last_fee_per_lp_apt
+    // @90
+    read_ref
+    sub
+    copy_loc l1
+    borrow_field Position, shares
+    read_ref
+    // @95
+    mul
+    copy_loc l8
+    div
+    cast_u64
+    move_loc l9
+    // @100
+    copy_loc l1
+    borrow_field Position, last_fee_per_lp_token
+    read_ref
+    sub
+    move_loc l1
+    // @105
+    borrow_field Position, shares
+    read_ref
+    mul
+    move_loc l8
+    div
+    // @110
+    cast_u64
+    ret
+l3: move_loc l2
+    pop
+    branch l4
+    // @115
+l2: ld_false
+    st_loc l6
+    branch l5
+
+// Function definition at index 15
+#[persistent] public fun position_pending_fees(l0: object::Object<Position>): (u64, u64) acquires Position
+    local l1: address
+    local l2: &Position
+    local l3: u128
+    local l4: u128
+    local l5: u128
+    local l6: u64
+    local l7: u64
+    borrow_loc l0
+    call object::object_address<Position>
+    st_loc l1
+    copy_loc l1
+    exists Position
+    // @5
+    br_true l0
+    ld_u64 0
+    ld_u64 0
+    ret
+l0: move_loc l1
+    // @10
+    borrow_global Position
+    st_loc l2
+    copy_loc l2
+    borrow_field Position, handle
+    read_ref
+    // @15
+    call amm::fee_per_lp
+    call amm::fee_acc_scale
+    st_loc l3
+    st_loc l4
+    copy_loc l2
+    // @20
+    borrow_field Position, last_fee_per_lp_apt
+    read_ref
+    sub
+    copy_loc l2
+    borrow_field Position, shares
+    // @25
+    read_ref
+    mul
+    copy_loc l3
+    div
+    cast_u64
+    // @30
+    move_loc l4
+    copy_loc l2
+    borrow_field Position, last_fee_per_lp_token
+    read_ref
+    sub
+    // @35
+    move_loc l2
+    borrow_field Position, shares
+    read_ref
+    mul
+    move_loc l3
+    // @40
+    div
+    cast_u64
+    ret
+
+// Function definition at index 16
+#[persistent] public fun position_pool(l0: address): address acquires Position
+    copy_loc l0
+    exists Position
+    br_false l0
+    move_loc l0
+    borrow_global Position
+    // @5
+    borrow_field Position, pool_addr
+    read_ref
+    ret
+l0: ld_u64 3
+    abort
+
+// Function definition at index 17
+#[persistent] public fun position_pool_addr(l0: object::Object<Position>): address acquires Position
+    local l1: address
+    borrow_loc l0
+    call object::object_address<Position>
+    st_loc l1
+    copy_loc l1
+    exists Position
+    // @5
+    br_false l0
+    move_loc l1
+    borrow_global Position
+    borrow_field Position, pool_addr
+    read_ref
+    // @10
+    ret
+l0: ld_u64 3
+    abort
+
+// Function definition at index 18
+#[persistent] public fun position_recipient_pid(l0: address): address acquires Position
+    copy_loc l0
+    exists Position
+    br_false l0
+    move_loc l0
+    borrow_global Position
+    // @5
+    borrow_field Position, recipient_pid
+    read_ref
+    ret
+l0: ld_u64 3
+    abort
+
+// Function definition at index 19
+#[persistent] public fun position_shares(l0: address): u128 acquires Position
+    copy_loc l0
+    exists Position
+    br_false l0
+    move_loc l0
+    borrow_global Position
+    // @5
+    borrow_field Position, shares
+    read_ref
+    ret
+l0: ld_u64 3
+    abort
+
+// Function definition at index 20
+#[persistent] public fun position_shares_obj(l0: object::Object<Position>): u128 acquires Position
+    local l1: address
+    borrow_loc l0
+    call object::object_address<Position>
+    st_loc l1
+    copy_loc l1
+    exists Position
+    // @5
+    br_false l0
+    move_loc l1
+    borrow_global Position
+    borrow_field Position, shares
+    read_ref
+    // @10
+    ret
+l0: ld_u64 3
+    abort
+
+// Function definition at index 21
+#[persistent] public fun position_unlock_at(l0: address): u64 acquires Position
+    copy_loc l0
+    exists Position
+    br_false l0
+    move_loc l0
+    borrow_global Position
+    // @5
+    borrow_field Position, unlock_at_secs
+    read_ref
+    ret
+l0: ld_u64 3
+    abort
+
+// Function definition at index 22
+#[persistent] entry public fun remove_liquidity(l0: &signer, l1: address, l2: u64, l3: u64) acquires Position, StakingPool
+    local l4: &Position
+    local l5: u64
+    local l6: vector<u8>
+    local l7: address
+    local l8: u128
+    local l9: fungible_asset::FungibleAsset
+    local l10: fungible_asset::FungibleAsset
+    local l11: u64
+    local l12: u64
+    copy_loc l1
+    exists Position
+    br_false l0
+    copy_loc l1
+    borrow_global Position
+    // @5
+    st_loc l4
+    copy_loc l4
+    borrow_field Position, unlock_at_secs
+    read_ref
+    st_loc l5
+    // @10
+    copy_loc l4
+    borrow_field Position, pool_addr
+    read_ref
+    pop
+    move_loc l4
+    // @15
+    borrow_field Position, handle
+    read_ref
+    st_loc l6
+    copy_loc l1
+    call object::address_to_object<Position>
+    // @20
+    call object::owner<Position>
+    st_loc l7
+    move_loc l0
+    call signer::address_of
+    copy_loc l7
+    // @25
+    eq
+    br_false l1
+    copy_loc l5
+    ld_u64 18446744073709551615
+    neq
+    // @30
+    br_false l2
+    call timestamp::now_seconds
+    move_loc l5
+    ge
+    br_false l3
+    // @35
+    copy_loc l1
+    call claim_internal
+    copy_loc l1
+    move_from Position
+    unpack Position
+    // @40
+    pop
+    pop
+    pop
+    pop
+    pop
+    // @45
+    st_loc l8
+    pop
+    pop
+    copy_loc l6
+    copy_loc l8
+    // @50
+    move_loc l2
+    move_loc l3
+    call amm::remove_liquidity_internal
+    st_loc l9
+    st_loc l10
+    // @55
+    borrow_loc l10
+    call fungible_asset::amount
+    st_loc l11
+    borrow_loc l9
+    call fungible_asset::amount
+    // @60
+    st_loc l12
+    copy_loc l7
+    move_loc l10
+    call primary_fungible_store::deposit
+    copy_loc l7
+    // @65
+    move_loc l9
+    call primary_fungible_store::deposit
+    move_loc l6
+    move_loc l1
+    move_loc l7
+    // @70
+    move_loc l8
+    move_loc l11
+    move_loc l12
+    pack PositionRemoved
+    call event::emit<PositionRemoved>
+    // @75
+    ret
+l3: ld_u64 6
+    abort
+l2: ld_u64 7
+    abort
+    // @80
+l1: ld_u64 4
+    abort
+l0: move_loc l0
+    pop
+    ld_u64 3
+    // @85
+    abort
+
+// Function definition at index 23
+fun resolve_recipient(l0: address, l1: address): address
+    copy_loc l0
+    ld_const<address> 0
+    eq
+    br_false l0
+    move_loc l1
+    // @5
+    call object::address_to_object<Position>
+    call object::owner<Position>
+    ret
+l0: move_loc l0
+    call object::address_to_object<object::ObjectCore>
+    // @10
+    call object::owner<object::ObjectCore>
+    ret
+
+// Function definition at index 24
+#[persistent] public fun staking_pool_address_of_handle(l0: vector<u8>): address
+    local l1: vector<u8>
+    local l2: address
+    borrow_loc l0
+    call pool_seed
+    st_loc l1
+    ld_const<address> 55931188893109713473377936165989862777849437759270464167622070126626736957220
+    st_loc l2
+    // @5
+    borrow_loc l2
+    move_loc l1
+    call object::create_object_address
+    ret
+
+// Function definition at index 25
+#[persistent] public fun staking_pool_exists(l0: vector<u8>): bool
+    move_loc l0
+    call staking_pool_address_of_handle
+    exists StakingPool
+    ret
+
+// Function definition at index 26
+#[persistent] public fun unlock_forever_marker(): u64
+    ld_u64 18446744073709551615
+    ret
+
+// Function definition at index 27
+fun update_pool(l0: address) acquires StakingPool
+    local l1: &mut StakingPool
+    local l2: u64
+    local l3: u128
+    local l4: &mut u64
+    move_loc l0
+    mut_borrow_global StakingPool
+    st_loc l1
+    call timestamp::now_seconds
+    st_loc l2
+    // @5
+    copy_loc l2
+    copy_loc l1
+    borrow_field StakingPool, last_update_secs
+    read_ref
+    le
+    // @10
+    br_false l0
+    move_loc l1
+    pop
+    ret
+l0: copy_loc l1
+    // @15
+    borrow_field StakingPool, handle
+    read_ref
+    call amm::lp_supply
+    st_loc l3
+    copy_loc l3
+    // @20
+    ld_u128 0
+    eq
+    br_false l1
+    move_loc l1
+    mut_borrow_field StakingPool, last_update_secs
+    // @25
+    st_loc l4
+    move_loc l2
+    move_loc l4
+    write_ref
+    ret
+    // @30
+l1: copy_loc l2
+    copy_loc l1
+    borrow_field StakingPool, last_update_secs
+    read_ref
+    sub
+    // @35
+    cast_u128
+    copy_loc l1
+    borrow_field StakingPool, rate_per_sec
+    read_ref
+    cast_u128
+    // @40
+    mul
+    ld_u128 1000000000000000000
+    mul
+    move_loc l3
+    div
+    // @45
+    st_loc l3
+    copy_loc l1
+    borrow_field StakingPool, accumulated_per_share
+    read_ref
+    move_loc l3
+    // @50
+    add
+    copy_loc l1
+    mut_borrow_field StakingPool, accumulated_per_share
+    write_ref
+    move_loc l1
+    // @55
+    mut_borrow_field StakingPool, last_update_secs
+    st_loc l4
+    move_loc l2
+    move_loc l4
+    write_ref
+    // @60
+    ret
+

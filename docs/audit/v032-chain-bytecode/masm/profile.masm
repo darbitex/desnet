@@ -1,0 +1,1117 @@
+// Bytecode version v9
+module 0x7ba7ee5a93694aa5943f4ef344737d95795d51395e3d65a1b732c776d34be724::profile
+use 0x1::string
+use 0x1::smart_table
+use 0x1::option
+use 0x7ba7ee5a93694aa5943f4ef344737d95795d51395e3d65a1b732c776d34be724::reference_gate
+use 0x1::object
+use 0x1::signer
+use 0x1::timestamp
+use 0x1::event
+use 0x1::vector
+use 0x1::bcs
+use 0x1::fungible_asset
+use 0x1::primary_fungible_store
+use 0x7ba7ee5a93694aa5943f4ef344737d95795d51395e3d65a1b732c776d34be724::handle_fee_vault
+use 0x7ba7ee5a93694aa5943f4ef344737d95795d51395e3d65a1b732c776d34be724::factory
+use 0x7ba7ee5a93694aa5943f4ef344737d95795d51395e3d65a1b732c776d34be724::governance
+friend 0x7ba7ee5a93694aa5943f4ef344737d95795d51395e3d65a1b732c776d34be724::history
+friend 0x7ba7ee5a93694aa5943f4ef344737d95795d51395e3d65a1b732c776d34be724::link
+friend 0x7ba7ee5a93694aa5943f4ef344737d95795d51395e3d65a1b732c776d34be724::mint
+friend 0x7ba7ee5a93694aa5943f4ef344737d95795d51395e3d65a1b732c776d34be724::giveaway
+friend 0x7ba7ee5a93694aa5943f4ef344737d95795d51395e3d65a1b732c776d34be724::press
+friend 0x7ba7ee5a93694aa5943f4ef344737d95795d51395e3d65a1b732c776d34be724::pulse
+struct ControllerRotated has drop + store
+  pid_addr: address
+  old_controller: address
+  new_controller: address
+  timestamp_secs: u64
+
+struct HandleRegistered has drop + store
+  handle: string::String
+  wallet: address
+  pid_addr: address
+  fee_paid_apt: u64
+  timestamp_secs: u64
+
+struct HandleRegistry has key
+  handle_to_wallet: smart_table::SmartTable<string::String, address>
+
+struct PidTokenWithdrawn has drop + store
+  pid_addr: address
+  token_metadata: address
+  amount: u64
+  recipient: address
+  timestamp_secs: u64
+
+struct Profile has key
+  handle: string::String
+  controller: address
+  signers_: smart_table::SmartTable<vector<u8>, SignerEntry>
+  metadata_uri: string::String
+  avatar_blob_id: vector<u8>
+  banner_blob_id: vector<u8>
+  bio: string::String
+  sync_gate: option::Option<reference_gate::ReferenceGate>
+  extend_ref: object::ExtendRef
+  registered_at_secs: u64
+
+struct ProfileMetadataUpdated has drop + store
+  pid_addr: address
+  timestamp_secs: u64
+
+struct ProtocolInitialized has drop + store
+  protocol_addr: address
+  timestamp_secs: u64
+
+struct ProtocolState has key
+  fee_receiver: address
+  admin: address
+
+struct SignerAdded has drop + store
+  pid_addr: address
+  pubkey: vector<u8>
+  app_label: string::String
+  timestamp_secs: u64
+
+struct SignerEntry has copy + drop + store
+  app_label: string::String
+  added_at_secs: u64
+  last_used_secs: u64
+
+struct SignerRevoked has drop + store
+  pid_addr: address
+  pubkey: vector<u8>
+  timestamp_secs: u64
+
+struct SyncGateAttached has drop + store
+  pid_addr: address
+  timestamp_secs: u64
+
+struct SyncGateCleared has drop + store
+  pid_addr: address
+  timestamp_secs: u64
+
+struct TransferVault has key
+  transfer_ref: object::TransferRef
+
+// Function definition at index 0
+fun init_module(l0: &signer)
+    local l1: address
+    copy_loc l0
+    call signer::address_of
+    st_loc l1
+    copy_loc l0
+    copy_loc l1
+    // @5
+    ld_const<address> 799008279626092026266606374476533705615973526478392622784892721766771113
+    pack ProtocolState
+    move_to ProtocolState
+    move_loc l0
+    call smart_table::new<string::String, address>
+    // @10
+    pack HandleRegistry
+    move_to HandleRegistry
+    move_loc l1
+    call timestamp::now_seconds
+    pack ProtocolInitialized
+    // @15
+    call event::emit<ProtocolInitialized>
+    ret
+
+// Function definition at index 1
+#[persistent] entry public fun update_metadata(l0: &signer, l1: address, l2: vector<u8>, l3: vector<u8>, l4: vector<u8>, l5: vector<u8>) acquires Profile
+    local l6: &mut Profile
+    local l7: &mut vector<u8>
+    move_loc l0
+    copy_loc l1
+    call assert_controller
+    borrow_loc l2
+    vec_len <u8>
+    // @5
+    ld_u64 8192
+    le
+    br_false l0
+    borrow_loc l3
+    vec_len <u8>
+    // @10
+    ld_u64 8192
+    le
+    br_false l1
+    borrow_loc l4
+    vec_len <u8>
+    // @15
+    ld_u64 333
+    le
+    br_false l2
+    copy_loc l1
+    mut_borrow_global Profile
+    // @20
+    st_loc l6
+    copy_loc l6
+    mut_borrow_field Profile, avatar_blob_id
+    st_loc l7
+    move_loc l2
+    // @25
+    move_loc l7
+    write_ref
+    copy_loc l6
+    mut_borrow_field Profile, banner_blob_id
+    st_loc l7
+    // @30
+    move_loc l3
+    move_loc l7
+    write_ref
+    move_loc l4
+    call string::utf8
+    // @35
+    copy_loc l6
+    mut_borrow_field Profile, bio
+    write_ref
+    move_loc l5
+    call string::utf8
+    // @40
+    move_loc l6
+    mut_borrow_field Profile, metadata_uri
+    write_ref
+    move_loc l1
+    call timestamp::now_seconds
+    // @45
+    pack ProfileMetadataUpdated
+    call event::emit<ProfileMetadataUpdated>
+    ret
+l2: ld_u64 13
+    abort
+    // @50
+l1: ld_u64 12
+    abort
+l0: ld_u64 12
+    abort
+
+// Function definition at index 2
+#[persistent] entry public fun rotate_admin(l0: &signer, l1: address) acquires ProtocolState
+    local l2: &mut ProtocolState
+    local l3: &mut address
+    copy_loc l1
+    ld_const<address> 0
+    neq
+    br_false l0
+    ld_const<address> 55931188893109713473377936165989862777849437759270464167622070126626736957220
+    // @5
+    mut_borrow_global ProtocolState
+    st_loc l2
+    move_loc l0
+    call signer::address_of
+    copy_loc l2
+    // @10
+    borrow_field ProtocolState, admin
+    read_ref
+    eq
+    br_false l1
+    move_loc l2
+    // @15
+    mut_borrow_field ProtocolState, admin
+    st_loc l3
+    move_loc l1
+    move_loc l3
+    write_ref
+    // @20
+    ret
+l1: move_loc l2
+    pop
+    ld_u64 14
+    abort
+    // @25
+l0: move_loc l0
+    pop
+    ld_u64 18
+    abort
+
+// Function definition at index 3
+fun validate_handle(l0: &vector<u8>)
+    local l1: u64
+    local l2: u64
+    local l3: u8
+    local l4: bool
+    local l5: bool
+    local l6: bool
+    copy_loc l0
+    vec_len <u8>
+    st_loc l1
+    copy_loc l1
+    ld_u64 1
+    // @5
+    ge
+    br_false l0
+    copy_loc l1
+    ld_u64 64
+    le
+    // @10
+    br_false l1
+    ld_u64 0
+    st_loc l2
+l7: copy_loc l2
+    copy_loc l1
+    // @15
+    lt
+    br_false l2
+    copy_loc l0
+    copy_loc l2
+    vec_borrow <u8>
+    // @20
+    read_ref
+    st_loc l3
+    copy_loc l3
+    ld_u8 97
+    ge
+    // @25
+    br_false l3
+    copy_loc l3
+    ld_u8 122
+    le
+    st_loc l4
+    // @30
+l11: move_loc l4
+    br_false l4
+    ld_true
+    st_loc l5
+l10: move_loc l5
+    // @35
+    br_false l5
+    ld_true
+    st_loc l6
+l8: move_loc l6
+    br_false l6
+    // @40
+    move_loc l2
+    ld_u64 1
+    add
+    st_loc l2
+    branch l7
+    // @45
+l6: move_loc l0
+    pop
+    ld_u64 4
+    abort
+l5: move_loc l3
+    // @50
+    ld_u8 45
+    eq
+    st_loc l6
+    branch l8
+l4: copy_loc l3
+    // @55
+    ld_u8 48
+    ge
+    br_false l9
+    copy_loc l3
+    ld_u8 57
+    // @60
+    le
+    st_loc l5
+    branch l10
+l9: ld_false
+    st_loc l5
+    // @65
+    branch l10
+l3: ld_false
+    st_loc l4
+    branch l11
+l2: move_loc l0
+    // @70
+    pop
+    ret
+l1: move_loc l0
+    pop
+    ld_u64 3
+    // @75
+    abort
+l0: move_loc l0
+    pop
+    ld_u64 2
+    abort
+
+// Function definition at index 4
+#[persistent] entry public fun add_signer(l0: &signer, l1: address, l2: vector<u8>, l3: vector<u8>) acquires Profile
+    local l4: SignerEntry
+    move_loc l0
+    copy_loc l1
+    call assert_controller
+    copy_loc l1
+    mut_borrow_global Profile
+    // @5
+    copy_loc l3
+    call string::utf8
+    ld_u64 0
+    ld_u64 0
+    pack SignerEntry
+    // @10
+    st_loc l4
+    mut_borrow_field Profile, signers_
+    copy_loc l2
+    move_loc l4
+    call smart_table::add<vector<u8>, SignerEntry>
+    // @15
+    move_loc l1
+    move_loc l2
+    move_loc l3
+    call string::utf8
+    call timestamp::now_seconds
+    // @20
+    pack SignerAdded
+    call event::emit<SignerAdded>
+    ret
+
+// Function definition at index 5
+fun assert_controller(l0: &signer, l1: address) acquires Profile
+    copy_loc l1
+    exists Profile
+    br_false l0
+    move_loc l1
+    borrow_global Profile
+    // @5
+    borrow_field Profile, controller
+    read_ref
+    move_loc l0
+    call signer::address_of
+    eq
+    // @10
+    br_false l1
+    ret
+l1: ld_u64 6
+    abort
+l0: move_loc l0
+    // @15
+    pop
+    ld_u64 8
+    abort
+
+// Function definition at index 6
+fun assert_controller_or_owner(l0: &signer, l1: address) acquires Profile
+    local l2: address
+    copy_loc l1
+    exists Profile
+    br_false l0
+    move_loc l0
+    call signer::address_of
+    // @5
+    st_loc l2
+    copy_loc l1
+    borrow_global Profile
+    borrow_field Profile, controller
+    read_ref
+    // @10
+    copy_loc l2
+    eq
+    br_false l1
+    ret
+l1: move_loc l1
+    // @15
+    call object::address_to_object<Profile>
+    call object::owner<Profile>
+    move_loc l2
+    eq
+    br_false l2
+    // @20
+    ret
+l2: ld_u64 15
+    abort
+l0: move_loc l0
+    pop
+    // @25
+    ld_u64 8
+    abort
+
+// Function definition at index 7
+fun assert_owner(l0: &signer, l1: address)
+    copy_loc l1
+    exists Profile
+    br_false l0
+    move_loc l1
+    call object::address_to_object<Profile>
+    // @5
+    call object::owner<Profile>
+    move_loc l0
+    call signer::address_of
+    eq
+    br_false l1
+    // @10
+    ret
+l1: ld_u64 7
+    abort
+l0: move_loc l0
+    pop
+    // @15
+    ld_u64 8
+    abort
+
+// Function definition at index 8
+friend fun assert_pid_exists(l0: address)
+    move_loc l0
+    exists Profile
+    br_false l0
+    ret
+l0: ld_u64 8
+    // @5
+    abort
+
+// Function definition at index 9
+#[persistent] entry public fun attach_sync_gate(l0: &signer, l1: address, l2: address, l3: u64, l4: u64, l5: u64) acquires Profile
+    local l6: &mut Profile
+    move_loc l0
+    copy_loc l1
+    call assert_controller
+    copy_loc l1
+    mut_borrow_global Profile
+    // @5
+    st_loc l6
+    copy_loc l6
+    borrow_field Profile, sync_gate
+    call option::is_none<reference_gate::ReferenceGate>
+    br_false l0
+    // @10
+    move_loc l2
+    move_loc l3
+    move_loc l4
+    move_loc l5
+    call reference_gate::new
+    // @15
+    call option::some<reference_gate::ReferenceGate>
+    move_loc l6
+    mut_borrow_field Profile, sync_gate
+    write_ref
+    move_loc l1
+    // @20
+    call timestamp::now_seconds
+    pack SyncGateAttached
+    call event::emit<SyncGateAttached>
+    ret
+l0: move_loc l6
+    // @25
+    pop
+    ld_u64 16
+    abort
+
+// Function definition at index 10
+#[persistent] entry public fun clear_sync_gate(l0: &signer, l1: address) acquires Profile
+    local l2: &mut Profile
+    move_loc l0
+    copy_loc l1
+    call assert_controller
+    copy_loc l1
+    mut_borrow_global Profile
+    // @5
+    st_loc l2
+    call option::none<reference_gate::ReferenceGate>
+    move_loc l2
+    mut_borrow_field Profile, sync_gate
+    write_ref
+    // @10
+    move_loc l1
+    call timestamp::now_seconds
+    pack SyncGateCleared
+    call event::emit<SyncGateCleared>
+    ret
+
+// Function definition at index 11
+#[persistent] public fun controller_of(l0: address): address acquires Profile
+    copy_loc l0
+    exists Profile
+    br_false l0
+    move_loc l0
+    borrow_global Profile
+    // @5
+    borrow_field Profile, controller
+    read_ref
+    ret
+l0: ld_u64 8
+    abort
+
+// Function definition at index 12
+#[persistent] public fun derive_pid_address(l0: address): address
+    local l1: vector<u8>
+    local l2: address
+    vec_pack <u8>, 0
+    st_loc l1
+    mut_borrow_loc l1
+    ld_const<vector<u8>> [112, 105, 100, 58, 58]
+    call vector::append<u8>
+    // @5
+    mut_borrow_loc l1
+    borrow_loc l0
+    call bcs::to_bytes<address>
+    call vector::append<u8>
+    ld_const<address> 55931188893109713473377936165989862777849437759270464167622070126626736957220
+    // @10
+    st_loc l2
+    borrow_loc l2
+    move_loc l1
+    call object::create_object_address
+    ret
+
+// Function definition at index 13
+friend fun derive_pid_signer(l0: address): signer acquires Profile
+    copy_loc l0
+    exists Profile
+    br_false l0
+    move_loc l0
+    borrow_global Profile
+    // @5
+    borrow_field Profile, extend_ref
+    call object::generate_signer_for_extending
+    ret
+l0: ld_u64 8
+    abort
+
+// Function definition at index 14
+friend fun get_sync_gate(l0: address): option::Option<reference_gate::ReferenceGate> acquires Profile
+    copy_loc l0
+    exists Profile
+    br_true l0
+    call option::none<reference_gate::ReferenceGate>
+    ret
+    // @5
+l0: move_loc l0
+    borrow_global Profile
+    borrow_field Profile, sync_gate
+    read_ref
+    ret
+
+// Function definition at index 15
+#[persistent] public fun handle_fee_apt(l0: u64): u64
+    copy_loc l0
+    ld_u64 1
+    eq
+    br_false l0
+    ld_u64 10000000000
+    // @5
+    ret
+l0: copy_loc l0
+    ld_u64 2
+    eq
+    br_false l1
+    // @10
+    ld_u64 5000000000
+    ret
+l1: copy_loc l0
+    ld_u64 3
+    eq
+    // @15
+    br_false l2
+    ld_u64 2000000000
+    ret
+l2: copy_loc l0
+    ld_u64 4
+    // @20
+    eq
+    br_false l3
+    ld_u64 1000000000
+    ret
+l3: move_loc l0
+    // @25
+    ld_u64 5
+    eq
+    br_false l4
+    ld_u64 500000000
+    ret
+    // @30
+l4: ld_u64 100000000
+    ret
+
+// Function definition at index 16
+#[persistent] public fun handle_max_len(): u64
+    ld_u64 64
+    ret
+
+// Function definition at index 17
+#[persistent] public fun handle_of(l0: address): string::String acquires Profile
+    copy_loc l0
+    exists Profile
+    br_false l0
+    move_loc l0
+    borrow_global Profile
+    // @5
+    borrow_field Profile, handle
+    read_ref
+    ret
+l0: ld_u64 8
+    abort
+
+// Function definition at index 18
+#[persistent] public fun handle_of_wallet(l0: address): string::String acquires Profile
+    move_loc l0
+    call derive_pid_address
+    call handle_of
+    ret
+
+// Function definition at index 19
+#[persistent] public fun handle_to_wallet(l0: vector<u8>): address acquires HandleRegistry
+    local l1: &HandleRegistry
+    local l2: string::String
+    ld_const<address> 55931188893109713473377936165989862777849437759270464167622070126626736957220
+    borrow_global HandleRegistry
+    st_loc l1
+    move_loc l0
+    call string::utf8
+    // @5
+    st_loc l2
+    copy_loc l1
+    borrow_field HandleRegistry, handle_to_wallet
+    copy_loc l2
+    call smart_table::contains<string::String, address>
+    // @10
+    br_false l0
+    move_loc l1
+    borrow_field HandleRegistry, handle_to_wallet
+    move_loc l2
+    call smart_table::borrow<string::String, address>
+    // @15
+    read_ref
+    ret
+l0: move_loc l1
+    pop
+    ld_u64 8
+    // @20
+    abort
+
+// Function definition at index 20
+#[persistent] public fun has_signer(l0: address, l1: vector<u8>): bool acquires Profile
+    copy_loc l0
+    exists Profile
+    br_true l0
+    ld_false
+    ret
+    // @5
+l0: move_loc l0
+    borrow_global Profile
+    borrow_field Profile, signers_
+    move_loc l1
+    call smart_table::contains<vector<u8>, SignerEntry>
+    // @10
+    ret
+
+// Function definition at index 21
+#[persistent] public fun is_registered(l0: vector<u8>): bool acquires HandleRegistry
+    ld_const<address> 55931188893109713473377936165989862777849437759270464167622070126626736957220
+    borrow_global HandleRegistry
+    borrow_field HandleRegistry, handle_to_wallet
+    move_loc l0
+    call string::utf8
+    // @5
+    call smart_table::contains<string::String, address>
+    ret
+
+// Function definition at index 22
+fun make_pid_seed(l0: address): vector<u8>
+    local l1: vector<u8>
+    vec_pack <u8>, 0
+    st_loc l1
+    mut_borrow_loc l1
+    ld_const<vector<u8>> [112, 105, 100, 58, 58]
+    call vector::append<u8>
+    // @5
+    mut_borrow_loc l1
+    borrow_loc l0
+    call bcs::to_bytes<address>
+    call vector::append<u8>
+    move_loc l1
+    // @10
+    ret
+
+// Function definition at index 23
+#[persistent] public fun profile_exists(l0: address): bool
+    move_loc l0
+    exists Profile
+    ret
+
+// Function definition at index 24
+#[persistent] entry public fun register_handle(l0: &signer, l1: vector<u8>, l2: address, l3: vector<u8>, l4: vector<u8>, l5: vector<u8>, l6: vector<u8>, l7: vector<u8>, l8: vector<u8>) acquires HandleRegistry, ProtocolState
+    local l9: address
+    local l10: option::Option<address>
+    local l11: address
+    local l12: string::String
+    local l13: &mut HandleRegistry
+    local l14: &ProtocolState
+    local l15: u64
+    local l16: object::Object<fungible_asset::Metadata>
+    local l17: u64
+    local l18: fungible_asset::FungibleAsset
+    local l19: signer
+    local l20: vector<u8>
+    local l21: object::ConstructorRef
+    local l22: signer
+    local l23: object::ExtendRef
+    local l24: object::TransferRef
+    local l25: object::Object<Profile>
+    borrow_loc l1
+    call validate_handle
+    borrow_loc l3
+    vec_len <u8>
+    ld_u64 8192
+    // @5
+    le
+    br_false l0
+    borrow_loc l4
+    vec_len <u8>
+    ld_u64 333
+    // @10
+    le
+    br_false l1
+    copy_loc l0
+    call signer::address_of
+    st_loc l9
+    // @15
+    borrow_loc l1
+    call reserved_handle_claimer
+    st_loc l10
+    borrow_loc l10
+    call option::is_some<address>
+    // @20
+    br_true l2
+    branch l3
+l2: borrow_loc l10
+    call option::borrow<address>
+    read_ref
+    // @25
+    st_loc l11
+    copy_loc l9
+    move_loc l11
+    eq
+    br_false l4
+    // @30
+    branch l3
+l3: copy_loc l9
+    call derive_pid_address
+    st_loc l11
+    copy_loc l1
+    // @35
+    call string::utf8
+    st_loc l12
+    ld_const<address> 55931188893109713473377936165989862777849437759270464167622070126626736957220
+    mut_borrow_global HandleRegistry
+    st_loc l13
+    // @40
+    copy_loc l13
+    borrow_field HandleRegistry, handle_to_wallet
+    copy_loc l12
+    call smart_table::contains<string::String, address>
+    br_true l5
+    // @45
+    copy_loc l11
+    exists Profile
+    br_true l6
+    ld_const<address> 55931188893109713473377936165989862777849437759270464167622070126626736957220
+    borrow_global ProtocolState
+    // @50
+    pop
+    borrow_loc l1
+    vec_len <u8>
+    call handle_fee_apt
+    st_loc l15
+    // @55
+    ld_const<address> 10
+    call object::address_to_object<fungible_asset::Metadata>
+    st_loc l16
+    copy_loc l15
+    ld_u64 0
+    // @60
+    gt
+    br_true l7
+    branch l8
+l7: copy_loc l0
+    copy_loc l16
+    // @65
+    copy_loc l15
+    call primary_fungible_store::withdraw<fungible_asset::Metadata>
+    call handle_fee_vault::deposit_apt_fa
+l8: call factory::pool_seed_apt_amount
+    st_loc l17
+    // @70
+    move_loc l0
+    move_loc l16
+    move_loc l17
+    call primary_fungible_store::withdraw<fungible_asset::Metadata>
+    st_loc l18
+    // @75
+    call governance::derive_pkg_signer
+    st_loc l19
+    copy_loc l9
+    call make_pid_seed
+    st_loc l20
+    // @80
+    borrow_loc l19
+    move_loc l20
+    call object::create_named_object
+    st_loc l21
+    borrow_loc l21
+    // @85
+    call object::generate_signer
+    st_loc l22
+    borrow_loc l21
+    call object::generate_extend_ref
+    st_loc l23
+    // @90
+    borrow_loc l21
+    call object::generate_transfer_ref
+    st_loc l24
+    call timestamp::now_seconds
+    st_loc l17
+    // @95
+    borrow_loc l22
+    move_loc l12
+    move_loc l2
+    call smart_table::new<vector<u8>, SignerEntry>
+    ld_const<vector<u8>> []
+    // @100
+    call string::utf8
+    move_loc l3
+    vec_pack <u8>, 0
+    move_loc l4
+    call string::utf8
+    // @105
+    call option::none<reference_gate::ReferenceGate>
+    move_loc l23
+    copy_loc l17
+    pack Profile
+    move_to Profile
+    // @110
+    borrow_loc l22
+    move_loc l24
+    pack TransferVault
+    move_to TransferVault
+    copy_loc l11
+    // @115
+    call object::address_to_object<Profile>
+    st_loc l25
+    borrow_loc l19
+    move_loc l25
+    copy_loc l9
+    // @120
+    call object::transfer<Profile>
+    move_loc l13
+    mut_borrow_field HandleRegistry, handle_to_wallet
+    copy_loc l1
+    call string::utf8
+    // @125
+    copy_loc l9
+    call smart_table::add<string::String, address>
+    copy_loc l1
+    copy_loc l11
+    borrow_loc l22
+    // @130
+    move_loc l18
+    move_loc l5
+    call string::utf8
+    move_loc l6
+    call string::utf8
+    // @135
+    move_loc l7
+    call string::utf8
+    move_loc l8
+    call string::utf8
+    call factory::create_token_atomic
+    // @140
+    move_loc l1
+    call string::utf8
+    move_loc l9
+    move_loc l11
+    move_loc l15
+    // @145
+    move_loc l17
+    pack HandleRegistered
+    call event::emit<HandleRegistered>
+    ret
+l6: move_loc l0
+    // @150
+    pop
+    move_loc l13
+    pop
+    ld_u64 5
+    abort
+    // @155
+l5: move_loc l0
+    pop
+    move_loc l13
+    pop
+    ld_u64 1
+    // @160
+    abort
+l4: move_loc l0
+    pop
+    ld_u64 17
+    abort
+    // @165
+l1: move_loc l0
+    pop
+    ld_u64 13
+    abort
+l0: move_loc l0
+    // @170
+    pop
+    ld_u64 12
+    abort
+
+// Function definition at index 25
+fun reserved_handle_claimer(l0: &vector<u8>): option::Option<address>
+    local l1: vector<u8>
+    move_loc l0
+    read_ref
+    st_loc l1
+    copy_loc l1
+    ld_const<vector<u8>> [100, 101, 115, 110, 101, 116]
+    // @5
+    eq
+    br_false l0
+    ld_const<address> 799008279626092026266606374476533705615973526478392622784892721766771113
+    call option::some<address>
+    ret
+    // @10
+l0: copy_loc l1
+    ld_const<vector<u8>> [100, 97, 114, 98, 105, 116, 101, 120]
+    eq
+    br_false l1
+    ld_const<address> 91156634194166803861100151592865738330905051539249711567309633464034624633053
+    // @15
+    call option::some<address>
+    ret
+l1: copy_loc l1
+    ld_const<vector<u8>> [100]
+    eq
+    // @20
+    br_false l2
+    ld_const<address> 40023506704883894749682276227229583180850019028010612816341397443451990191223
+    call option::some<address>
+    ret
+l2: copy_loc l1
+    // @25
+    ld_const<vector<u8>> [97, 112, 116, 111, 115]
+    eq
+    br_false l3
+    ld_const<address> 99421430338818662237406370481488542422223213608239145475291835155559109072246
+    call option::some<address>
+    // @30
+    ret
+l3: move_loc l1
+    ld_const<vector<u8>> [97, 112, 116]
+    eq
+    br_false l4
+    // @35
+    ld_const<address> 109327436956588036023951424363556437029595267519607070162281657297992626562406
+    call option::some<address>
+    ret
+l4: call option::none<address>
+    ret
+
+// Function definition at index 26
+#[persistent] entry public fun revoke_signer(l0: &signer, l1: address, l2: vector<u8>) acquires Profile
+    local l3: &mut Profile
+    move_loc l0
+    copy_loc l1
+    call assert_controller_or_owner
+    copy_loc l1
+    mut_borrow_global Profile
+    // @5
+    st_loc l3
+    copy_loc l3
+    borrow_field Profile, signers_
+    copy_loc l2
+    call smart_table::contains<vector<u8>, SignerEntry>
+    // @10
+    br_false l0
+    move_loc l3
+    mut_borrow_field Profile, signers_
+    copy_loc l2
+    call smart_table::remove<vector<u8>, SignerEntry>
+    // @15
+    pop
+l1: move_loc l1
+    move_loc l2
+    call timestamp::now_seconds
+    pack SignerRevoked
+    // @20
+    call event::emit<SignerRevoked>
+    ret
+l0: move_loc l3
+    pop
+    branch l1
+
+// Function definition at index 27
+#[persistent] entry public fun rotate_controller(l0: &signer, l1: address, l2: address) acquires Profile
+    local l3: &mut Profile
+    local l4: address
+    local l5: &mut address
+    move_loc l0
+    copy_loc l1
+    call assert_owner
+    copy_loc l1
+    mut_borrow_global Profile
+    // @5
+    st_loc l3
+    copy_loc l3
+    borrow_field Profile, controller
+    read_ref
+    st_loc l4
+    // @10
+    move_loc l3
+    mut_borrow_field Profile, controller
+    st_loc l5
+    copy_loc l2
+    move_loc l5
+    // @15
+    write_ref
+    move_loc l1
+    move_loc l4
+    move_loc l2
+    call timestamp::now_seconds
+    // @20
+    pack ControllerRotated
+    call event::emit<ControllerRotated>
+    ret
+
+// Function definition at index 28
+#[persistent] entry public fun update_fee_receiver(l0: &signer, l1: address) acquires ProtocolState
+    local l2: &ProtocolState
+    ld_const<address> 55931188893109713473377936165989862777849437759270464167622070126626736957220
+    move_loc l0
+    pop
+    borrow_global ProtocolState
+    pop
+    // @5
+    ld_u64 19
+    abort
+
+// Function definition at index 29
+#[persistent] entry public fun withdraw_pid_token(l0: &signer, l1: address, l2: address, l3: u64, l4: address) acquires Profile
+    local l5: signer
+    local l6: object::Object<fungible_asset::Metadata>
+    local l7: fungible_asset::FungibleAsset
+    move_loc l0
+    copy_loc l1
+    call assert_owner
+    copy_loc l1
+    call derive_pid_signer
+    // @5
+    st_loc l5
+    copy_loc l2
+    call object::address_to_object<fungible_asset::Metadata>
+    st_loc l6
+    borrow_loc l5
+    // @10
+    move_loc l6
+    copy_loc l3
+    call primary_fungible_store::withdraw<fungible_asset::Metadata>
+    st_loc l7
+    copy_loc l4
+    // @15
+    move_loc l7
+    call primary_fungible_store::deposit
+    move_loc l1
+    move_loc l2
+    move_loc l3
+    // @20
+    move_loc l4
+    call timestamp::now_seconds
+    pack PidTokenWithdrawn
+    call event::emit<PidTokenWithdrawn>
+    ret
+

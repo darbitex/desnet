@@ -1,0 +1,985 @@
+// Bytecode version v9
+module 0x7ba7ee5a93694aa5943f4ef344737d95795d51395e3d65a1b732c776d34be724::mint
+use 0x1::option
+use 0x7ba7ee5a93694aa5943f4ef344737d95795d51395e3d65a1b732c776d34be724::reference_gate
+use 0x1::smart_table
+use 0x1::signer
+use 0x7ba7ee5a93694aa5943f4ef344737d95795d51395e3d65a1b732c776d34be724::profile
+use 0x7ba7ee5a93694aa5943f4ef344737d95795d51395e3d65a1b732c776d34be724::assets
+use 0x1::bcs
+use 0x1::timestamp
+use 0x7ba7ee5a93694aa5943f4ef344737d95795d51395e3d65a1b732c776d34be724::history
+use 0x1::fungible_asset
+use 0x1::object
+use 0x1::primary_fungible_store
+use 0x1::event
+use 0x7ba7ee5a93694aa5943f4ef344737d95795d51395e3d65a1b732c776d34be724::factory
+friend 0x7ba7ee5a93694aa5943f4ef344737d95795d51395e3d65a1b732c776d34be724::giveaway
+friend 0x7ba7ee5a93694aa5943f4ef344737d95795d51395e3d65a1b732c776d34be724::press
+friend 0x7ba7ee5a93694aa5943f4ef344737d95795d51395e3d65a1b732c776d34be724::pulse
+struct MintEvent has drop + store
+  author: address
+  seq: u64
+  timestamp_us: u64
+  content_kind: u8
+  content_text: vector<u8>
+  media: option::Option<MintMedia>
+  parent_mint_id: option::Option<MintId>
+  root_mint_id: option::Option<MintId>
+  quote_mint_id: option::Option<MintId>
+  mentions: vector<address>
+  tags: vector<vector<u8>>
+  tickers: vector<address>
+  tips: vector<Tip>
+
+struct MintExtras has store
+  gate: option::Option<reference_gate::ReferenceGate>
+
+struct MintId has copy + drop + store
+  author: address
+  seq: u64
+
+struct MintMedia has copy + drop + store
+  kind: u8
+  mime: u8
+  inline_data: vector<u8>
+  ref_backend: u8
+  ref_blob_id: vector<u8>
+  ref_hash: vector<u8>
+
+struct PidMintExtras has key
+  extras: smart_table::SmartTable<u64, MintExtras>
+
+struct PidMintMeta has key
+  next_seq: u64
+  mint_count: u64
+
+struct Tip has copy + drop + store
+  recipient: address
+  token_metadata: address
+  amount: u64
+
+struct TipExecuted has drop + store
+  from_pid: address
+  to_addr: address
+  token_metadata: address
+  amount: u64
+  mint_seq: u64
+  timestamp_secs: u64
+
+// Function definition at index 0
+fun assert_valid_mime(l0: u8)
+    local l1: bool
+    local l2: bool
+    local l3: bool
+    local l4: bool
+    copy_loc l0
+    ld_u8 1
+    eq
+    br_false l0
+    ld_true
+    // @5
+    st_loc l1
+l8: move_loc l1
+    br_false l1
+    ld_true
+    st_loc l2
+    // @10
+l7: move_loc l2
+    br_false l2
+    ld_true
+    st_loc l3
+l6: move_loc l3
+    // @15
+    br_false l3
+    ld_true
+    st_loc l4
+l5: move_loc l4
+    br_false l4
+    // @20
+    ret
+l4: ld_u64 13
+    abort
+l3: move_loc l0
+    ld_u8 5
+    // @25
+    eq
+    st_loc l4
+    branch l5
+l2: copy_loc l0
+    ld_u8 4
+    // @30
+    eq
+    st_loc l3
+    branch l6
+l1: copy_loc l0
+    ld_u8 3
+    // @35
+    eq
+    st_loc l2
+    branch l7
+l0: copy_loc l0
+    ld_u8 2
+    // @40
+    eq
+    st_loc l1
+    branch l8
+
+// Function definition at index 1
+#[persistent] public fun mint_count(l0: address): u64 acquires PidMintMeta
+    copy_loc l0
+    exists PidMintMeta
+    br_true l0
+    ld_u64 0
+    ret
+    // @5
+l0: move_loc l0
+    borrow_global PidMintMeta
+    borrow_field PidMintMeta, mint_count
+    read_ref
+    ret
+
+// Function definition at index 2
+fun assert_valid_backend(l0: u8)
+    local l1: bool
+    local l2: bool
+    local l3: bool
+    copy_loc l0
+    ld_u8 0
+    eq
+    br_false l0
+    ld_true
+    // @5
+    st_loc l1
+l6: move_loc l1
+    br_false l1
+    ld_true
+    st_loc l2
+    // @10
+l5: move_loc l2
+    br_false l2
+    ld_true
+    st_loc l3
+l4: move_loc l3
+    // @15
+    br_false l3
+    ret
+l3: ld_u64 14
+    abort
+l2: move_loc l0
+    // @20
+    ld_u8 3
+    eq
+    st_loc l3
+    branch l4
+l1: copy_loc l0
+    // @25
+    ld_u8 2
+    eq
+    st_loc l2
+    branch l5
+l0: copy_loc l0
+    // @30
+    ld_u8 1
+    eq
+    st_loc l1
+    branch l6
+
+// Function definition at index 3
+#[persistent] entry public fun attach_mint_gate(l0: &signer, l1: u64, l2: address, l3: u64, l4: u64, l5: u64) acquires PidMintExtras, PidMintMeta
+    local l6: address
+    local l7: reference_gate::ReferenceGate
+    local l8: &mut PidMintExtras
+    local l9: &mut MintExtras
+    move_loc l0
+    call signer::address_of
+    call profile::derive_pid_address
+    st_loc l6
+    copy_loc l6
+    // @5
+    call profile::assert_pid_exists
+    copy_loc l6
+    call ensure_mint_storage
+    copy_loc l1
+    copy_loc l6
+    // @10
+    call next_seq
+    lt
+    br_false l0
+    move_loc l2
+    move_loc l3
+    // @15
+    move_loc l4
+    move_loc l5
+    call reference_gate::new
+    st_loc l7
+    move_loc l6
+    // @20
+    mut_borrow_global PidMintExtras
+    st_loc l8
+    copy_loc l8
+    borrow_field PidMintExtras, extras
+    copy_loc l1
+    // @25
+    call smart_table::contains<u64, MintExtras>
+    br_false l1
+    move_loc l8
+    mut_borrow_field PidMintExtras, extras
+    move_loc l1
+    // @30
+    call smart_table::borrow_mut<u64, MintExtras>
+    st_loc l9
+    move_loc l7
+    call option::some<reference_gate::ReferenceGate>
+    move_loc l9
+    // @35
+    mut_borrow_field MintExtras, gate
+    write_ref
+    ret
+l1: move_loc l8
+    mut_borrow_field PidMintExtras, extras
+    // @40
+    move_loc l1
+    move_loc l7
+    call option::some<reference_gate::ReferenceGate>
+    pack MintExtras
+    call smart_table::add<u64, MintExtras>
+    // @45
+    ret
+l0: ld_u64 20
+    abort
+
+// Function definition at index 4
+#[persistent] public fun content_text_max_bytes(): u64
+    ld_u64 333
+    ret
+
+// Function definition at index 5
+#[persistent] entry public fun create_mint(l0: &signer, l1: u8, l2: vector<u8>, l3: u8, l4: u8, l5: vector<u8>, l6: u8, l7: vector<u8>, l8: vector<u8>, l9: address, l10: u64, l11: bool, l12: address, l13: u64, l14: bool, l15: vector<address>, l16: vector<vector<u8>>, l17: vector<address>, l18: vector<address>, l19: vector<address>, l20: vector<u64>, l21: address, l22: bool) acquires PidMintMeta
+    local l23: address
+    local l24: u8
+    local l25: option::Option<MintMedia>
+    local l26: bool
+    local l27: option::Option<MintId>
+    local l28: option::Option<MintId>
+    local l29: option::Option<MintId>
+    local l30: u64
+    local l31: &mut PidMintMeta
+    local l32: u64
+    local l33: vector<Tip>
+    local l34: u64
+    local l35: MintEvent
+    local l36: option::Option<address>
+    local l37: option::Option<address>
+    local l38: vector<u8>
+    copy_loc l0
+    call signer::address_of
+    call profile::derive_pid_address
+    st_loc l23
+    copy_loc l23
+    // @5
+    call profile::assert_pid_exists
+    copy_loc l23
+    call ensure_mint_storage
+    borrow_loc l2
+    vec_len <u8>
+    // @10
+    ld_u64 333
+    le
+    br_false l0
+    copy_loc l22
+    br_false l1
+    // @15
+    copy_loc l21
+    call assets::is_sealed
+    br_false l2
+    copy_loc l21
+    call assets::mime_of
+    // @20
+    st_loc l24
+    copy_loc l24
+    call assert_valid_mime
+    ld_u8 2
+    move_loc l24
+    // @25
+    vec_pack <u8>, 0
+    ld_u8 3
+    borrow_loc l21
+    call bcs::to_bytes<address>
+    vec_pack <u8>, 0
+    // @30
+    pack MintMedia
+    call option::some<MintMedia>
+    st_loc l25
+l23: copy_loc l11
+    br_false l3
+    // @35
+    copy_loc l14
+    st_loc l26
+l21: move_loc l26
+    br_true l4
+    copy_loc l11
+    // @40
+    br_false l5
+    copy_loc l9
+    move_loc l10
+    pack MintId
+    call option::some<MintId>
+    // @45
+    st_loc l27
+l20: copy_loc l14
+    br_false l6
+    copy_loc l12
+    move_loc l13
+    // @50
+    pack MintId
+    call option::some<MintId>
+    st_loc l28
+l19: call option::none<MintId>
+    st_loc l29
+    // @55
+    borrow_loc l15
+    vec_len <address>
+    ld_u64 10
+    le
+    br_false l7
+    // @60
+    borrow_loc l16
+    call validate_tags
+    borrow_loc l17
+    call validate_tickers
+    borrow_loc l18
+    // @65
+    vec_len <address>
+    st_loc l30
+    copy_loc l30
+    borrow_loc l19
+    vec_len <address>
+    // @70
+    eq
+    br_false l8
+    copy_loc l30
+    borrow_loc l20
+    vec_len <u64>
+    // @75
+    eq
+    br_false l9
+    move_loc l30
+    ld_u64 10
+    le
+    // @80
+    br_false l10
+    copy_loc l23
+    mut_borrow_global PidMintMeta
+    st_loc l31
+    copy_loc l31
+    // @85
+    borrow_field PidMintMeta, next_seq
+    read_ref
+    st_loc l32
+    copy_loc l32
+    ld_u64 1
+    // @90
+    add
+    copy_loc l31
+    mut_borrow_field PidMintMeta, next_seq
+    write_ref
+    copy_loc l31
+    // @95
+    borrow_field PidMintMeta, mint_count
+    read_ref
+    ld_u64 1
+    add
+    move_loc l31
+    // @100
+    mut_borrow_field PidMintMeta, mint_count
+    write_ref
+    move_loc l0
+    borrow_loc l18
+    borrow_loc l19
+    // @105
+    borrow_loc l20
+    copy_loc l32
+    call execute_tips
+    st_loc l33
+    call timestamp::now_seconds
+    // @110
+    st_loc l34
+    copy_loc l23
+    move_loc l32
+    copy_loc l34
+    ld_u64 1000000
+    // @115
+    mul
+    move_loc l1
+    move_loc l2
+    move_loc l25
+    move_loc l27
+    // @120
+    move_loc l29
+    move_loc l28
+    move_loc l15
+    move_loc l16
+    move_loc l17
+    // @125
+    move_loc l33
+    pack MintEvent
+    st_loc l35
+    copy_loc l11
+    br_false l11
+    // @130
+    call history::verb_voice
+    st_loc l24
+l18: move_loc l11
+    br_false l12
+    move_loc l9
+    // @135
+    call option::some<address>
+    st_loc l36
+l16: move_loc l22
+    br_false l13
+    move_loc l21
+    // @140
+    call option::some<address>
+    st_loc l37
+l14: borrow_loc l35
+    call bcs::to_bytes<MintEvent>
+    st_loc l38
+    // @145
+    move_loc l23
+    move_loc l24
+    move_loc l34
+    move_loc l36
+    move_loc l38
+    // @150
+    move_loc l37
+    call history::new_entry
+    call history::append
+    ret
+l13: call option::none<address>
+    // @155
+    st_loc l37
+    branch l14
+l12: move_loc l14
+    br_false l15
+    move_loc l12
+    // @160
+    call option::some<address>
+    st_loc l36
+    branch l16
+l15: call option::none<address>
+    st_loc l36
+    // @165
+    branch l16
+l11: copy_loc l14
+    br_false l17
+    call history::verb_remix
+    st_loc l24
+    // @170
+    branch l18
+l17: call history::verb_mint
+    st_loc l24
+    branch l18
+l10: move_loc l0
+    // @175
+    pop
+    ld_u64 12
+    abort
+l9: move_loc l0
+    pop
+    // @180
+    ld_u64 12
+    abort
+l8: move_loc l0
+    pop
+    ld_u64 12
+    // @185
+    abort
+l7: move_loc l0
+    pop
+    ld_u64 5
+    abort
+    // @190
+l6: call option::none<MintId>
+    st_loc l28
+    branch l19
+l5: call option::none<MintId>
+    st_loc l27
+    // @195
+    branch l20
+l4: move_loc l0
+    pop
+    ld_u64 2
+    abort
+    // @200
+l3: ld_false
+    st_loc l26
+    branch l21
+l2: move_loc l0
+    pop
+    // @205
+    ld_u64 19
+    abort
+l1: copy_loc l3
+    ld_u8 0
+    eq
+    // @210
+    br_false l22
+    call option::none<MintMedia>
+    st_loc l25
+    branch l23
+l22: copy_loc l3
+    // @215
+    ld_u8 1
+    eq
+    br_false l24
+    borrow_loc l5
+    vec_len <u8>
+    // @220
+    ld_u64 8192
+    le
+    br_false l25
+    copy_loc l4
+    call assert_valid_mime
+    // @225
+    ld_u8 1
+    move_loc l4
+    move_loc l5
+    ld_u8 0
+    vec_pack <u8>, 0
+    // @230
+    vec_pack <u8>, 0
+    pack MintMedia
+    call option::some<MintMedia>
+    st_loc l25
+    branch l23
+    // @235
+l25: move_loc l0
+    pop
+    ld_u64 4
+    abort
+l24: move_loc l3
+    // @240
+    ld_u8 2
+    eq
+    br_false l26
+    copy_loc l4
+    call assert_valid_mime
+    // @245
+    copy_loc l6
+    call assert_valid_backend
+    ld_u8 2
+    move_loc l4
+    vec_pack <u8>, 0
+    // @250
+    move_loc l6
+    move_loc l7
+    move_loc l8
+    pack MintMedia
+    call option::some<MintMedia>
+    // @255
+    st_loc l25
+    branch l23
+l26: move_loc l0
+    pop
+    ld_u64 13
+    // @260
+    abort
+l0: move_loc l0
+    pop
+    ld_u64 3
+    abort
+
+// Function definition at index 6
+fun ensure_mint_storage(l0: address)
+    local l1: signer
+    local l2: signer
+    copy_loc l0
+    exists PidMintMeta
+    br_false l0
+    branch l1
+l0: copy_loc l0
+    // @5
+    call profile::derive_pid_signer
+    st_loc l1
+    borrow_loc l1
+    ld_u64 0
+    ld_u64 0
+    // @10
+    pack PidMintMeta
+    move_to PidMintMeta
+l1: copy_loc l0
+    exists PidMintExtras
+    br_true l2
+    // @15
+    move_loc l0
+    call profile::derive_pid_signer
+    st_loc l2
+    borrow_loc l2
+    call smart_table::new<u64, MintExtras>
+    // @20
+    pack PidMintExtras
+    move_to PidMintExtras
+    ret
+l2: ret
+
+// Function definition at index 7
+fun execute_tips(l0: &signer, l1: &vector<address>, l2: &vector<address>, l3: &vector<u64>, l4: u64): vector<Tip>
+    local l5: vector<Tip>
+    local l6: u64
+    local l7: u64
+    local l8: address
+    local l9: address
+    local l10: u64
+    local l11: object::Object<fungible_asset::Metadata>
+    local l12: fungible_asset::FungibleAsset
+    vec_pack <Tip>, 0
+    st_loc l5
+    copy_loc l1
+    vec_len <address>
+    st_loc l6
+    // @5
+    ld_u64 0
+    st_loc l7
+l1: copy_loc l7
+    copy_loc l6
+    lt
+    // @10
+    br_false l0
+    copy_loc l1
+    copy_loc l7
+    vec_borrow <address>
+    read_ref
+    // @15
+    st_loc l8
+    copy_loc l2
+    copy_loc l7
+    vec_borrow <address>
+    read_ref
+    // @20
+    st_loc l9
+    copy_loc l3
+    copy_loc l7
+    vec_borrow <u64>
+    read_ref
+    // @25
+    st_loc l10
+    copy_loc l9
+    call object::address_to_object<fungible_asset::Metadata>
+    st_loc l11
+    copy_loc l0
+    // @30
+    move_loc l11
+    copy_loc l10
+    call primary_fungible_store::withdraw<fungible_asset::Metadata>
+    st_loc l12
+    copy_loc l8
+    // @35
+    move_loc l12
+    call primary_fungible_store::deposit
+    copy_loc l0
+    call signer::address_of
+    call profile::derive_pid_address
+    // @40
+    copy_loc l8
+    copy_loc l9
+    copy_loc l10
+    copy_loc l4
+    call timestamp::now_seconds
+    // @45
+    pack TipExecuted
+    call event::emit<TipExecuted>
+    mut_borrow_loc l5
+    move_loc l8
+    move_loc l9
+    // @50
+    move_loc l10
+    pack Tip
+    vec_push_back <Tip>
+    move_loc l7
+    ld_u64 1
+    // @55
+    add
+    st_loc l7
+    branch l1
+l0: move_loc l0
+    pop
+    // @60
+    move_loc l1
+    pop
+    move_loc l2
+    pop
+    move_loc l3
+    // @65
+    pop
+    move_loc l5
+    ret
+
+// Function definition at index 8
+friend fun get_mint_gate(l0: address, l1: u64): option::Option<reference_gate::ReferenceGate> acquires PidMintExtras
+    local l2: &PidMintExtras
+    copy_loc l0
+    exists PidMintExtras
+    br_true l0
+    call option::none<reference_gate::ReferenceGate>
+    ret
+    // @5
+l0: move_loc l0
+    borrow_global PidMintExtras
+    st_loc l2
+    copy_loc l2
+    borrow_field PidMintExtras, extras
+    // @10
+    copy_loc l1
+    call smart_table::contains<u64, MintExtras>
+    br_true l1
+    move_loc l2
+    pop
+    // @15
+    call option::none<reference_gate::ReferenceGate>
+    ret
+l1: move_loc l2
+    borrow_field PidMintExtras, extras
+    move_loc l1
+    // @20
+    call smart_table::borrow<u64, MintExtras>
+    borrow_field MintExtras, gate
+    read_ref
+    ret
+
+// Function definition at index 9
+#[persistent] public fun media_inline_max_bytes(): u64
+    ld_u64 8192
+    ret
+
+// Function definition at index 10
+#[persistent] public fun mentions_max(): u64
+    ld_u64 10
+    ret
+
+// Function definition at index 11
+#[persistent] public fun next_seq(l0: address): u64 acquires PidMintMeta
+    copy_loc l0
+    exists PidMintMeta
+    br_true l0
+    ld_u64 0
+    ret
+    // @5
+l0: move_loc l0
+    borrow_global PidMintMeta
+    borrow_field PidMintMeta, next_seq
+    read_ref
+    ret
+
+// Function definition at index 12
+#[persistent] public fun tags_max(): u64
+    ld_u64 5
+    ret
+
+// Function definition at index 13
+#[persistent] public fun tickers_max(): u64
+    ld_u64 5
+    ret
+
+// Function definition at index 14
+#[persistent] public fun tips_max(): u64
+    ld_u64 10
+    ret
+
+// Function definition at index 15
+fun validate_tags(l0: &vector<vector<u8>>)
+    local l1: u64
+    local l2: u64
+    local l3: &vector<u8>
+    local l4: u64
+    local l5: u64
+    local l6: u8
+    local l7: bool
+    local l8: bool
+    local l9: bool
+    copy_loc l0
+    vec_len <vector<u8>>
+    ld_u64 5
+    le
+    br_false l0
+    // @5
+    ld_u64 0
+    st_loc l1
+    copy_loc l0
+    vec_len <vector<u8>>
+    st_loc l2
+    // @10
+l14: copy_loc l1
+    copy_loc l2
+    lt
+    br_false l1
+    copy_loc l0
+    // @15
+    copy_loc l1
+    vec_borrow <vector<u8>>
+    st_loc l3
+    copy_loc l3
+    vec_len <u8>
+    // @20
+    st_loc l4
+    copy_loc l4
+    ld_u64 1
+    ge
+    br_false l2
+    // @25
+    copy_loc l4
+    ld_u64 32
+    le
+    br_false l3
+    ld_u64 0
+    // @30
+    st_loc l5
+l9: copy_loc l5
+    copy_loc l4
+    lt
+    br_false l4
+    // @35
+    copy_loc l3
+    copy_loc l5
+    vec_borrow <u8>
+    read_ref
+    st_loc l6
+    // @40
+    copy_loc l6
+    ld_u8 97
+    ge
+    br_false l5
+    copy_loc l6
+    // @45
+    ld_u8 122
+    le
+    st_loc l7
+l13: move_loc l7
+    br_false l6
+    // @50
+    ld_true
+    st_loc l8
+l12: move_loc l8
+    br_false l7
+    ld_true
+    // @55
+    st_loc l9
+l10: move_loc l9
+    br_false l8
+    move_loc l5
+    ld_u64 1
+    // @60
+    add
+    st_loc l5
+    branch l9
+l8: move_loc l0
+    pop
+    // @65
+    move_loc l3
+    pop
+    ld_u64 9
+    abort
+l7: move_loc l6
+    // @70
+    ld_u8 45
+    eq
+    st_loc l9
+    branch l10
+l6: copy_loc l6
+    // @75
+    ld_u8 48
+    ge
+    br_false l11
+    copy_loc l6
+    ld_u8 57
+    // @80
+    le
+    st_loc l8
+    branch l12
+l11: ld_false
+    st_loc l8
+    // @85
+    branch l12
+l5: ld_false
+    st_loc l7
+    branch l13
+l4: move_loc l3
+    // @90
+    pop
+    move_loc l1
+    ld_u64 1
+    add
+    st_loc l1
+    // @95
+    branch l14
+l3: move_loc l0
+    pop
+    move_loc l3
+    pop
+    // @100
+    ld_u64 8
+    abort
+l2: move_loc l0
+    pop
+    move_loc l3
+    // @105
+    pop
+    ld_u64 7
+    abort
+l1: move_loc l0
+    pop
+    // @110
+    ret
+l0: move_loc l0
+    pop
+    ld_u64 6
+    abort
+
+// Function definition at index 16
+fun validate_tickers(l0: &vector<address>)
+    local l1: u64
+    local l2: u64
+    copy_loc l0
+    vec_len <address>
+    ld_u64 5
+    le
+    br_false l0
+    // @5
+    ld_u64 0
+    st_loc l1
+    copy_loc l0
+    vec_len <address>
+    st_loc l2
+    // @10
+l3: copy_loc l1
+    copy_loc l2
+    lt
+    br_false l1
+    copy_loc l0
+    // @15
+    copy_loc l1
+    vec_borrow <address>
+    read_ref
+    call factory::is_factory_token
+    br_false l2
+    // @20
+    move_loc l1
+    ld_u64 1
+    add
+    st_loc l1
+    branch l3
+    // @25
+l2: move_loc l0
+    pop
+    ld_u64 11
+    abort
+l1: move_loc l0
+    // @30
+    pop
+    ret
+l0: move_loc l0
+    pop
+    ld_u64 10
+    // @35
+    abort
+

@@ -1,0 +1,450 @@
+// Bytecode version v9
+module 0x7ba7ee5a93694aa5943f4ef344737d95795d51395e3d65a1b732c776d34be724::apt_vault
+use 0x1::coin
+use 0x1::aptos_coin
+use 0x1::fungible_asset
+use 0x1::object
+use 0x1::signer
+use 0x1::event
+use 0x1::timestamp
+use 0x7ba7ee5a93694aa5943f4ef344737d95795d51395e3d65a1b732c776d34be724::amm
+use 0x1::vector
+friend 0x7ba7ee5a93694aa5943f4ef344737d95795d51395e3d65a1b732c776d34be724::factory
+friend 0x7ba7ee5a93694aa5943f4ef344737d95795d51395e3d65a1b732c776d34be724::handle_fee_vault
+struct AptDeposited has drop + store
+  vault_addr: address
+  depositor: address
+  amount: u64
+
+struct AptSettled has drop + store
+  vault_addr: address
+  total_apt: u64
+  to_buyback: u64
+  to_owner: u64
+  owner_addr: address
+  token_burned: u64
+
+struct SettleRequested has drop + store
+  vault_addr: address
+  requested_at_secs: u64
+  executable_at_secs: u64
+
+struct Vault has key
+  apt_balance: coin::Coin<aptos_coin::AptosCoin>
+  burn_ref: fungible_asset::BurnRef
+  token_metadata_addr: address
+  handle: vector<u8>
+  amm_pool_addr: address
+  pid_object_addr: address
+  spec_version: u32
+  extend_ref: object::ExtendRef
+  pending_settle_at_secs: u64
+
+// Function definition at index 0
+#[persistent] public fun handle(l0: address): vector<u8> acquires Vault
+    move_loc l0
+    borrow_global Vault
+    borrow_field Vault, handle
+    read_ref
+    ret
+
+// Function definition at index 1
+#[persistent] public fun pool_addr(l0: address): address acquires Vault
+    move_loc l0
+    borrow_global Vault
+    borrow_field Vault, amm_pool_addr
+    read_ref
+    ret
+
+// Function definition at index 2
+#[persistent] public fun apt_balance(l0: address): u64 acquires Vault
+    move_loc l0
+    borrow_global Vault
+    borrow_field Vault, apt_balance
+    call coin::value<aptos_coin::AptosCoin>
+    ret
+
+// Function definition at index 3
+friend fun burn_via_vault(l0: address, l1: fungible_asset::FungibleAsset) acquires Vault
+    move_loc l0
+    borrow_global Vault
+    borrow_field Vault, burn_ref
+    move_loc l1
+    call fungible_asset::burn
+    // @5
+    ret
+
+// Function definition at index 4
+#[persistent] public fun current_owner(l0: address): address acquires Vault
+    move_loc l0
+    borrow_global Vault
+    borrow_field Vault, pid_object_addr
+    read_ref
+    call object::address_to_object<object::ObjectCore>
+    // @5
+    call object::owner<object::ObjectCore>
+    ret
+
+// Function definition at index 5
+friend fun deploy(l0: &signer, l1: vector<u8>, l2: address, l3: address, l4: address, l5: fungible_asset::BurnRef): address
+    local l6: vector<u8>
+    local l7: object::ConstructorRef
+    local l8: object::ExtendRef
+    local l9: signer
+    local l10: object::TransferRef
+    borrow_loc l1
+    call make_seed
+    st_loc l6
+    move_loc l0
+    move_loc l6
+    // @5
+    call object::create_named_object
+    st_loc l7
+    borrow_loc l7
+    call object::address_from_constructor_ref
+    borrow_loc l7
+    // @10
+    call object::generate_extend_ref
+    st_loc l8
+    borrow_loc l7
+    call object::generate_signer
+    st_loc l9
+    // @15
+    borrow_loc l7
+    call object::generate_transfer_ref
+    st_loc l10
+    borrow_loc l10
+    call object::disable_ungated_transfer
+    // @20
+    borrow_loc l9
+    call coin::zero<aptos_coin::AptosCoin>
+    move_loc l5
+    move_loc l2
+    move_loc l1
+    // @25
+    move_loc l3
+    move_loc l4
+    ld_u32 4
+    move_loc l8
+    ld_u64 0
+    // @30
+    pack Vault
+    move_to Vault
+    ret
+
+// Function definition at index 6
+#[persistent] entry public fun deposit_apt(l0: &signer, l1: address, l2: u64) acquires Vault
+    local l3: coin::Coin<aptos_coin::AptosCoin>
+    copy_loc l1
+    mut_borrow_global Vault
+    copy_loc l0
+    copy_loc l2
+    call coin::withdraw<aptos_coin::AptosCoin>
+    // @5
+    st_loc l3
+    mut_borrow_field Vault, apt_balance
+    move_loc l3
+    call coin::merge<aptos_coin::AptosCoin>
+    move_loc l1
+    // @10
+    move_loc l0
+    call signer::address_of
+    move_loc l2
+    pack AptDeposited
+    call event::emit<AptDeposited>
+    // @15
+    ret
+
+// Function definition at index 7
+#[persistent] entry public fun execute_settle(l0: &signer, l1: address) acquires Vault
+    local l2: &mut Vault
+    local l3: u64
+    local l4: address
+    local l5: u64
+    local l6: u64
+    local l7: u64
+    local l8: u64
+    local l9: coin::Coin<aptos_coin::AptosCoin>
+    local l10: fungible_asset::FungibleAsset
+    local l11: fungible_asset::FungibleAsset
+    local l12: u64
+    copy_loc l1
+    mut_borrow_global Vault
+    st_loc l2
+    move_loc l0
+    pop
+    // @5
+    copy_loc l2
+    borrow_field Vault, pending_settle_at_secs
+    read_ref
+    ld_u64 0
+    gt
+    // @10
+    br_false l0
+    call timestamp::now_seconds
+    copy_loc l2
+    borrow_field Vault, pending_settle_at_secs
+    read_ref
+    // @15
+    ld_u64 60
+    add
+    ge
+    br_false l1
+    copy_loc l2
+    // @20
+    borrow_field Vault, handle
+    read_ref
+    call amm::pool_address_of_handle
+    copy_loc l2
+    borrow_field Vault, amm_pool_addr
+    // @25
+    read_ref
+    eq
+    br_false l2
+    copy_loc l2
+    borrow_field Vault, apt_balance
+    // @30
+    call coin::value<aptos_coin::AptosCoin>
+    st_loc l3
+    copy_loc l3
+    ld_u64 10000000
+    ge
+    // @35
+    br_false l3
+    copy_loc l2
+    borrow_field Vault, pid_object_addr
+    read_ref
+    call object::address_to_object<object::ObjectCore>
+    // @40
+    call object::owner<object::ObjectCore>
+    st_loc l4
+    copy_loc l3
+    ld_u64 2
+    div
+    // @45
+    st_loc l5
+    copy_loc l2
+    borrow_field Vault, handle
+    read_ref
+    call amm::reserves
+    // @50
+    pop
+    ld_u64 100
+    mul
+    ld_u64 10000
+    div
+    // @55
+    st_loc l6
+    copy_loc l5
+    copy_loc l6
+    gt
+    br_false l4
+    // @60
+    move_loc l6
+    st_loc l7
+l5: copy_loc l3
+    copy_loc l7
+    sub
+    // @65
+    st_loc l8
+    copy_loc l2
+    mut_borrow_field Vault, apt_balance
+    copy_loc l7
+    call coin::extract<aptos_coin::AptosCoin>
+    // @70
+    copy_loc l2
+    mut_borrow_field Vault, apt_balance
+    copy_loc l8
+    call coin::extract<aptos_coin::AptosCoin>
+    st_loc l9
+    // @75
+    call coin::coin_to_fungible_asset<aptos_coin::AptosCoin>
+    st_loc l10
+    copy_loc l2
+    borrow_field Vault, handle
+    read_ref
+    // @80
+    move_loc l10
+    ld_u64 0
+    call amm::swap_exact_apt_in
+    st_loc l11
+    borrow_loc l11
+    // @85
+    call fungible_asset::amount
+    st_loc l12
+    copy_loc l2
+    borrow_field Vault, burn_ref
+    move_loc l11
+    // @90
+    call fungible_asset::burn
+    copy_loc l4
+    move_loc l9
+    call coin::deposit<aptos_coin::AptosCoin>
+    ld_u64 0
+    // @95
+    move_loc l2
+    mut_borrow_field Vault, pending_settle_at_secs
+    write_ref
+    move_loc l1
+    move_loc l3
+    // @100
+    move_loc l7
+    move_loc l8
+    move_loc l4
+    move_loc l12
+    pack AptSettled
+    // @105
+    call event::emit<AptSettled>
+    ret
+l4: move_loc l5
+    st_loc l7
+    branch l5
+    // @110
+l3: move_loc l2
+    pop
+    ld_u64 1
+    abort
+l2: move_loc l2
+    // @115
+    pop
+    ld_u64 5
+    abort
+l1: move_loc l2
+    pop
+    // @120
+    ld_u64 7
+    abort
+l0: move_loc l2
+    pop
+    ld_u64 6
+    // @125
+    abort
+
+// Function definition at index 8
+fun make_seed(l0: &vector<u8>): vector<u8>
+    local l1: vector<u8>
+    vec_pack <u8>, 0
+    st_loc l1
+    mut_borrow_loc l1
+    ld_const<vector<u8>> [118, 97, 117, 108, 116, 58, 58]
+    call vector::append<u8>
+    // @5
+    mut_borrow_loc l1
+    move_loc l0
+    read_ref
+    call vector::append<u8>
+    move_loc l1
+    // @10
+    ret
+
+// Function definition at index 9
+#[persistent] public fun pending_settle_at_secs(l0: address): u64 acquires Vault
+    move_loc l0
+    borrow_global Vault
+    borrow_field Vault, pending_settle_at_secs
+    read_ref
+    ret
+
+// Function definition at index 10
+#[persistent] entry public fun request_settle(l0: &signer, l1: address) acquires Vault
+    local l2: &mut Vault
+    local l3: u64
+    local l4: bool
+    local l5: &mut u64
+    copy_loc l1
+    mut_borrow_global Vault
+    st_loc l2
+    move_loc l0
+    pop
+    // @5
+    copy_loc l2
+    borrow_field Vault, apt_balance
+    call coin::value<aptos_coin::AptosCoin>
+    ld_u64 10000000
+    ge
+    // @10
+    br_false l0
+    call timestamp::now_seconds
+    st_loc l3
+    copy_loc l2
+    borrow_field Vault, pending_settle_at_secs
+    // @15
+    read_ref
+    ld_u64 0
+    eq
+    br_false l1
+    ld_true
+    // @20
+    st_loc l4
+l3: move_loc l4
+    br_false l2
+    move_loc l2
+    mut_borrow_field Vault, pending_settle_at_secs
+    // @25
+    st_loc l5
+    copy_loc l3
+    move_loc l5
+    write_ref
+    move_loc l1
+    // @30
+    copy_loc l3
+    move_loc l3
+    ld_u64 60
+    add
+    pack SettleRequested
+    // @35
+    call event::emit<SettleRequested>
+    ret
+l2: move_loc l2
+    pop
+    ld_u64 8
+    // @40
+    abort
+l1: copy_loc l3
+    copy_loc l2
+    borrow_field Vault, pending_settle_at_secs
+    read_ref
+    // @45
+    ld_u64 60
+    add
+    ld_u64 3600
+    add
+    ge
+    // @50
+    st_loc l4
+    branch l3
+l0: move_loc l2
+    pop
+    ld_u64 1
+    // @55
+    abort
+
+// Function definition at index 11
+#[persistent] public fun settle_executable_at_secs(l0: address): u64 acquires Vault
+    local l1: u64
+    move_loc l0
+    borrow_global Vault
+    borrow_field Vault, pending_settle_at_secs
+    read_ref
+    st_loc l1
+    // @5
+    copy_loc l1
+    ld_u64 0
+    eq
+    br_false l0
+    ld_u64 0
+    // @10
+    ret
+l0: move_loc l1
+    ld_u64 60
+    add
+    ret
+
+// Function definition at index 12
+#[persistent] public fun token_metadata(l0: address): address acquires Vault
+    move_loc l0
+    borrow_global Vault
+    borrow_field Vault, token_metadata_addr
+    read_ref
+    ret
+

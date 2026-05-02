@@ -1,0 +1,1091 @@
+// Bytecode version v9
+module 0x7ba7ee5a93694aa5943f4ef344737d95795d51395e3d65a1b732c776d34be724::factory
+use 0x1::smart_table
+use 0x1::string
+use 0x1::fungible_asset
+use 0x1::signer
+use 0x1::event
+use 0x7ba7ee5a93694aa5943f4ef344737d95795d51395e3d65a1b732c776d34be724::governance
+use 0x1::object
+use 0x1::option
+use 0x1::primary_fungible_store
+use 0x7ba7ee5a93694aa5943f4ef344737d95795d51395e3d65a1b732c776d34be724::lp_emission
+use 0x7ba7ee5a93694aa5943f4ef344737d95795d51395e3d65a1b732c776d34be724::reaction_emission
+use 0x7ba7ee5a93694aa5943f4ef344737d95795d51395e3d65a1b732c776d34be724::amm
+use 0x7ba7ee5a93694aa5943f4ef344737d95795d51395e3d65a1b732c776d34be724::apt_vault
+use 0x7ba7ee5a93694aa5943f4ef344737d95795d51395e3d65a1b732c776d34be724::lp_staking
+use 0x1::timestamp
+use 0x1::vector
+friend 0x7ba7ee5a93694aa5943f4ef344737d95795d51395e3d65a1b732c776d34be724::profile
+struct FactoryInitialized has drop + store
+  factory_addr: address
+  deployer: address
+
+struct FactoryRegistry has key
+  records: smart_table::SmartTable<string::String, TokenRecord>
+  metadata_index: smart_table::SmartTable<address, string::String>
+  owner_index: smart_table::SmartTable<address, string::String>
+
+struct FactoryState has key
+  spawn_count: u64
+  paused: bool
+  admin: address
+
+struct TokenMetadataMutRef has key
+  mutate_ref: fungible_asset::MutateMetadataRef
+
+struct TokenRecord has copy + drop + store
+  handle: string::String
+  token_metadata: address
+  owner_addr: address
+  apt_vault: address
+  reaction_reserve: address
+  lp_reserve: address
+  lp_staking_pool: address
+  amm_pool: address
+  spec_version: u32
+  spawned_at_secs: u64
+
+struct TokenSpawned has drop + store
+  handle: string::String
+  token_metadata: address
+  owner_addr: address
+  amm_pool: address
+  lp_staking_pool: address
+  apt_vault: address
+  lp_reserve: address
+  reaction_reserve: address
+  spec_version: u32
+  timestamp_secs: u64
+
+// Function definition at index 0
+fun init_module(l0: &signer)
+    copy_loc l0
+    call signer::address_of
+    copy_loc l0
+    ld_u64 0
+    ld_false
+    // @5
+    ld_const<address> 799008279626092026266606374476533705615973526478392622784892721766771113
+    pack FactoryState
+    move_to FactoryState
+    move_loc l0
+    call smart_table::new<string::String, TokenRecord>
+    // @10
+    call smart_table::new<address, string::String>
+    call smart_table::new<address, string::String>
+    pack FactoryRegistry
+    move_to FactoryRegistry
+    ld_const<address> 799008279626092026266606374476533705615973526478392622784892721766771113
+    // @15
+    pack FactoryInitialized
+    call event::emit<FactoryInitialized>
+    ret
+
+// Function definition at index 1
+#[persistent] public fun admin(): address acquires FactoryState
+    ld_const<address> 55931188893109713473377936165989862777849437759270464167622070126626736957220
+    borrow_global FactoryState
+    borrow_field FactoryState, admin
+    read_ref
+    ret
+
+// Function definition at index 2
+friend fun create_token_atomic(l0: vector<u8>, l1: address, l2: &signer, l3: fungible_asset::FungibleAsset, l4: string::String, l5: string::String, l6: string::String, l7: string::String) acquires FactoryRegistry, FactoryState
+    local l8: string::String
+    local l9: signer
+    local l10: vector<u8>
+    local l11: object::ConstructorRef
+    local l12: address
+    local l13: fungible_asset::MintRef
+    local l14: fungible_asset::BurnRef
+    local l15: fungible_asset::MutateMetadataRef
+    local l16: signer
+    local l17: object::TransferRef
+    local l18: fungible_asset::FungibleAsset
+    local l19: fungible_asset::FungibleAsset
+    local l20: fungible_asset::FungibleAsset
+    local l21: address
+    local l22: address
+    local l23: address
+    local l24: address
+    local l25: u128
+    local l26: address
+    local l27: u64
+    local l28: TokenRecord
+    local l29: &mut FactoryRegistry
+    local l30: &mut FactoryState
+    borrow_loc l0
+    call validate_handle
+    borrow_loc l4
+    borrow_loc l5
+    borrow_loc l6
+    // @5
+    borrow_loc l7
+    call validate_token_metadata_strings
+    copy_loc l0
+    call string::utf8
+    st_loc l8
+    // @10
+    ld_const<address> 55931188893109713473377936165989862777849437759270464167622070126626736957220
+    borrow_global FactoryRegistry
+    borrow_field FactoryRegistry, records
+    copy_loc l8
+    call smart_table::contains<string::String, TokenRecord>
+    // @15
+    br_true l0
+    ld_const<address> 55931188893109713473377936165989862777849437759270464167622070126626736957220
+    borrow_global FactoryState
+    borrow_field FactoryState, paused
+    read_ref
+    // @20
+    br_true l1
+    borrow_loc l3
+    call fungible_asset::amount
+    ld_u64 500000000
+    eq
+    // @25
+    br_false l2
+    call governance::derive_pkg_signer
+    st_loc l9
+    borrow_loc l0
+    call make_token_seed
+    // @30
+    st_loc l10
+    borrow_loc l9
+    move_loc l10
+    call object::create_named_object
+    st_loc l11
+    // @35
+    borrow_loc l11
+    call object::address_from_constructor_ref
+    st_loc l12
+    borrow_loc l11
+    ld_u128 100000000000000000
+    // @40
+    call option::some<u128>
+    move_loc l4
+    move_loc l5
+    ld_u8 8
+    move_loc l6
+    // @45
+    move_loc l7
+    call primary_fungible_store::create_primary_store_enabled_fungible_asset
+    borrow_loc l11
+    call fungible_asset::generate_mint_ref
+    st_loc l13
+    // @50
+    borrow_loc l11
+    call fungible_asset::generate_burn_ref
+    st_loc l14
+    borrow_loc l11
+    call fungible_asset::generate_mutate_metadata_ref
+    // @55
+    st_loc l15
+    borrow_loc l11
+    call object::generate_signer
+    st_loc l16
+    borrow_loc l16
+    // @60
+    move_loc l15
+    pack TokenMetadataMutRef
+    move_to TokenMetadataMutRef
+    borrow_loc l11
+    call object::generate_transfer_ref
+    // @65
+    st_loc l17
+    borrow_loc l17
+    call object::disable_ungated_transfer
+    borrow_loc l11
+    call object::object_from_constructor_ref<fungible_asset::Metadata>
+    // @70
+    pop
+    borrow_loc l13
+    ld_u64 5000000000000000
+    call fungible_asset::mint
+    st_loc l18
+    // @75
+    borrow_loc l13
+    ld_u64 5000000000000000
+    call fungible_asset::mint
+    st_loc l19
+    borrow_loc l13
+    // @80
+    ld_u64 90000000000000000
+    call fungible_asset::mint
+    st_loc l20
+    borrow_loc l9
+    copy_loc l0
+    // @85
+    copy_loc l12
+    move_loc l20
+    call lp_emission::deploy
+    st_loc l21
+    borrow_loc l9
+    // @90
+    copy_loc l0
+    copy_loc l12
+    move_loc l19
+    call reaction_emission::deploy
+    st_loc l22
+    // @95
+    copy_loc l0
+    call amm::pool_address_of_handle
+    st_loc l23
+    borrow_loc l9
+    copy_loc l0
+    // @100
+    copy_loc l12
+    copy_loc l23
+    copy_loc l1
+    move_loc l14
+    call apt_vault::deploy
+    // @105
+    st_loc l24
+    copy_loc l0
+    move_loc l3
+    move_loc l18
+    copy_loc l1
+    // @110
+    call amm::create_pool_atomic
+    st_loc l25
+    copy_loc l0
+    copy_loc l12
+    copy_loc l21
+    // @115
+    copy_loc l1
+    move_loc l2
+    move_loc l25
+    call lp_staking::create_pool_and_lock
+    st_loc l26
+    // @120
+    call timestamp::now_seconds
+    st_loc l27
+    move_loc l8
+    copy_loc l12
+    copy_loc l1
+    // @125
+    copy_loc l24
+    copy_loc l22
+    copy_loc l21
+    copy_loc l26
+    copy_loc l23
+    // @130
+    ld_u32 3
+    copy_loc l27
+    pack TokenRecord
+    st_loc l28
+    ld_const<address> 55931188893109713473377936165989862777849437759270464167622070126626736957220
+    // @135
+    mut_borrow_global FactoryRegistry
+    st_loc l29
+    copy_loc l29
+    mut_borrow_field FactoryRegistry, records
+    copy_loc l0
+    // @140
+    call string::utf8
+    move_loc l28
+    call smart_table::add<string::String, TokenRecord>
+    copy_loc l29
+    mut_borrow_field FactoryRegistry, metadata_index
+    // @145
+    copy_loc l12
+    copy_loc l0
+    call string::utf8
+    call smart_table::add<address, string::String>
+    move_loc l29
+    // @150
+    mut_borrow_field FactoryRegistry, owner_index
+    copy_loc l1
+    copy_loc l0
+    call string::utf8
+    call smart_table::add<address, string::String>
+    // @155
+    ld_const<address> 55931188893109713473377936165989862777849437759270464167622070126626736957220
+    mut_borrow_global FactoryState
+    st_loc l30
+    copy_loc l30
+    borrow_field FactoryState, spawn_count
+    // @160
+    read_ref
+    ld_u64 1
+    add
+    move_loc l30
+    mut_borrow_field FactoryState, spawn_count
+    // @165
+    write_ref
+    move_loc l0
+    call string::utf8
+    move_loc l12
+    move_loc l1
+    // @170
+    move_loc l23
+    move_loc l26
+    move_loc l24
+    move_loc l21
+    move_loc l22
+    // @175
+    ld_u32 3
+    move_loc l27
+    pack TokenSpawned
+    call event::emit<TokenSpawned>
+    ret
+    // @180
+l2: move_loc l2
+    pop
+    ld_u64 12
+    abort
+l1: move_loc l2
+    // @185
+    pop
+    ld_u64 8
+    abort
+l0: move_loc l2
+    pop
+    // @190
+    ld_u64 3
+    abort
+
+// Function definition at index 3
+#[persistent] public fun derive_token_metadata_addr(l0: vector<u8>): address
+    local l1: vector<u8>
+    local l2: address
+    borrow_loc l0
+    call make_token_seed
+    st_loc l1
+    ld_const<address> 55931188893109713473377936165989862777849437759270464167622070126626736957220
+    st_loc l2
+    // @5
+    borrow_loc l2
+    move_loc l1
+    call object::create_object_address
+    ret
+
+// Function definition at index 4
+#[persistent] public fun emit_press_to_presser(l0: &signer, l1: address, l2: vector<u8>, l3: u64, l4: u64): u64 acquires FactoryRegistry
+    local l5: address
+    local l6: &FactoryRegistry
+    local l7: string::String
+    move_loc l0
+    call signer::address_of
+    st_loc l5
+    ld_const<address> 55931188893109713473377936165989862777849437759270464167622070126626736957220
+    borrow_global FactoryRegistry
+    // @5
+    st_loc l6
+    copy_loc l6
+    borrow_field FactoryRegistry, owner_index
+    copy_loc l5
+    call smart_table::contains<address, string::String>
+    // @10
+    br_false l0
+    copy_loc l6
+    borrow_field FactoryRegistry, owner_index
+    move_loc l5
+    call smart_table::borrow<address, string::String>
+    // @15
+    read_ref
+    st_loc l7
+    move_loc l6
+    borrow_field FactoryRegistry, records
+    move_loc l7
+    // @20
+    call smart_table::borrow<string::String, TokenRecord>
+    borrow_field TokenRecord, reaction_reserve
+    read_ref
+    move_loc l1
+    move_loc l2
+    // @25
+    move_loc l3
+    move_loc l4
+    call reaction_emission::emit_to_presser
+    ret
+l0: move_loc l6
+    // @30
+    pop
+    ld_u64 10
+    abort
+
+// Function definition at index 5
+#[persistent] public fun get_token_record(l0: vector<u8>): TokenRecord acquires FactoryRegistry
+    local l1: &FactoryRegistry
+    local l2: string::String
+    ld_const<address> 55931188893109713473377936165989862777849437759270464167622070126626736957220
+    borrow_global FactoryRegistry
+    st_loc l1
+    move_loc l0
+    call string::utf8
+    // @5
+    st_loc l2
+    copy_loc l1
+    borrow_field FactoryRegistry, records
+    copy_loc l2
+    call smart_table::contains<string::String, TokenRecord>
+    // @10
+    br_false l0
+    move_loc l1
+    borrow_field FactoryRegistry, records
+    move_loc l2
+    call smart_table::borrow<string::String, TokenRecord>
+    // @15
+    read_ref
+    ret
+l0: move_loc l1
+    pop
+    ld_u64 19
+    // @20
+    abort
+
+// Function definition at index 6
+#[persistent] public fun handle_of_owner(l0: address): string::String acquires FactoryRegistry
+    local l1: &FactoryRegistry
+    ld_const<address> 55931188893109713473377936165989862777849437759270464167622070126626736957220
+    borrow_global FactoryRegistry
+    st_loc l1
+    copy_loc l1
+    borrow_field FactoryRegistry, owner_index
+    // @5
+    copy_loc l0
+    call smart_table::contains<address, string::String>
+    br_false l0
+    move_loc l1
+    borrow_field FactoryRegistry, owner_index
+    // @10
+    move_loc l0
+    call smart_table::borrow<address, string::String>
+    read_ref
+    ret
+l0: move_loc l1
+    // @15
+    pop
+    ld_u64 19
+    abort
+
+// Function definition at index 7
+#[persistent] public fun handle_of_token(l0: address): string::String acquires FactoryRegistry
+    local l1: &FactoryRegistry
+    ld_const<address> 55931188893109713473377936165989862777849437759270464167622070126626736957220
+    borrow_global FactoryRegistry
+    st_loc l1
+    copy_loc l1
+    borrow_field FactoryRegistry, metadata_index
+    // @5
+    copy_loc l0
+    call smart_table::contains<address, string::String>
+    br_false l0
+    move_loc l1
+    borrow_field FactoryRegistry, metadata_index
+    // @10
+    move_loc l0
+    call smart_table::borrow<address, string::String>
+    read_ref
+    ret
+l0: move_loc l1
+    // @15
+    pop
+    ld_u64 19
+    abort
+
+// Function definition at index 8
+#[persistent] public fun handle_registered(l0: vector<u8>): bool acquires FactoryRegistry
+    ld_const<address> 55931188893109713473377936165989862777849437759270464167622070126626736957220
+    borrow_global FactoryRegistry
+    borrow_field FactoryRegistry, records
+    move_loc l0
+    call string::utf8
+    // @5
+    call smart_table::contains<string::String, TokenRecord>
+    ret
+
+// Function definition at index 9
+#[persistent] public fun is_factory_token(l0: address): bool acquires FactoryRegistry
+    ld_const<address> 55931188893109713473377936165989862777849437759270464167622070126626736957220
+    borrow_global FactoryRegistry
+    borrow_field FactoryRegistry, metadata_index
+    move_loc l0
+    call smart_table::contains<address, string::String>
+    // @5
+    ret
+
+// Function definition at index 10
+#[persistent] public fun is_paused(): bool acquires FactoryState
+    ld_const<address> 55931188893109713473377936165989862777849437759270464167622070126626736957220
+    borrow_global FactoryState
+    borrow_field FactoryState, paused
+    read_ref
+    ret
+
+// Function definition at index 11
+#[persistent] public fun lp_staking_pool_of_owner(l0: address): address acquires FactoryRegistry
+    local l1: &FactoryRegistry
+    local l2: string::String
+    ld_const<address> 55931188893109713473377936165989862777849437759270464167622070126626736957220
+    borrow_global FactoryRegistry
+    st_loc l1
+    copy_loc l1
+    borrow_field FactoryRegistry, owner_index
+    // @5
+    copy_loc l0
+    call smart_table::contains<address, string::String>
+    br_false l0
+    copy_loc l1
+    borrow_field FactoryRegistry, owner_index
+    // @10
+    move_loc l0
+    call smart_table::borrow<address, string::String>
+    read_ref
+    st_loc l2
+    move_loc l1
+    // @15
+    borrow_field FactoryRegistry, records
+    move_loc l2
+    call smart_table::borrow<string::String, TokenRecord>
+    borrow_field TokenRecord, lp_staking_pool
+    read_ref
+    // @20
+    ret
+l0: move_loc l1
+    pop
+    ld_u64 19
+    abort
+
+// Function definition at index 12
+fun make_token_seed(l0: &vector<u8>): vector<u8>
+    local l1: vector<u8>
+    vec_pack <u8>, 0
+    st_loc l1
+    mut_borrow_loc l1
+    ld_const<vector<u8>> [116, 111, 107, 101, 110, 58, 58]
+    call vector::append<u8>
+    // @5
+    mut_borrow_loc l1
+    move_loc l0
+    read_ref
+    call vector::append<u8>
+    move_loc l1
+    // @10
+    ret
+
+// Function definition at index 13
+#[persistent] public fun owner_has_token(l0: address): bool acquires FactoryRegistry
+    ld_const<address> 55931188893109713473377936165989862777849437759270464167622070126626736957220
+    borrow_global FactoryRegistry
+    borrow_field FactoryRegistry, owner_index
+    move_loc l0
+    call smart_table::contains<address, string::String>
+    // @5
+    ret
+
+// Function definition at index 14
+#[persistent] public fun pool_seed_apt_amount(): u64
+    ld_u64 500000000
+    ret
+
+// Function definition at index 15
+#[persistent] public fun pool_seed_token_amount(): u64
+    ld_u64 5000000000000000
+    ret
+
+// Function definition at index 16
+#[persistent] entry public fun rotate_admin(l0: &signer, l1: address) acquires FactoryState
+    local l2: &mut FactoryState
+    local l3: &mut address
+    copy_loc l1
+    ld_const<address> 0
+    neq
+    br_false l0
+    ld_const<address> 55931188893109713473377936165989862777849437759270464167622070126626736957220
+    // @5
+    mut_borrow_global FactoryState
+    st_loc l2
+    move_loc l0
+    call signer::address_of
+    copy_loc l2
+    // @10
+    borrow_field FactoryState, admin
+    read_ref
+    eq
+    br_false l1
+    move_loc l2
+    // @15
+    mut_borrow_field FactoryState, admin
+    st_loc l3
+    move_loc l1
+    move_loc l3
+    write_ref
+    // @20
+    ret
+l1: move_loc l2
+    pop
+    ld_u64 13
+    abort
+    // @25
+l0: move_loc l0
+    pop
+    ld_u64 14
+    abort
+
+// Function definition at index 17
+#[persistent] entry public fun set_paused(l0: &signer, l1: bool) acquires FactoryState
+    local l2: &mut FactoryState
+    local l3: &mut bool
+    ld_const<address> 55931188893109713473377936165989862777849437759270464167622070126626736957220
+    mut_borrow_global FactoryState
+    st_loc l2
+    move_loc l0
+    call signer::address_of
+    // @5
+    copy_loc l2
+    borrow_field FactoryState, admin
+    read_ref
+    eq
+    br_false l0
+    // @10
+    move_loc l2
+    mut_borrow_field FactoryState, paused
+    st_loc l3
+    move_loc l1
+    move_loc l3
+    // @15
+    write_ref
+    ret
+l0: move_loc l2
+    pop
+    ld_u64 13
+    // @20
+    abort
+
+// Function definition at index 18
+#[persistent] public fun spawn_count(): u64 acquires FactoryState
+    ld_const<address> 55931188893109713473377936165989862777849437759270464167622070126626736957220
+    borrow_global FactoryState
+    borrow_field FactoryState, spawn_count
+    read_ref
+    ret
+
+// Function definition at index 19
+#[persistent] public fun token_metadata_of_owner(l0: address): address acquires FactoryRegistry
+    local l1: &FactoryRegistry
+    local l2: string::String
+    ld_const<address> 55931188893109713473377936165989862777849437759270464167622070126626736957220
+    borrow_global FactoryRegistry
+    st_loc l1
+    copy_loc l1
+    borrow_field FactoryRegistry, owner_index
+    // @5
+    copy_loc l0
+    call smart_table::contains<address, string::String>
+    br_false l0
+    copy_loc l1
+    borrow_field FactoryRegistry, owner_index
+    // @10
+    move_loc l0
+    call smart_table::borrow<address, string::String>
+    read_ref
+    st_loc l2
+    move_loc l1
+    // @15
+    borrow_field FactoryRegistry, records
+    move_loc l2
+    call smart_table::borrow<string::String, TokenRecord>
+    borrow_field TokenRecord, token_metadata
+    read_ref
+    // @20
+    ret
+l0: move_loc l1
+    pop
+    ld_u64 19
+    abort
+
+// Function definition at index 20
+#[persistent] entry public fun update_token_icon(l0: &signer, l1: vector<u8>, l2: string::String) acquires FactoryRegistry, TokenMetadataMutRef
+    local l3: &signer
+    local l4: string::String
+    local l5: &FactoryRegistry
+    local l6: &TokenRecord
+    local l7: address
+    local l8: address
+    borrow_loc l2
+    call string::length
+    ld_u64 512
+    le
+    br_false l0
+    // @5
+    move_loc l0
+    st_loc l3
+    move_loc l1
+    call string::utf8
+    st_loc l4
+    // @10
+    ld_const<address> 55931188893109713473377936165989862777849437759270464167622070126626736957220
+    borrow_global FactoryRegistry
+    st_loc l5
+    copy_loc l5
+    borrow_field FactoryRegistry, records
+    // @15
+    copy_loc l4
+    call smart_table::contains<string::String, TokenRecord>
+    br_false l1
+    move_loc l5
+    borrow_field FactoryRegistry, records
+    // @20
+    move_loc l4
+    call smart_table::borrow<string::String, TokenRecord>
+    st_loc l6
+    copy_loc l6
+    borrow_field TokenRecord, owner_addr
+    // @25
+    read_ref
+    move_loc l6
+    borrow_field TokenRecord, token_metadata
+    read_ref
+    st_loc l7
+    // @30
+    call object::address_to_object<object::ObjectCore>
+    call object::owner<object::ObjectCore>
+    st_loc l8
+    move_loc l3
+    call signer::address_of
+    // @35
+    move_loc l8
+    eq
+    br_false l2
+    move_loc l7
+    borrow_global TokenMetadataMutRef
+    // @40
+    borrow_field TokenMetadataMutRef, mutate_ref
+    call option::none<string::String>
+    call option::none<string::String>
+    call option::none<u8>
+    move_loc l2
+    // @45
+    call option::some<string::String>
+    call option::none<string::String>
+    call fungible_asset::mutate_metadata
+    ret
+l2: ld_u64 18
+    // @50
+    abort
+l1: move_loc l3
+    pop
+    move_loc l5
+    pop
+    // @55
+    ld_u64 19
+    abort
+l0: move_loc l0
+    pop
+    ld_u64 17
+    // @60
+    abort
+
+// Function definition at index 21
+#[persistent] entry public fun update_token_project_uri(l0: &signer, l1: vector<u8>, l2: string::String) acquires FactoryRegistry, TokenMetadataMutRef
+    local l3: &signer
+    local l4: string::String
+    local l5: &FactoryRegistry
+    local l6: &TokenRecord
+    local l7: address
+    local l8: address
+    borrow_loc l2
+    call string::length
+    ld_u64 512
+    le
+    br_false l0
+    // @5
+    move_loc l0
+    st_loc l3
+    move_loc l1
+    call string::utf8
+    st_loc l4
+    // @10
+    ld_const<address> 55931188893109713473377936165989862777849437759270464167622070126626736957220
+    borrow_global FactoryRegistry
+    st_loc l5
+    copy_loc l5
+    borrow_field FactoryRegistry, records
+    // @15
+    copy_loc l4
+    call smart_table::contains<string::String, TokenRecord>
+    br_false l1
+    move_loc l5
+    borrow_field FactoryRegistry, records
+    // @20
+    move_loc l4
+    call smart_table::borrow<string::String, TokenRecord>
+    st_loc l6
+    copy_loc l6
+    borrow_field TokenRecord, owner_addr
+    // @25
+    read_ref
+    move_loc l6
+    borrow_field TokenRecord, token_metadata
+    read_ref
+    st_loc l7
+    // @30
+    call object::address_to_object<object::ObjectCore>
+    call object::owner<object::ObjectCore>
+    st_loc l8
+    move_loc l3
+    call signer::address_of
+    // @35
+    move_loc l8
+    eq
+    br_false l2
+    move_loc l7
+    borrow_global TokenMetadataMutRef
+    // @40
+    borrow_field TokenMetadataMutRef, mutate_ref
+    call option::none<string::String>
+    call option::none<string::String>
+    call option::none<u8>
+    call option::none<string::String>
+    // @45
+    move_loc l2
+    call option::some<string::String>
+    call fungible_asset::mutate_metadata
+    ret
+l2: ld_u64 18
+    // @50
+    abort
+l1: move_loc l3
+    pop
+    move_loc l5
+    pop
+    // @55
+    ld_u64 19
+    abort
+l0: move_loc l0
+    pop
+    ld_u64 20
+    // @60
+    abort
+
+// Function definition at index 22
+fun validate_handle(l0: &vector<u8>)
+    local l1: u64
+    local l2: u64
+    local l3: u8
+    local l4: bool
+    local l5: bool
+    local l6: bool
+    local l7: bool
+    local l8: bool
+    copy_loc l0
+    vec_len <u8>
+    st_loc l1
+    copy_loc l1
+    ld_u64 1
+    // @5
+    ge
+    br_false l0
+    copy_loc l1
+    ld_u64 64
+    le
+    // @10
+    br_false l1
+    ld_u64 0
+    st_loc l2
+l8: copy_loc l2
+    copy_loc l1
+    // @15
+    lt
+    br_false l2
+    copy_loc l0
+    copy_loc l2
+    vec_borrow <u8>
+    // @20
+    read_ref
+    st_loc l3
+    copy_loc l3
+    ld_u8 97
+    ge
+    // @25
+    br_false l3
+    copy_loc l3
+    ld_u8 122
+    le
+    st_loc l4
+    // @30
+l12: copy_loc l3
+    ld_u8 48
+    ge
+    br_false l4
+    copy_loc l3
+    // @35
+    ld_u8 57
+    le
+    st_loc l5
+l11: move_loc l3
+    ld_u8 45
+    // @40
+    eq
+    st_loc l6
+    move_loc l4
+    br_false l5
+    ld_true
+    // @45
+    st_loc l7
+l10: move_loc l7
+    br_false l6
+    ld_true
+    st_loc l8
+    // @50
+l9: move_loc l8
+    br_false l7
+    move_loc l2
+    ld_u64 1
+    add
+    // @55
+    st_loc l2
+    branch l8
+l7: move_loc l0
+    pop
+    ld_u64 6
+    // @60
+    abort
+l6: move_loc l6
+    st_loc l8
+    branch l9
+l5: move_loc l5
+    // @65
+    st_loc l7
+    branch l10
+l4: ld_false
+    st_loc l5
+    branch l11
+    // @70
+l3: ld_false
+    st_loc l4
+    branch l12
+l2: move_loc l0
+    pop
+    // @75
+    ret
+l1: move_loc l0
+    pop
+    ld_u64 5
+    abort
+    // @80
+l0: move_loc l0
+    pop
+    ld_u64 4
+    abort
+
+// Function definition at index 23
+fun validate_token_metadata_strings(l0: &string::String, l1: &string::String, l2: &string::String, l3: &string::String)
+    move_loc l0
+    call string::length
+    ld_u64 32
+    le
+    br_false l0
+    // @5
+    move_loc l1
+    call string::length
+    ld_u64 32
+    le
+    br_false l1
+    // @10
+    move_loc l2
+    call string::length
+    ld_u64 512
+    le
+    br_false l2
+    // @15
+    move_loc l3
+    call string::length
+    ld_u64 512
+    le
+    br_false l3
+    // @20
+    ret
+l3: ld_u64 20
+    abort
+l2: move_loc l3
+    pop
+    // @25
+    ld_u64 17
+    abort
+l1: move_loc l2
+    pop
+    move_loc l3
+    // @30
+    pop
+    ld_u64 16
+    abort
+l0: move_loc l1
+    pop
+    // @35
+    move_loc l2
+    pop
+    move_loc l3
+    pop
+    ld_u64 15
+    // @40
+    abort
+
+// Function definition at index 24
+#[persistent] public fun vault_addr_of_handle(l0: vector<u8>): address acquires FactoryRegistry
+    local l1: &FactoryRegistry
+    local l2: string::String
+    ld_const<address> 55931188893109713473377936165989862777849437759270464167622070126626736957220
+    borrow_global FactoryRegistry
+    st_loc l1
+    move_loc l0
+    call string::utf8
+    // @5
+    st_loc l2
+    copy_loc l1
+    borrow_field FactoryRegistry, records
+    copy_loc l2
+    call smart_table::contains<string::String, TokenRecord>
+    // @10
+    br_false l0
+    move_loc l1
+    borrow_field FactoryRegistry, records
+    move_loc l2
+    call smart_table::borrow<string::String, TokenRecord>
+    // @15
+    borrow_field TokenRecord, apt_vault
+    read_ref
+    ret
+l0: move_loc l1
+    pop
+    // @20
+    ld_u64 19
+    abort
+
+// Function definition at index 25
+#[persistent] public fun vault_addr_of_pid(l0: address): address acquires FactoryRegistry
+    local l1: &FactoryRegistry
+    local l2: string::String
+    ld_const<address> 55931188893109713473377936165989862777849437759270464167622070126626736957220
+    borrow_global FactoryRegistry
+    st_loc l1
+    copy_loc l1
+    borrow_field FactoryRegistry, owner_index
+    // @5
+    copy_loc l0
+    call smart_table::contains<address, string::String>
+    br_false l0
+    copy_loc l1
+    borrow_field FactoryRegistry, owner_index
+    // @10
+    move_loc l0
+    call smart_table::borrow<address, string::String>
+    read_ref
+    st_loc l2
+    move_loc l1
+    // @15
+    borrow_field FactoryRegistry, records
+    move_loc l2
+    call smart_table::borrow<string::String, TokenRecord>
+    borrow_field TokenRecord, apt_vault
+    read_ref
+    // @20
+    ret
+l0: move_loc l1
+    pop
+    ld_u64 10
+    abort
+

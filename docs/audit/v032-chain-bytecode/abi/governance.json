@@ -1,0 +1,784 @@
+{
+  "address": "0x7ba7ee5a93694aa5943f4ef344737d95795d51395e3d65a1b732c776d34be724",
+  "name": "governance",
+  "friends": [
+    "0x7ba7ee5a93694aa5943f4ef344737d95795d51395e3d65a1b732c776d34be724::amm",
+    "0x7ba7ee5a93694aa5943f4ef344737d95795d51395e3d65a1b732c776d34be724::lp_staking",
+    "0x7ba7ee5a93694aa5943f4ef344737d95795d51395e3d65a1b732c776d34be724::factory",
+    "0x7ba7ee5a93694aa5943f4ef344737d95795d51395e3d65a1b732c776d34be724::handle_fee_vault",
+    "0x7ba7ee5a93694aa5943f4ef344737d95795d51395e3d65a1b732c776d34be724::profile"
+  ],
+  "exposed_functions": [
+    {
+      "name": "voting_power",
+      "visibility": "public",
+      "is_entry": false,
+      "is_view": true,
+      "generic_type_params": [],
+      "params": [
+        "address"
+      ],
+      "return": [
+        "u64"
+      ]
+    },
+    {
+      "name": "cast_vote",
+      "visibility": "public",
+      "is_entry": true,
+      "is_view": false,
+      "generic_type_params": [],
+      "params": [
+        "&signer",
+        "u64",
+        "bool"
+      ],
+      "return": []
+    },
+    {
+      "name": "cleanup_upgrade_staging",
+      "visibility": "public",
+      "is_entry": true,
+      "is_view": false,
+      "generic_type_params": [],
+      "params": [
+        "&signer"
+      ],
+      "return": []
+    },
+    {
+      "name": "compute_upgrade_digest",
+      "visibility": "public",
+      "is_entry": false,
+      "is_view": false,
+      "generic_type_params": [],
+      "params": [
+        "&vector<u8>",
+        "&vector<vector<u8>>"
+      ],
+      "return": [
+        "vector<u8>"
+      ]
+    },
+    {
+      "name": "compute_upgrade_digest_view",
+      "visibility": "public",
+      "is_entry": false,
+      "is_view": true,
+      "generic_type_params": [],
+      "params": [
+        "vector<u8>",
+        "vector<vector<u8>>"
+      ],
+      "return": [
+        "vector<u8>"
+      ]
+    },
+    {
+      "name": "dao_publish_chunked_upgrade",
+      "visibility": "public",
+      "is_entry": true,
+      "is_view": false,
+      "generic_type_params": [],
+      "params": [
+        "&signer",
+        "u64",
+        "vector<u8>",
+        "vector<u16>",
+        "vector<vector<u8>>"
+      ],
+      "return": []
+    },
+    {
+      "name": "dao_stage_upgrade_chunk",
+      "visibility": "public",
+      "is_entry": true,
+      "is_view": false,
+      "generic_type_params": [],
+      "params": [
+        "&signer",
+        "u64",
+        "vector<u8>",
+        "vector<u16>",
+        "vector<vector<u8>>"
+      ],
+      "return": []
+    },
+    {
+      "name": "derive_pkg_signer",
+      "visibility": "friend",
+      "is_entry": false,
+      "is_view": false,
+      "generic_type_params": [],
+      "params": [],
+      "return": [
+        "signer"
+      ]
+    },
+    {
+      "name": "disable_multisig_upgrade",
+      "visibility": "public",
+      "is_entry": true,
+      "is_view": false,
+      "generic_type_params": [],
+      "params": [
+        "&signer"
+      ],
+      "return": []
+    },
+    {
+      "name": "effective_30d_emission_view",
+      "visibility": "public",
+      "is_entry": false,
+      "is_view": true,
+      "generic_type_params": [],
+      "params": [],
+      "return": [
+        "u64"
+      ]
+    },
+    {
+      "name": "execute_proposal",
+      "visibility": "public",
+      "is_entry": true,
+      "is_view": false,
+      "generic_type_params": [],
+      "params": [
+        "&signer",
+        "u64",
+        "vector<u8>",
+        "vector<vector<u8>>"
+      ],
+      "return": []
+    },
+    {
+      "name": "multisig_publish_chunked_upgrade",
+      "visibility": "public",
+      "is_entry": true,
+      "is_view": false,
+      "generic_type_params": [],
+      "params": [
+        "&signer",
+        "vector<u8>",
+        "vector<u16>",
+        "vector<vector<u8>>"
+      ],
+      "return": []
+    },
+    {
+      "name": "multisig_stage_upgrade_chunk",
+      "visibility": "public",
+      "is_entry": true,
+      "is_view": false,
+      "generic_type_params": [],
+      "params": [
+        "&signer",
+        "vector<u8>",
+        "vector<u16>",
+        "vector<vector<u8>>"
+      ],
+      "return": []
+    },
+    {
+      "name": "multisig_upgrade",
+      "visibility": "public",
+      "is_entry": true,
+      "is_view": false,
+      "generic_type_params": [],
+      "params": [
+        "&signer",
+        "vector<u8>",
+        "vector<vector<u8>>"
+      ],
+      "return": []
+    },
+    {
+      "name": "proposal_approved_at",
+      "visibility": "public",
+      "is_entry": false,
+      "is_view": true,
+      "generic_type_params": [],
+      "params": [
+        "u64"
+      ],
+      "return": [
+        "0x1::option::Option<u64>"
+      ]
+    },
+    {
+      "name": "proposal_count",
+      "visibility": "public",
+      "is_entry": false,
+      "is_view": true,
+      "generic_type_params": [],
+      "params": [],
+      "return": [
+        "u64"
+      ]
+    },
+    {
+      "name": "proposal_executed_at",
+      "visibility": "public",
+      "is_entry": false,
+      "is_view": true,
+      "generic_type_params": [],
+      "params": [
+        "u64"
+      ],
+      "return": [
+        "0x1::option::Option<u64>"
+      ]
+    },
+    {
+      "name": "proposal_exists",
+      "visibility": "public",
+      "is_entry": false,
+      "is_view": true,
+      "generic_type_params": [],
+      "params": [
+        "u64"
+      ],
+      "return": [
+        "bool"
+      ]
+    },
+    {
+      "name": "proposal_hash",
+      "visibility": "public",
+      "is_entry": false,
+      "is_view": true,
+      "generic_type_params": [],
+      "params": [
+        "u64"
+      ],
+      "return": [
+        "vector<u8>"
+      ]
+    },
+    {
+      "name": "proposal_target",
+      "visibility": "public",
+      "is_entry": false,
+      "is_view": true,
+      "generic_type_params": [],
+      "params": [
+        "u64"
+      ],
+      "return": [
+        "address"
+      ]
+    },
+    {
+      "name": "proposal_threshold_amount",
+      "visibility": "public",
+      "is_entry": false,
+      "is_view": true,
+      "generic_type_params": [],
+      "params": [],
+      "return": [
+        "u64"
+      ]
+    },
+    {
+      "name": "propose_upgrade",
+      "visibility": "public",
+      "is_entry": true,
+      "is_view": false,
+      "generic_type_params": [],
+      "params": [
+        "&signer",
+        "address",
+        "vector<u8>"
+      ],
+      "return": []
+    },
+    {
+      "name": "quorum_amount",
+      "visibility": "public",
+      "is_entry": false,
+      "is_view": true,
+      "generic_type_params": [],
+      "params": [],
+      "return": [
+        "u64"
+      ]
+    },
+    {
+      "name": "ratify",
+      "visibility": "public",
+      "is_entry": true,
+      "is_view": false,
+      "generic_type_params": [],
+      "params": [
+        "&signer",
+        "u64"
+      ],
+      "return": []
+    },
+    {
+      "name": "record_emission_for_window",
+      "visibility": "friend",
+      "is_entry": false,
+      "is_view": false,
+      "generic_type_params": [],
+      "params": [
+        "u64"
+      ],
+      "return": []
+    },
+    {
+      "name": "timelock_secs",
+      "visibility": "public",
+      "is_entry": false,
+      "is_view": true,
+      "generic_type_params": [],
+      "params": [],
+      "return": [
+        "u64"
+      ]
+    },
+    {
+      "name": "total_30d_emission_auto",
+      "visibility": "public",
+      "is_entry": false,
+      "is_view": true,
+      "generic_type_params": [],
+      "params": [],
+      "return": [
+        "u64"
+      ]
+    },
+    {
+      "name": "update_desnet_fa_metadata",
+      "visibility": "public",
+      "is_entry": true,
+      "is_view": false,
+      "generic_type_params": [],
+      "params": [
+        "&signer",
+        "address"
+      ],
+      "return": []
+    },
+    {
+      "name": "update_total_30d_emission",
+      "visibility": "public",
+      "is_entry": true,
+      "is_view": false,
+      "generic_type_params": [],
+      "params": [
+        "&signer",
+        "u64"
+      ],
+      "return": []
+    },
+    {
+      "name": "upgrade_staging_exists",
+      "visibility": "public",
+      "is_entry": false,
+      "is_view": true,
+      "generic_type_params": [],
+      "params": [],
+      "return": [
+        "bool"
+      ]
+    },
+    {
+      "name": "voting_period_secs",
+      "visibility": "public",
+      "is_entry": false,
+      "is_view": true,
+      "generic_type_params": [],
+      "params": [],
+      "return": [
+        "u64"
+      ]
+    }
+  ],
+  "structs": [
+    {
+      "name": "Proposal",
+      "is_native": false,
+      "is_event": false,
+      "is_enum": false,
+      "abilities": [
+        "store"
+      ],
+      "generic_type_params": [],
+      "fields": [
+        {
+          "name": "id",
+          "type": "u64"
+        },
+        {
+          "name": "proposer",
+          "type": "address"
+        },
+        {
+          "name": "target_package_addr",
+          "type": "address"
+        },
+        {
+          "name": "new_module_bytes_hash",
+          "type": "vector<u8>"
+        },
+        {
+          "name": "votes_for",
+          "type": "u64"
+        },
+        {
+          "name": "votes_against",
+          "type": "u64"
+        },
+        {
+          "name": "voters",
+          "type": "0x1::smart_table::SmartTable<address, 0x7ba7ee5a93694aa5943f4ef344737d95795d51395e3d65a1b732c776d34be724::governance::ProposalVote>"
+        },
+        {
+          "name": "created_at_secs",
+          "type": "u64"
+        },
+        {
+          "name": "voting_end_secs",
+          "type": "u64"
+        },
+        {
+          "name": "approved_at_secs",
+          "type": "0x1::option::Option<u64>"
+        },
+        {
+          "name": "executed_at_secs",
+          "type": "0x1::option::Option<u64>"
+        },
+        {
+          "name": "cancelled",
+          "type": "bool"
+        }
+      ],
+      "variants": []
+    },
+    {
+      "name": "Emission30dRollingBucket",
+      "is_native": false,
+      "is_event": false,
+      "is_enum": false,
+      "abilities": [
+        "key"
+      ],
+      "generic_type_params": [],
+      "fields": [
+        {
+          "name": "daily_amounts",
+          "type": "vector<u64>"
+        },
+        {
+          "name": "daily_day_nums",
+          "type": "vector<u64>"
+        }
+      ],
+      "variants": []
+    },
+    {
+      "name": "GovernanceInitialized",
+      "is_native": false,
+      "is_event": true,
+      "is_enum": false,
+      "abilities": [
+        "drop",
+        "store"
+      ],
+      "generic_type_params": [],
+      "fields": [
+        {
+          "name": "governance_addr",
+          "type": "address"
+        },
+        {
+          "name": "deployer",
+          "type": "address"
+        },
+        {
+          "name": "timestamp_secs",
+          "type": "u64"
+        }
+      ],
+      "variants": []
+    },
+    {
+      "name": "GovernanceState",
+      "is_native": false,
+      "is_event": false,
+      "is_enum": false,
+      "abilities": [
+        "key"
+      ],
+      "generic_type_params": [],
+      "fields": [
+        {
+          "name": "signer_cap",
+          "type": "0x1::account::SignerCapability"
+        },
+        {
+          "name": "proposal_count",
+          "type": "u64"
+        },
+        {
+          "name": "proposals",
+          "type": "0x1::smart_table::SmartTable<u64, 0x7ba7ee5a93694aa5943f4ef344737d95795d51395e3d65a1b732c776d34be724::governance::Proposal>"
+        },
+        {
+          "name": "desnet_fa_metadata",
+          "type": "address"
+        },
+        {
+          "name": "total_30d_emission",
+          "type": "u64"
+        },
+        {
+          "name": "multisig_upgrade_disabled",
+          "type": "bool"
+        }
+      ],
+      "variants": []
+    },
+    {
+      "name": "MultisigUpgrade",
+      "is_native": false,
+      "is_event": true,
+      "is_enum": false,
+      "abilities": [
+        "drop",
+        "store"
+      ],
+      "generic_type_params": [],
+      "fields": [
+        {
+          "name": "multisig",
+          "type": "address"
+        },
+        {
+          "name": "timestamp_secs",
+          "type": "u64"
+        }
+      ],
+      "variants": []
+    },
+    {
+      "name": "MultisigUpgradeDisabled",
+      "is_native": false,
+      "is_event": true,
+      "is_enum": false,
+      "abilities": [
+        "drop",
+        "store"
+      ],
+      "generic_type_params": [],
+      "fields": [
+        {
+          "name": "disabled_by",
+          "type": "address"
+        },
+        {
+          "name": "timestamp_secs",
+          "type": "u64"
+        }
+      ],
+      "variants": []
+    },
+    {
+      "name": "ProposalCreated",
+      "is_native": false,
+      "is_event": true,
+      "is_enum": false,
+      "abilities": [
+        "drop",
+        "store"
+      ],
+      "generic_type_params": [],
+      "fields": [
+        {
+          "name": "proposal_id",
+          "type": "u64"
+        },
+        {
+          "name": "proposer",
+          "type": "address"
+        },
+        {
+          "name": "target_package_addr",
+          "type": "address"
+        },
+        {
+          "name": "new_module_bytes_hash",
+          "type": "vector<u8>"
+        },
+        {
+          "name": "voting_end_secs",
+          "type": "u64"
+        }
+      ],
+      "variants": []
+    },
+    {
+      "name": "ProposalExecuted",
+      "is_native": false,
+      "is_event": true,
+      "is_enum": false,
+      "abilities": [
+        "drop",
+        "store"
+      ],
+      "generic_type_params": [],
+      "fields": [
+        {
+          "name": "proposal_id",
+          "type": "u64"
+        },
+        {
+          "name": "target_package_addr",
+          "type": "address"
+        },
+        {
+          "name": "executor",
+          "type": "address"
+        }
+      ],
+      "variants": []
+    },
+    {
+      "name": "ProposalRatified",
+      "is_native": false,
+      "is_event": true,
+      "is_enum": false,
+      "abilities": [
+        "drop",
+        "store"
+      ],
+      "generic_type_params": [],
+      "fields": [
+        {
+          "name": "proposal_id",
+          "type": "u64"
+        },
+        {
+          "name": "votes_for_final",
+          "type": "u64"
+        },
+        {
+          "name": "votes_against_final",
+          "type": "u64"
+        },
+        {
+          "name": "timelock_until",
+          "type": "u64"
+        }
+      ],
+      "variants": []
+    },
+    {
+      "name": "ProposalVote",
+      "is_native": false,
+      "is_event": false,
+      "is_enum": false,
+      "abilities": [
+        "copy",
+        "drop",
+        "store"
+      ],
+      "generic_type_params": [],
+      "fields": [
+        {
+          "name": "voter",
+          "type": "address"
+        },
+        {
+          "name": "weight",
+          "type": "u64"
+        },
+        {
+          "name": "support",
+          "type": "bool"
+        },
+        {
+          "name": "cast_at_secs",
+          "type": "u64"
+        }
+      ],
+      "variants": []
+    },
+    {
+      "name": "UpgradeStaging",
+      "is_native": false,
+      "is_event": false,
+      "is_enum": false,
+      "abilities": [
+        "drop",
+        "key"
+      ],
+      "generic_type_params": [],
+      "fields": [
+        {
+          "name": "metadata",
+          "type": "vector<u8>"
+        },
+        {
+          "name": "code",
+          "type": "vector<vector<u8>>"
+        }
+      ],
+      "variants": []
+    },
+    {
+      "name": "UpgradeStagingCleanup",
+      "is_native": false,
+      "is_event": true,
+      "is_enum": false,
+      "abilities": [
+        "drop",
+        "store"
+      ],
+      "generic_type_params": [],
+      "fields": [
+        {
+          "name": "multisig",
+          "type": "address"
+        },
+        {
+          "name": "timestamp_secs",
+          "type": "u64"
+        }
+      ],
+      "variants": []
+    },
+    {
+      "name": "VoteCast",
+      "is_native": false,
+      "is_event": true,
+      "is_enum": false,
+      "abilities": [
+        "drop",
+        "store"
+      ],
+      "generic_type_params": [],
+      "fields": [
+        {
+          "name": "proposal_id",
+          "type": "u64"
+        },
+        {
+          "name": "voter",
+          "type": "address"
+        },
+        {
+          "name": "support",
+          "type": "bool"
+        },
+        {
+          "name": "weight",
+          "type": "u64"
+        }
+      ],
+      "variants": []
+    }
+  ]
+}

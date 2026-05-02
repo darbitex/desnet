@@ -1,0 +1,323 @@
+// Bytecode version v9
+module 0x7ba7ee5a93694aa5943f4ef344737d95795d51395e3d65a1b732c776d34be724::reaction_emission
+use 0x1::object
+use 0x1::fungible_asset
+use 0x1::primary_fungible_store
+use 0x1::vector
+use 0x1::event
+use 0x1::signer
+friend 0x7ba7ee5a93694aa5943f4ef344737d95795d51395e3d65a1b732c776d34be724::factory
+struct ReactionEmitted has drop + store
+  reserve_addr: address
+  recipient: address
+  post_id: vector<u8>
+  press_order: u64
+  emission_amount: u64
+
+struct ReactionReserve has key
+  token_metadata_addr: address
+  spec_version: u32
+  extend_ref: object::ExtendRef
+  total_distributed: u64
+  topup_count: u64
+
+struct ReserveToppedUp has drop + store
+  reserve_addr: address
+  depositor: address
+  amount: u64
+  new_balance: u64
+
+// Function definition at index 0
+friend fun deploy(l0: &signer, l1: vector<u8>, l2: address, l3: fungible_asset::FungibleAsset): address
+    local l4: vector<u8>
+    local l5: object::ConstructorRef
+    local l6: address
+    local l7: object::ExtendRef
+    local l8: signer
+    local l9: object::TransferRef
+    borrow_loc l1
+    call make_seed
+    st_loc l4
+    move_loc l0
+    move_loc l4
+    // @5
+    call object::create_named_object
+    st_loc l5
+    borrow_loc l5
+    call object::address_from_constructor_ref
+    st_loc l6
+    // @10
+    borrow_loc l5
+    call object::generate_extend_ref
+    st_loc l7
+    borrow_loc l5
+    call object::generate_signer
+    // @15
+    st_loc l8
+    borrow_loc l5
+    call object::generate_transfer_ref
+    st_loc l9
+    borrow_loc l9
+    // @20
+    call object::disable_ungated_transfer
+    borrow_loc l8
+    move_loc l2
+    ld_u32 1
+    move_loc l7
+    // @25
+    ld_u64 0
+    ld_u64 0
+    pack ReactionReserve
+    move_to ReactionReserve
+    copy_loc l6
+    // @30
+    move_loc l3
+    call primary_fungible_store::deposit
+    move_loc l6
+    ret
+
+// Function definition at index 1
+fun make_seed(l0: &vector<u8>): vector<u8>
+    local l1: vector<u8>
+    vec_pack <u8>, 0
+    st_loc l1
+    mut_borrow_loc l1
+    ld_const<vector<u8>> [114, 101, 97, 99, 116, 105, 111, 110, 95, 114, 101, 115, 101, 114, 118, 101, 58, 58]
+    call vector::append<u8>
+    // @5
+    mut_borrow_loc l1
+    move_loc l0
+    read_ref
+    call vector::append<u8>
+    move_loc l1
+    // @10
+    ret
+
+// Function definition at index 2
+#[persistent] public fun compute_emission(l0: u64, l1: u64): u64
+    local l2: bool
+    copy_loc l0
+    ld_u64 0
+    eq
+    br_false l0
+    ld_true
+    // @5
+    st_loc l2
+l2: move_loc l2
+    br_false l1
+    ld_u64 0
+    ret
+    // @10
+l1: move_loc l0
+    ld_u64 100000000
+    mul
+    ret
+l0: copy_loc l0
+    // @15
+    move_loc l1
+    gt
+    st_loc l2
+    branch l2
+
+// Function definition at index 3
+friend fun emit_to_presser(l0: address, l1: address, l2: vector<u8>, l3: u64, l4: u64): u64 acquires ReactionReserve
+    local l5: bool
+    local l6: bool
+    local l7: &mut ReactionReserve
+    local l8: object::Object<fungible_asset::Metadata>
+    local l9: u64
+    local l10: u64
+    local l11: u64
+    local l12: signer
+    local l13: fungible_asset::FungibleAsset
+    copy_loc l3
+    ld_u64 0
+    gt
+    br_false l0
+    copy_loc l3
+    // @5
+    copy_loc l4
+    le
+    st_loc l5
+l8: move_loc l5
+    br_false l1
+    // @10
+    copy_loc l4
+    ld_u64 1
+    ge
+    br_false l2
+    move_loc l4
+    // @15
+    ld_u64 1000
+    le
+    st_loc l6
+l7: move_loc l6
+    br_false l3
+    // @20
+    copy_loc l0
+    mut_borrow_global ReactionReserve
+    st_loc l7
+    copy_loc l7
+    borrow_field ReactionReserve, token_metadata_addr
+    // @25
+    read_ref
+    call object::address_to_object<fungible_asset::Metadata>
+    st_loc l8
+    copy_loc l3
+    ld_u64 100000000
+    // @30
+    mul
+    st_loc l9
+    copy_loc l0
+    copy_loc l8
+    call primary_fungible_store::balance<fungible_asset::Metadata>
+    // @35
+    st_loc l10
+    copy_loc l9
+    copy_loc l10
+    gt
+    br_false l4
+    // @40
+    move_loc l10
+    st_loc l11
+l6: copy_loc l11
+    ld_u64 0
+    eq
+    // @45
+    br_false l5
+    move_loc l7
+    pop
+    move_loc l0
+    move_loc l1
+    // @50
+    move_loc l2
+    move_loc l3
+    ld_u64 0
+    pack ReactionEmitted
+    call event::emit<ReactionEmitted>
+    // @55
+    ld_u64 0
+    ret
+l5: copy_loc l7
+    borrow_field ReactionReserve, extend_ref
+    call object::generate_signer_for_extending
+    // @60
+    st_loc l12
+    borrow_loc l12
+    move_loc l8
+    copy_loc l11
+    call primary_fungible_store::withdraw<fungible_asset::Metadata>
+    // @65
+    st_loc l13
+    copy_loc l1
+    move_loc l13
+    call primary_fungible_store::deposit
+    copy_loc l7
+    // @70
+    borrow_field ReactionReserve, total_distributed
+    read_ref
+    copy_loc l11
+    add
+    move_loc l7
+    // @75
+    mut_borrow_field ReactionReserve, total_distributed
+    write_ref
+    move_loc l0
+    move_loc l1
+    move_loc l2
+    // @80
+    move_loc l3
+    copy_loc l11
+    pack ReactionEmitted
+    call event::emit<ReactionEmitted>
+    move_loc l11
+    // @85
+    ret
+l4: move_loc l9
+    st_loc l11
+    branch l6
+l3: ld_u64 3
+    // @90
+    abort
+l2: ld_false
+    st_loc l6
+    branch l7
+l1: ld_u64 2
+    // @95
+    abort
+l0: ld_false
+    st_loc l5
+    branch l8
+
+// Function definition at index 4
+#[persistent] public fun reserve_balance(l0: address, l1: object::Object<fungible_asset::Metadata>): u64
+    move_loc l0
+    move_loc l1
+    call primary_fungible_store::balance<fungible_asset::Metadata>
+    ret
+
+// Function definition at index 5
+#[persistent] entry public fun topup_reserve(l0: &signer, l1: address, l2: object::Object<fungible_asset::Metadata>, l3: u64) acquires ReactionReserve
+    local l4: &mut ReactionReserve
+    local l5: fungible_asset::FungibleAsset
+    local l6: u64
+    copy_loc l1
+    mut_borrow_global ReactionReserve
+    st_loc l4
+    copy_loc l0
+    copy_loc l2
+    // @5
+    copy_loc l3
+    call primary_fungible_store::withdraw<fungible_asset::Metadata>
+    st_loc l5
+    copy_loc l1
+    move_loc l5
+    // @10
+    call primary_fungible_store::deposit
+    copy_loc l4
+    borrow_field ReactionReserve, topup_count
+    read_ref
+    ld_u64 1
+    // @15
+    add
+    move_loc l4
+    mut_borrow_field ReactionReserve, topup_count
+    write_ref
+    copy_loc l1
+    // @20
+    move_loc l2
+    call primary_fungible_store::balance<fungible_asset::Metadata>
+    st_loc l6
+    move_loc l1
+    move_loc l0
+    // @25
+    call signer::address_of
+    move_loc l3
+    move_loc l6
+    pack ReserveToppedUp
+    call event::emit<ReserveToppedUp>
+    // @30
+    ret
+
+// Function definition at index 6
+#[persistent] public fun total_distributed(l0: address): u64 acquires ReactionReserve
+    move_loc l0
+    borrow_global ReactionReserve
+    borrow_field ReactionReserve, total_distributed
+    read_ref
+    ret
+
+// Function definition at index 7
+#[persistent] public fun total_post_emission(l0: u64): u64
+    copy_loc l0
+    move_loc l0
+    ld_u64 1
+    add
+    mul
+    // @5
+    ld_u64 2
+    div
+    ld_u64 100000000
+    mul
+    ret
+

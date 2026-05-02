@@ -1,0 +1,492 @@
+{
+  "address": "0x7ba7ee5a93694aa5943f4ef344737d95795d51395e3d65a1b732c776d34be724",
+  "name": "factory",
+  "friends": [
+    "0x7ba7ee5a93694aa5943f4ef344737d95795d51395e3d65a1b732c776d34be724::profile"
+  ],
+  "exposed_functions": [
+    {
+      "name": "admin",
+      "visibility": "public",
+      "is_entry": false,
+      "is_view": true,
+      "generic_type_params": [],
+      "params": [],
+      "return": [
+        "address"
+      ]
+    },
+    {
+      "name": "create_token_atomic",
+      "visibility": "friend",
+      "is_entry": false,
+      "is_view": false,
+      "generic_type_params": [],
+      "params": [
+        "vector<u8>",
+        "address",
+        "&signer",
+        "0x1::fungible_asset::FungibleAsset",
+        "0x1::string::String",
+        "0x1::string::String",
+        "0x1::string::String",
+        "0x1::string::String"
+      ],
+      "return": []
+    },
+    {
+      "name": "derive_token_metadata_addr",
+      "visibility": "public",
+      "is_entry": false,
+      "is_view": true,
+      "generic_type_params": [],
+      "params": [
+        "vector<u8>"
+      ],
+      "return": [
+        "address"
+      ]
+    },
+    {
+      "name": "emit_press_to_presser",
+      "visibility": "public",
+      "is_entry": false,
+      "is_view": false,
+      "generic_type_params": [],
+      "params": [
+        "&signer",
+        "address",
+        "vector<u8>",
+        "u64",
+        "u64"
+      ],
+      "return": [
+        "u64"
+      ]
+    },
+    {
+      "name": "get_token_record",
+      "visibility": "public",
+      "is_entry": false,
+      "is_view": true,
+      "generic_type_params": [],
+      "params": [
+        "vector<u8>"
+      ],
+      "return": [
+        "0x7ba7ee5a93694aa5943f4ef344737d95795d51395e3d65a1b732c776d34be724::factory::TokenRecord"
+      ]
+    },
+    {
+      "name": "handle_of_owner",
+      "visibility": "public",
+      "is_entry": false,
+      "is_view": true,
+      "generic_type_params": [],
+      "params": [
+        "address"
+      ],
+      "return": [
+        "0x1::string::String"
+      ]
+    },
+    {
+      "name": "handle_of_token",
+      "visibility": "public",
+      "is_entry": false,
+      "is_view": true,
+      "generic_type_params": [],
+      "params": [
+        "address"
+      ],
+      "return": [
+        "0x1::string::String"
+      ]
+    },
+    {
+      "name": "handle_registered",
+      "visibility": "public",
+      "is_entry": false,
+      "is_view": true,
+      "generic_type_params": [],
+      "params": [
+        "vector<u8>"
+      ],
+      "return": [
+        "bool"
+      ]
+    },
+    {
+      "name": "is_factory_token",
+      "visibility": "public",
+      "is_entry": false,
+      "is_view": true,
+      "generic_type_params": [],
+      "params": [
+        "address"
+      ],
+      "return": [
+        "bool"
+      ]
+    },
+    {
+      "name": "is_paused",
+      "visibility": "public",
+      "is_entry": false,
+      "is_view": true,
+      "generic_type_params": [],
+      "params": [],
+      "return": [
+        "bool"
+      ]
+    },
+    {
+      "name": "lp_staking_pool_of_owner",
+      "visibility": "public",
+      "is_entry": false,
+      "is_view": true,
+      "generic_type_params": [],
+      "params": [
+        "address"
+      ],
+      "return": [
+        "address"
+      ]
+    },
+    {
+      "name": "owner_has_token",
+      "visibility": "public",
+      "is_entry": false,
+      "is_view": true,
+      "generic_type_params": [],
+      "params": [
+        "address"
+      ],
+      "return": [
+        "bool"
+      ]
+    },
+    {
+      "name": "pool_seed_apt_amount",
+      "visibility": "public",
+      "is_entry": false,
+      "is_view": true,
+      "generic_type_params": [],
+      "params": [],
+      "return": [
+        "u64"
+      ]
+    },
+    {
+      "name": "pool_seed_token_amount",
+      "visibility": "public",
+      "is_entry": false,
+      "is_view": true,
+      "generic_type_params": [],
+      "params": [],
+      "return": [
+        "u64"
+      ]
+    },
+    {
+      "name": "rotate_admin",
+      "visibility": "public",
+      "is_entry": true,
+      "is_view": false,
+      "generic_type_params": [],
+      "params": [
+        "&signer",
+        "address"
+      ],
+      "return": []
+    },
+    {
+      "name": "set_paused",
+      "visibility": "public",
+      "is_entry": true,
+      "is_view": false,
+      "generic_type_params": [],
+      "params": [
+        "&signer",
+        "bool"
+      ],
+      "return": []
+    },
+    {
+      "name": "spawn_count",
+      "visibility": "public",
+      "is_entry": false,
+      "is_view": true,
+      "generic_type_params": [],
+      "params": [],
+      "return": [
+        "u64"
+      ]
+    },
+    {
+      "name": "token_metadata_of_owner",
+      "visibility": "public",
+      "is_entry": false,
+      "is_view": true,
+      "generic_type_params": [],
+      "params": [
+        "address"
+      ],
+      "return": [
+        "address"
+      ]
+    },
+    {
+      "name": "update_token_icon",
+      "visibility": "public",
+      "is_entry": true,
+      "is_view": false,
+      "generic_type_params": [],
+      "params": [
+        "&signer",
+        "vector<u8>",
+        "0x1::string::String"
+      ],
+      "return": []
+    },
+    {
+      "name": "update_token_project_uri",
+      "visibility": "public",
+      "is_entry": true,
+      "is_view": false,
+      "generic_type_params": [],
+      "params": [
+        "&signer",
+        "vector<u8>",
+        "0x1::string::String"
+      ],
+      "return": []
+    },
+    {
+      "name": "vault_addr_of_handle",
+      "visibility": "public",
+      "is_entry": false,
+      "is_view": true,
+      "generic_type_params": [],
+      "params": [
+        "vector<u8>"
+      ],
+      "return": [
+        "address"
+      ]
+    },
+    {
+      "name": "vault_addr_of_pid",
+      "visibility": "public",
+      "is_entry": false,
+      "is_view": true,
+      "generic_type_params": [],
+      "params": [
+        "address"
+      ],
+      "return": [
+        "address"
+      ]
+    }
+  ],
+  "structs": [
+    {
+      "name": "FactoryInitialized",
+      "is_native": false,
+      "is_event": true,
+      "is_enum": false,
+      "abilities": [
+        "drop",
+        "store"
+      ],
+      "generic_type_params": [],
+      "fields": [
+        {
+          "name": "factory_addr",
+          "type": "address"
+        },
+        {
+          "name": "deployer",
+          "type": "address"
+        }
+      ],
+      "variants": []
+    },
+    {
+      "name": "FactoryRegistry",
+      "is_native": false,
+      "is_event": false,
+      "is_enum": false,
+      "abilities": [
+        "key"
+      ],
+      "generic_type_params": [],
+      "fields": [
+        {
+          "name": "records",
+          "type": "0x1::smart_table::SmartTable<0x1::string::String, 0x7ba7ee5a93694aa5943f4ef344737d95795d51395e3d65a1b732c776d34be724::factory::TokenRecord>"
+        },
+        {
+          "name": "metadata_index",
+          "type": "0x1::smart_table::SmartTable<address, 0x1::string::String>"
+        },
+        {
+          "name": "owner_index",
+          "type": "0x1::smart_table::SmartTable<address, 0x1::string::String>"
+        }
+      ],
+      "variants": []
+    },
+    {
+      "name": "FactoryState",
+      "is_native": false,
+      "is_event": false,
+      "is_enum": false,
+      "abilities": [
+        "key"
+      ],
+      "generic_type_params": [],
+      "fields": [
+        {
+          "name": "spawn_count",
+          "type": "u64"
+        },
+        {
+          "name": "paused",
+          "type": "bool"
+        },
+        {
+          "name": "admin",
+          "type": "address"
+        }
+      ],
+      "variants": []
+    },
+    {
+      "name": "TokenMetadataMutRef",
+      "is_native": false,
+      "is_event": false,
+      "is_enum": false,
+      "abilities": [
+        "key"
+      ],
+      "generic_type_params": [],
+      "fields": [
+        {
+          "name": "mutate_ref",
+          "type": "0x1::fungible_asset::MutateMetadataRef"
+        }
+      ],
+      "variants": []
+    },
+    {
+      "name": "TokenRecord",
+      "is_native": false,
+      "is_event": false,
+      "is_enum": false,
+      "abilities": [
+        "copy",
+        "drop",
+        "store"
+      ],
+      "generic_type_params": [],
+      "fields": [
+        {
+          "name": "handle",
+          "type": "0x1::string::String"
+        },
+        {
+          "name": "token_metadata",
+          "type": "address"
+        },
+        {
+          "name": "owner_addr",
+          "type": "address"
+        },
+        {
+          "name": "apt_vault",
+          "type": "address"
+        },
+        {
+          "name": "reaction_reserve",
+          "type": "address"
+        },
+        {
+          "name": "lp_reserve",
+          "type": "address"
+        },
+        {
+          "name": "lp_staking_pool",
+          "type": "address"
+        },
+        {
+          "name": "amm_pool",
+          "type": "address"
+        },
+        {
+          "name": "spec_version",
+          "type": "u32"
+        },
+        {
+          "name": "spawned_at_secs",
+          "type": "u64"
+        }
+      ],
+      "variants": []
+    },
+    {
+      "name": "TokenSpawned",
+      "is_native": false,
+      "is_event": true,
+      "is_enum": false,
+      "abilities": [
+        "drop",
+        "store"
+      ],
+      "generic_type_params": [],
+      "fields": [
+        {
+          "name": "handle",
+          "type": "0x1::string::String"
+        },
+        {
+          "name": "token_metadata",
+          "type": "address"
+        },
+        {
+          "name": "owner_addr",
+          "type": "address"
+        },
+        {
+          "name": "amm_pool",
+          "type": "address"
+        },
+        {
+          "name": "lp_staking_pool",
+          "type": "address"
+        },
+        {
+          "name": "apt_vault",
+          "type": "address"
+        },
+        {
+          "name": "lp_reserve",
+          "type": "address"
+        },
+        {
+          "name": "reaction_reserve",
+          "type": "address"
+        },
+        {
+          "name": "spec_version",
+          "type": "u32"
+        },
+        {
+          "name": "timestamp_secs",
+          "type": "u64"
+        }
+      ],
+      "variants": []
+    }
+  ]
+}

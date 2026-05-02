@@ -1,0 +1,100 @@
+{
+  "desnet_addr": "0x7ba7ee5a93694aa5943f4ef344737d95795d51395e3d65a1b732c776d34be724",
+  "pkg_name": "Desnet",
+  "upgrade_number": "4",
+  "source_digest": "404D8C42C1DFCFDD4FBB522936146642CCC0734618380B4B34DA582C368CC51E",
+  "modules": [
+    {
+      "name": "voter_history",
+      "size_bytes": 2785,
+      "sha3_256": "b69051e8d111f822861139712479ba59433a8dad55eb0afda9d36c918bf2bc50"
+    },
+    {
+      "name": "governance",
+      "size_bytes": 7972,
+      "sha3_256": "2e5057dd69b09d4ec8a01df7eb363a878b388833c54a106060b9673039d31092"
+    },
+    {
+      "name": "amm",
+      "size_bytes": 8165,
+      "sha3_256": "e0a984d031ae2884c914f5d990cad6597bece26507e33c6bb34bbbddcd302618"
+    },
+    {
+      "name": "apt_vault",
+      "size_bytes": 3004,
+      "sha3_256": "764df5444ec37a19ea0d12621de7f411a0a973dd61fe3066f7958d13ae6fb04f"
+    },
+    {
+      "name": "assets",
+      "size_bytes": 2950,
+      "sha3_256": "8de46f4e7e54e19b91eb0d4a627ace336be55ceb3caf2a76fd83c38041472e55"
+    },
+    {
+      "name": "reaction_emission",
+      "size_bytes": 2195,
+      "sha3_256": "f6c103a82678c2b08d3d4988e19f0464d11148e5a608d901920c25154bab79f0"
+    },
+    {
+      "name": "lp_emission",
+      "size_bytes": 1929,
+      "sha3_256": "015edb5016286d4b96621f7b971867f7560b63636abc370ceeab2c3d39026745"
+    },
+    {
+      "name": "lp_staking",
+      "size_bytes": 6047,
+      "sha3_256": "754a12aa6558170945b1985e35a6829736d35ad43b7eea4491f79940ede01c27"
+    },
+    {
+      "name": "factory",
+      "size_bytes": 5721,
+      "sha3_256": "b477bdfe76de501d905ec24329b7d4fd17ce4e3fe8a616617bb7ddca95cdddca"
+    },
+    {
+      "name": "reference_gate",
+      "size_bytes": 1363,
+      "sha3_256": "cd27eaf0bb619c6931ec111574ee42ec5311d8b80d016b71c0db0877162c6c67"
+    },
+    {
+      "name": "handle_fee_vault",
+      "size_bytes": 2115,
+      "sha3_256": "c6caf6b4f5ad59d932dee42a4000d3b94e3a7c5b6fbdb422c42623faecf15430"
+    },
+    {
+      "name": "profile",
+      "size_bytes": 6403,
+      "sha3_256": "b61420ac094b99ff7b5dbfba0c63d773f88a41de4bbf04225dcd1977e6332d60"
+    },
+    {
+      "name": "history",
+      "size_bytes": 2934,
+      "sha3_256": "19bf456b6b20991542b8ad6f953e260cdf2dfe32d5f0556acedec284bf5eaee0"
+    },
+    {
+      "name": "link",
+      "size_bytes": 1981,
+      "sha3_256": "ab14968a728d3a17f8e95677fbe3b905e5d9e589c7728077ab2de3b4b1df9133"
+    },
+    {
+      "name": "mint",
+      "size_bytes": 4704,
+      "sha3_256": "2c4f9f3e89d5070189eec6bbaeb42b5d5ed32324c7625480d271ba00c74b609a"
+    },
+    {
+      "name": "giveaway",
+      "size_bytes": 4753,
+      "sha3_256": "946ef6e50d56488a4cc5e60d666ab88febefd77e2eb3f82707c796002075c570"
+    },
+    {
+      "name": "press",
+      "size_bytes": 4457,
+      "sha3_256": "c3259a61676a4b59b067faf1eaec571e7a22e4812670e17e354e083a56c43893"
+    },
+    {
+      "name": "pulse",
+      "size_bytes": 2490,
+      "sha3_256": "42e1ceef93d19af5bbdfb91efb8e5ebcd6c06505bcec3c3846d37af015b11327"
+    }
+  ],
+  "pkg_concat_sha3_256": "6b5326ff446d35323332a879e152654dee2e7fbcc836be97a49516ffe1f73472",
+  "total_module_bytes": 71968
+}

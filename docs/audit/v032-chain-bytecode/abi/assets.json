@@ -1,0 +1,473 @@
+{
+  "address": "0x7ba7ee5a93694aa5943f4ef344737d95795d51395e3d65a1b732c776d34be724",
+  "name": "assets",
+  "friends": [],
+  "exposed_functions": [
+    {
+      "name": "chunk_size",
+      "visibility": "public",
+      "is_entry": false,
+      "is_view": true,
+      "generic_type_params": [],
+      "params": [
+        "address"
+      ],
+      "return": [
+        "u64"
+      ]
+    },
+    {
+      "name": "chunk_size_max",
+      "visibility": "public",
+      "is_entry": false,
+      "is_view": true,
+      "generic_type_params": [],
+      "params": [],
+      "return": [
+        "u64"
+      ]
+    },
+    {
+      "name": "creator_pid_of",
+      "visibility": "public",
+      "is_entry": false,
+      "is_view": true,
+      "generic_type_params": [],
+      "params": [
+        "address"
+      ],
+      "return": [
+        "address"
+      ]
+    },
+    {
+      "name": "deploy_chunk",
+      "visibility": "public",
+      "is_entry": true,
+      "is_view": false,
+      "generic_type_params": [],
+      "params": [
+        "&signer",
+        "address",
+        "vector<u8>"
+      ],
+      "return": []
+    },
+    {
+      "name": "deploy_node",
+      "visibility": "public",
+      "is_entry": true,
+      "is_view": false,
+      "generic_type_params": [],
+      "params": [
+        "&signer",
+        "address",
+        "vector<address>"
+      ],
+      "return": []
+    },
+    {
+      "name": "depth_of",
+      "visibility": "public",
+      "is_entry": false,
+      "is_view": true,
+      "generic_type_params": [],
+      "params": [
+        "address"
+      ],
+      "return": [
+        "u8"
+      ]
+    },
+    {
+      "name": "finalize",
+      "visibility": "public",
+      "is_entry": true,
+      "is_view": false,
+      "generic_type_params": [],
+      "params": [
+        "&signer",
+        "address",
+        "address",
+        "u8"
+      ],
+      "return": []
+    },
+    {
+      "name": "is_sealed",
+      "visibility": "public",
+      "is_entry": false,
+      "is_view": true,
+      "generic_type_params": [],
+      "params": [
+        "address"
+      ],
+      "return": [
+        "bool"
+      ]
+    },
+    {
+      "name": "master_exists",
+      "visibility": "public",
+      "is_entry": false,
+      "is_view": true,
+      "generic_type_params": [],
+      "params": [
+        "address"
+      ],
+      "return": [
+        "bool"
+      ]
+    },
+    {
+      "name": "max_total_size",
+      "visibility": "public",
+      "is_entry": false,
+      "is_view": true,
+      "generic_type_params": [],
+      "params": [],
+      "return": [
+        "u64"
+      ]
+    },
+    {
+      "name": "mime_gif",
+      "visibility": "public",
+      "is_entry": false,
+      "is_view": true,
+      "generic_type_params": [],
+      "params": [],
+      "return": [
+        "u8"
+      ]
+    },
+    {
+      "name": "mime_jpeg",
+      "visibility": "public",
+      "is_entry": false,
+      "is_view": true,
+      "generic_type_params": [],
+      "params": [],
+      "return": [
+        "u8"
+      ]
+    },
+    {
+      "name": "mime_of",
+      "visibility": "public",
+      "is_entry": false,
+      "is_view": true,
+      "generic_type_params": [],
+      "params": [
+        "address"
+      ],
+      "return": [
+        "u8"
+      ]
+    },
+    {
+      "name": "mime_png",
+      "visibility": "public",
+      "is_entry": false,
+      "is_view": true,
+      "generic_type_params": [],
+      "params": [],
+      "return": [
+        "u8"
+      ]
+    },
+    {
+      "name": "mime_svg",
+      "visibility": "public",
+      "is_entry": false,
+      "is_view": true,
+      "generic_type_params": [],
+      "params": [],
+      "return": [
+        "u8"
+      ]
+    },
+    {
+      "name": "mime_webp",
+      "visibility": "public",
+      "is_entry": false,
+      "is_view": true,
+      "generic_type_params": [],
+      "params": [],
+      "return": [
+        "u8"
+      ]
+    },
+    {
+      "name": "read_chunk",
+      "visibility": "public",
+      "is_entry": false,
+      "is_view": true,
+      "generic_type_params": [],
+      "params": [
+        "address"
+      ],
+      "return": [
+        "vector<u8>"
+      ]
+    },
+    {
+      "name": "read_node",
+      "visibility": "public",
+      "is_entry": false,
+      "is_view": true,
+      "generic_type_params": [],
+      "params": [
+        "address"
+      ],
+      "return": [
+        "vector<address>"
+      ]
+    },
+    {
+      "name": "root_of",
+      "visibility": "public",
+      "is_entry": false,
+      "is_view": true,
+      "generic_type_params": [],
+      "params": [
+        "address"
+      ],
+      "return": [
+        "address"
+      ]
+    },
+    {
+      "name": "start_upload",
+      "visibility": "public",
+      "is_entry": true,
+      "is_view": false,
+      "generic_type_params": [],
+      "params": [
+        "&signer",
+        "u8",
+        "u64",
+        "address"
+      ],
+      "return": []
+    },
+    {
+      "name": "total_size_of",
+      "visibility": "public",
+      "is_entry": false,
+      "is_view": true,
+      "generic_type_params": [],
+      "params": [
+        "address"
+      ],
+      "return": [
+        "u64"
+      ]
+    }
+  ],
+  "structs": [
+    {
+      "name": "Node",
+      "is_native": false,
+      "is_event": false,
+      "is_enum": false,
+      "abilities": [
+        "key"
+      ],
+      "generic_type_params": [],
+      "fields": [
+        {
+          "name": "children",
+          "type": "vector<address>"
+        }
+      ],
+      "variants": []
+    },
+    {
+      "name": "AssetChunkDeployed",
+      "is_native": false,
+      "is_event": true,
+      "is_enum": false,
+      "abilities": [
+        "drop",
+        "store"
+      ],
+      "generic_type_params": [],
+      "fields": [
+        {
+          "name": "master_addr",
+          "type": "address"
+        },
+        {
+          "name": "chunk_addr",
+          "type": "address"
+        },
+        {
+          "name": "data_len",
+          "type": "u64"
+        },
+        {
+          "name": "timestamp_secs",
+          "type": "u64"
+        }
+      ],
+      "variants": []
+    },
+    {
+      "name": "AssetFinalized",
+      "is_native": false,
+      "is_event": true,
+      "is_enum": false,
+      "abilities": [
+        "drop",
+        "store"
+      ],
+      "generic_type_params": [],
+      "fields": [
+        {
+          "name": "master_addr",
+          "type": "address"
+        },
+        {
+          "name": "root",
+          "type": "address"
+        },
+        {
+          "name": "depth",
+          "type": "u8"
+        },
+        {
+          "name": "timestamp_secs",
+          "type": "u64"
+        }
+      ],
+      "variants": []
+    },
+    {
+      "name": "AssetMasterCreated",
+      "is_native": false,
+      "is_event": true,
+      "is_enum": false,
+      "abilities": [
+        "drop",
+        "store"
+      ],
+      "generic_type_params": [],
+      "fields": [
+        {
+          "name": "master_addr",
+          "type": "address"
+        },
+        {
+          "name": "creator_pid",
+          "type": "address"
+        },
+        {
+          "name": "mime",
+          "type": "u8"
+        },
+        {
+          "name": "total_size",
+          "type": "u64"
+        },
+        {
+          "name": "timestamp_secs",
+          "type": "u64"
+        }
+      ],
+      "variants": []
+    },
+    {
+      "name": "AssetNodeDeployed",
+      "is_native": false,
+      "is_event": true,
+      "is_enum": false,
+      "abilities": [
+        "drop",
+        "store"
+      ],
+      "generic_type_params": [],
+      "fields": [
+        {
+          "name": "master_addr",
+          "type": "address"
+        },
+        {
+          "name": "node_addr",
+          "type": "address"
+        },
+        {
+          "name": "children_count",
+          "type": "u64"
+        },
+        {
+          "name": "timestamp_secs",
+          "type": "u64"
+        }
+      ],
+      "variants": []
+    },
+    {
+      "name": "Chunk",
+      "is_native": false,
+      "is_event": false,
+      "is_enum": false,
+      "abilities": [
+        "key"
+      ],
+      "generic_type_params": [],
+      "fields": [
+        {
+          "name": "data",
+          "type": "vector<u8>"
+        }
+      ],
+      "variants": []
+    },
+    {
+      "name": "Master",
+      "is_native": false,
+      "is_event": false,
+      "is_enum": false,
+      "abilities": [
+        "key"
+      ],
+      "generic_type_params": [],
+      "fields": [
+        {
+          "name": "root",
+          "type": "address"
+        },
+        {
+          "name": "depth",
+          "type": "u8"
+        },
+        {
+          "name": "total_size",
+          "type": "u64"
+        },
+        {
+          "name": "mime",
+          "type": "u8"
+        },
+        {
+          "name": "creator_pid",
+          "type": "address"
+        },
+        {
+          "name": "creator_addr",
+          "type": "address"
+        },
+        {
+          "name": "sealed",
+          "type": "bool"
+        },
+        {
+          "name": "created_at_secs",
+          "type": "u64"
+        }
+      ],
+      "variants": []
+    }
+  ]
+}

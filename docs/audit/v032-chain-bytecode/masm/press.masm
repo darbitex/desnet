@@ -1,0 +1,843 @@
+// Bytecode version v9
+module 0x7ba7ee5a93694aa5943f4ef344737d95795d51395e3d65a1b732c776d34be724::press
+use 0x1::smart_table
+use 0x1::object
+use 0x1::string
+use 0x1::signer
+use 0x7ba7ee5a93694aa5943f4ef344737d95795d51395e3d65a1b732c776d34be724::profile
+use 0x7ba7ee5a93694aa5943f4ef344737d95795d51395e3d65a1b732c776d34be724::mint
+use 0x1::option
+use 0x7ba7ee5a93694aa5943f4ef344737d95795d51395e3d65a1b732c776d34be724::reference_gate
+use 0x7ba7ee5a93694aa5943f4ef344737d95795d51395e3d65a1b732c776d34be724::link
+use 0x1::timestamp
+use 0x4::royalty
+use 0x4::token
+use 0x1::bcs
+use 0x7ba7ee5a93694aa5943f4ef344737d95795d51395e3d65a1b732c776d34be724::history
+use 0x1::vector
+use 0x7ba7ee5a93694aa5943f4ef344737d95795d51395e3d65a1b732c776d34be724::factory
+use 0x1::event
+use 0x4::collection
+struct PidPressStorage has key
+  configs: smart_table::SmartTable<u64, PressConfig>
+  registries: smart_table::SmartTable<u64, PressedRegistry>
+
+struct PressCollection has key
+  collection_addr: address
+  extend_ref: object::ExtendRef
+  name: string::String
+
+struct PressConfig has copy + drop + store
+  supply_cap: u16
+  window_us: u64
+  pressed_count: u16
+  emission_consumed_total: u64
+  deadline_us: u64
+
+struct PressEnabled has drop + store
+  author_pid: address
+  mint_seq: u64
+  supply_cap: u16
+  window_us: u64
+  deadline_us: u64
+  timestamp_secs: u64
+
+struct PressMinted has drop + store
+  presser_pid: address
+  author_pid: address
+  mint_seq: u64
+  press_order: u16
+  emission_amount: u64
+  nft_object_addr: address
+  timestamp_secs: u64
+
+struct PressedRegistry has store
+  pressed_by: smart_table::SmartTable<address, bool>
+
+// Function definition at index 0
+#[persistent] entry public fun press(l0: &signer, l1: address, l2: u64, l3: address) acquires PidPressStorage, PressCollection
+    local l4: address
+    local l5: address
+    local l6: option::Option<reference_gate::ReferenceGate>
+    local l7: address
+    local l8: bool
+    local l9: reference_gate::ReferenceGate
+    local l10: &mut PidPressStorage
+    local l11: &mut PressConfig
+    local l12: &mut PressedRegistry
+    local l13: u16
+    local l14: u16
+    local l15: u64
+    local l16: string::String
+    local l17: string::String
+    local l18: string::String
+    local l19: string::String
+    local l20: string::String
+    local l21: signer
+    local l22: object::ConstructorRef
+    local l23: address
+    local l24: object::Object<token::Token>
+    local l25: u64
+    local l26: PressMinted
+    local l27: vector<u8>
+    local l28: vector<u8>
+    move_loc l0
+    call signer::address_of
+    st_loc l4
+    copy_loc l4
+    call profile::derive_pid_address
+    // @5
+    st_loc l5
+    copy_loc l5
+    call profile::assert_pid_exists
+    copy_loc l1
+    exists PidPressStorage
+    // @10
+    br_false l0
+    copy_loc l5
+    copy_loc l1
+    neq
+    br_true l1
+    // @15
+    branch l2
+l1: copy_loc l1
+    copy_loc l2
+    call mint::get_mint_gate
+    st_loc l6
+    // @20
+    borrow_loc l6
+    call option::is_some<reference_gate::ReferenceGate>
+    br_true l3
+    branch l2
+l3: borrow_loc l6
+    // @25
+    call option::borrow<reference_gate::ReferenceGate>
+    call reference_gate::target_pid
+    st_loc l7
+    copy_loc l5
+    move_loc l7
+    // @30
+    call link::is_synced
+    st_loc l8
+    mut_borrow_loc l6
+    call option::extract<reference_gate::ReferenceGate>
+    st_loc l9
+    // @35
+    borrow_loc l9
+    copy_loc l4
+    move_loc l8
+    ld_false
+    move_loc l3
+    // @40
+    call reference_gate::check
+    br_false l4
+    branch l2
+l2: copy_loc l1
+    mut_borrow_global PidPressStorage
+    // @45
+    st_loc l10
+    copy_loc l10
+    borrow_field PidPressStorage, configs
+    copy_loc l2
+    call smart_table::contains<u64, PressConfig>
+    // @50
+    br_false l5
+    copy_loc l10
+    mut_borrow_field PidPressStorage, configs
+    copy_loc l2
+    call smart_table::borrow_mut<u64, PressConfig>
+    // @55
+    st_loc l11
+    call timestamp::now_seconds
+    ld_u64 1000000
+    mul
+    copy_loc l11
+    // @60
+    borrow_field PressConfig, deadline_us
+    read_ref
+    lt
+    br_false l6
+    copy_loc l11
+    // @65
+    borrow_field PressConfig, pressed_count
+    read_ref
+    copy_loc l11
+    borrow_field PressConfig, supply_cap
+    read_ref
+    // @70
+    lt
+    br_false l7
+    move_loc l10
+    mut_borrow_field PidPressStorage, registries
+    copy_loc l2
+    // @75
+    call smart_table::borrow_mut<u64, PressedRegistry>
+    st_loc l12
+    copy_loc l12
+    borrow_field PressedRegistry, pressed_by
+    copy_loc l5
+    // @80
+    call smart_table::contains<address, bool>
+    br_true l8
+    move_loc l12
+    mut_borrow_field PressedRegistry, pressed_by
+    copy_loc l5
+    // @85
+    ld_true
+    call smart_table::add<address, bool>
+    copy_loc l11
+    borrow_field PressConfig, pressed_count
+    read_ref
+    // @90
+    ld_u16 1
+    add
+    copy_loc l11
+    mut_borrow_field PressConfig, pressed_count
+    write_ref
+    // @95
+    copy_loc l11
+    borrow_field PressConfig, pressed_count
+    read_ref
+    st_loc l13
+    copy_loc l11
+    // @100
+    borrow_field PressConfig, supply_cap
+    read_ref
+    st_loc l14
+    copy_loc l13
+    cast_u64
+    // @105
+    st_loc l15
+    copy_loc l11
+    borrow_field PressConfig, emission_consumed_total
+    read_ref
+    move_loc l15
+    // @110
+    add
+    move_loc l11
+    mut_borrow_field PressConfig, emission_consumed_total
+    write_ref
+    copy_loc l1
+    // @115
+    call ensure_press_collection
+    pop
+    copy_loc l1
+    call profile::handle_of
+    st_loc l16
+    // @120
+    borrow_loc l16
+    copy_loc l2
+    copy_loc l13
+    call build_token_name
+    st_loc l17
+    // @125
+    borrow_loc l16
+    copy_loc l2
+    call build_token_description
+    st_loc l18
+    borrow_loc l16
+    // @130
+    copy_loc l2
+    call build_token_uri
+    st_loc l19
+    copy_loc l1
+    borrow_global PressCollection
+    // @135
+    borrow_field PressCollection, name
+    read_ref
+    st_loc l20
+    copy_loc l1
+    call profile::derive_pid_signer
+    // @140
+    st_loc l21
+    borrow_loc l21
+    move_loc l20
+    move_loc l18
+    move_loc l17
+    // @145
+    call option::none<royalty::Royalty>
+    move_loc l19
+    call token::create
+    st_loc l22
+    borrow_loc l22
+    // @150
+    call object::address_from_constructor_ref
+    st_loc l23
+    borrow_loc l22
+    call object::object_from_constructor_ref<token::Token>
+    st_loc l24
+    // @155
+    borrow_loc l21
+    move_loc l24
+    copy_loc l4
+    call object::transfer<token::Token>
+    copy_loc l5
+    // @160
+    copy_loc l1
+    eq
+    br_false l9
+    ld_u64 0
+    st_loc l15
+    // @165
+l10: call timestamp::now_seconds
+    st_loc l25
+    copy_loc l5
+    copy_loc l1
+    move_loc l2
+    // @170
+    move_loc l13
+    move_loc l15
+    move_loc l23
+    copy_loc l25
+    pack PressMinted
+    // @175
+    st_loc l26
+    borrow_loc l26
+    call bcs::to_bytes<PressMinted>
+    st_loc l27
+    move_loc l5
+    // @180
+    call history::verb_press
+    move_loc l25
+    move_loc l1
+    call option::some<address>
+    move_loc l27
+    // @185
+    call option::none<address>
+    call history::new_entry
+    call history::append
+    ret
+l9: borrow_loc l1
+    // @190
+    call bcs::to_bytes<address>
+    st_loc l28
+    mut_borrow_loc l28
+    borrow_loc l2
+    call bcs::to_bytes<u64>
+    // @195
+    call vector::append<u8>
+    borrow_loc l21
+    move_loc l4
+    move_loc l28
+    copy_loc l13
+    // @200
+    cast_u64
+    move_loc l14
+    cast_u64
+    call factory::emit_press_to_presser
+    st_loc l15
+    // @205
+    branch l10
+l8: move_loc l11
+    pop
+    move_loc l12
+    pop
+    // @210
+    ld_u64 4
+    abort
+l7: move_loc l10
+    pop
+    move_loc l11
+    // @215
+    pop
+    ld_u64 3
+    abort
+l6: move_loc l10
+    pop
+    // @220
+    move_loc l11
+    pop
+    ld_u64 2
+    abort
+l5: move_loc l10
+    // @225
+    pop
+    ld_u64 1
+    abort
+l4: ld_u64 5
+    abort
+    // @230
+l0: ld_u64 1
+    abort
+
+// Function definition at index 1
+#[persistent] public fun supply_cap(l0: address, l1: u64): u16 acquires PidPressStorage
+    move_loc l0
+    borrow_global PidPressStorage
+    borrow_field PidPressStorage, configs
+    move_loc l1
+    call smart_table::borrow<u64, PressConfig>
+    // @5
+    borrow_field PressConfig, supply_cap
+    read_ref
+    ret
+
+// Function definition at index 2
+fun build_collection_description(l0: &string::String): string::String
+    local l1: string::String
+    ld_const<vector<u8>> [80, 114, 101, 115, 115, 32, 78, 70, 84, 115, 32, 99, 111, 108, 108, 101, 99, 116, 101, 100, 32, 102, 114, 111, 109, 32]
+    call string::utf8
+    st_loc l1
+    mut_borrow_loc l1
+    move_loc l0
+    // @5
+    read_ref
+    call string::append
+    mut_borrow_loc l1
+    ld_const<vector<u8>> [39, 115, 32, 109, 105, 110, 116, 115, 32, 111, 110, 32, 68, 101, 83, 78, 101, 116, 46]
+    call string::append_utf8
+    // @10
+    move_loc l1
+    ret
+
+// Function definition at index 3
+fun build_collection_name(l0: &string::String): string::String
+    local l1: string::String
+    ld_const<vector<u8>> []
+    call string::utf8
+    st_loc l1
+    mut_borrow_loc l1
+    move_loc l0
+    // @5
+    read_ref
+    call string::append
+    mut_borrow_loc l1
+    ld_const<vector<u8>> [39, 115, 32, 80, 114, 101, 115, 115, 101, 115]
+    call string::append_utf8
+    // @10
+    move_loc l1
+    ret
+
+// Function definition at index 4
+fun build_collection_uri(l0: &string::String): string::String
+    ld_const<vector<u8>> []
+    move_loc l0
+    pop
+    call string::utf8
+    ret
+
+// Function definition at index 5
+fun build_token_description(l0: &string::String, l1: u64): string::String
+    local l2: string::String
+    ld_const<vector<u8>> [80, 114, 101, 115, 115, 101, 100, 32, 102, 114, 111, 109, 32]
+    call string::utf8
+    st_loc l2
+    mut_borrow_loc l2
+    move_loc l0
+    // @5
+    read_ref
+    call string::append
+    mut_borrow_loc l2
+    ld_const<vector<u8>> [39, 115, 32, 109, 105, 110, 116, 32, 35]
+    call string::append_utf8
+    // @10
+    mut_borrow_loc l2
+    move_loc l1
+    call u64_to_string
+    call string::append
+    mut_borrow_loc l2
+    // @15
+    ld_const<vector<u8>> [46]
+    call string::append_utf8
+    move_loc l2
+    ret
+
+// Function definition at index 6
+fun build_token_name(l0: &string::String, l1: u64, l2: u16): string::String
+    local l3: string::String
+    ld_const<vector<u8>> []
+    call string::utf8
+    st_loc l3
+    mut_borrow_loc l3
+    move_loc l0
+    // @5
+    read_ref
+    call string::append
+    mut_borrow_loc l3
+    ld_const<vector<u8>> [32, 35]
+    call string::append_utf8
+    // @10
+    mut_borrow_loc l3
+    move_loc l1
+    call u64_to_string
+    call string::append
+    mut_borrow_loc l3
+    // @15
+    ld_const<vector<u8>> [32, 112, 114, 101, 115, 115, 32, 35]
+    call string::append_utf8
+    mut_borrow_loc l3
+    move_loc l2
+    cast_u64
+    // @20
+    call u64_to_string
+    call string::append
+    move_loc l3
+    ret
+
+// Function definition at index 7
+fun build_token_uri(l0: &string::String, l1: u64): string::String
+    ld_const<vector<u8>> []
+    move_loc l0
+    pop
+    call string::utf8
+    ret
+
+// Function definition at index 8
+#[persistent] public fun deadline_us(l0: address, l1: u64): u64 acquires PidPressStorage
+    move_loc l0
+    borrow_global PidPressStorage
+    borrow_field PidPressStorage, configs
+    move_loc l1
+    call smart_table::borrow<u64, PressConfig>
+    // @5
+    borrow_field PressConfig, deadline_us
+    read_ref
+    ret
+
+// Function definition at index 9
+#[persistent] entry public fun enable_press(l0: &signer, l1: u64, l2: u16, l3: u8) acquires PidPressStorage
+    local l4: bool
+    local l5: bool
+    local l6: address
+    local l7: &mut PidPressStorage
+    local l8: u64
+    local l9: u64
+    local l10: PressConfig
+    copy_loc l2
+    ld_u16 1
+    ge
+    br_false l0
+    copy_loc l2
+    // @5
+    ld_u16 1000
+    le
+    st_loc l4
+l7: move_loc l4
+    br_false l1
+    // @10
+    copy_loc l3
+    ld_u8 1
+    ge
+    br_false l2
+    copy_loc l3
+    // @15
+    ld_u8 7
+    le
+    st_loc l5
+l6: move_loc l5
+    br_false l3
+    // @20
+    move_loc l0
+    call signer::address_of
+    call profile::derive_pid_address
+    st_loc l6
+    copy_loc l6
+    // @25
+    call profile::assert_pid_exists
+    copy_loc l1
+    copy_loc l6
+    call mint::next_seq
+    lt
+    // @30
+    br_false l4
+    copy_loc l6
+    call ensure_press_storage
+    copy_loc l6
+    mut_borrow_global PidPressStorage
+    // @35
+    st_loc l7
+    copy_loc l7
+    borrow_field PidPressStorage, configs
+    copy_loc l1
+    call smart_table::contains<u64, PressConfig>
+    // @40
+    br_true l5
+    call timestamp::now_seconds
+    ld_u64 1000000
+    mul
+    move_loc l3
+    // @45
+    cast_u64
+    ld_u64 86400
+    mul
+    ld_u64 1000000
+    mul
+    // @50
+    st_loc l8
+    copy_loc l8
+    add
+    st_loc l9
+    copy_loc l2
+    // @55
+    copy_loc l8
+    ld_u16 0
+    ld_u64 0
+    copy_loc l9
+    pack PressConfig
+    // @60
+    st_loc l10
+    copy_loc l7
+    mut_borrow_field PidPressStorage, configs
+    copy_loc l1
+    move_loc l10
+    // @65
+    call smart_table::add<u64, PressConfig>
+    move_loc l7
+    mut_borrow_field PidPressStorage, registries
+    copy_loc l1
+    call smart_table::new<address, bool>
+    // @70
+    pack PressedRegistry
+    call smart_table::add<u64, PressedRegistry>
+    move_loc l6
+    move_loc l1
+    move_loc l2
+    // @75
+    move_loc l8
+    move_loc l9
+    call timestamp::now_seconds
+    pack PressEnabled
+    call event::emit<PressEnabled>
+    // @80
+    ret
+l5: move_loc l7
+    pop
+    ld_u64 10
+    abort
+    // @85
+l4: ld_u64 11
+    abort
+l3: move_loc l0
+    pop
+    ld_u64 7
+    // @90
+    abort
+l2: ld_false
+    st_loc l5
+    branch l6
+l1: move_loc l0
+    // @95
+    pop
+    ld_u64 6
+    abort
+l0: ld_false
+    st_loc l4
+    // @100
+    branch l7
+
+// Function definition at index 10
+fun ensure_press_collection(l0: address): address acquires PressCollection
+    local l1: signer
+    local l2: string::String
+    local l3: string::String
+    local l4: royalty::Royalty
+    local l5: object::ConstructorRef
+    local l6: object::ExtendRef
+    copy_loc l0
+    exists PressCollection
+    br_false l0
+    move_loc l0
+    borrow_global PressCollection
+    // @5
+    borrow_field PressCollection, collection_addr
+    read_ref
+    ret
+l0: copy_loc l0
+    call profile::derive_pid_signer
+    // @10
+    st_loc l1
+    copy_loc l0
+    call profile::handle_of
+    st_loc l2
+    borrow_loc l2
+    // @15
+    call build_collection_name
+    st_loc l3
+    move_loc l0
+    call factory::vault_addr_of_pid
+    st_loc l0
+    // @20
+    ld_u64 500
+    ld_u64 10000
+    move_loc l0
+    call royalty::create
+    st_loc l4
+    // @25
+    borrow_loc l1
+    borrow_loc l2
+    call build_collection_description
+    copy_loc l3
+    move_loc l4
+    // @30
+    call option::some<royalty::Royalty>
+    borrow_loc l2
+    call build_collection_uri
+    call collection::create_unlimited_collection
+    st_loc l5
+    // @35
+    borrow_loc l5
+    call object::address_from_constructor_ref
+    st_loc l0
+    borrow_loc l5
+    call object::generate_extend_ref
+    // @40
+    st_loc l6
+    borrow_loc l1
+    copy_loc l0
+    move_loc l6
+    move_loc l3
+    // @45
+    pack PressCollection
+    move_to PressCollection
+    move_loc l0
+    ret
+
+// Function definition at index 11
+fun ensure_press_storage(l0: address)
+    local l1: signer
+    copy_loc l0
+    exists PidPressStorage
+    br_true l0
+    move_loc l0
+    call profile::derive_pid_signer
+    // @5
+    st_loc l1
+    borrow_loc l1
+    call smart_table::new<u64, PressConfig>
+    call smart_table::new<u64, PressedRegistry>
+    pack PidPressStorage
+    // @10
+    move_to PidPressStorage
+    ret
+l0: ret
+
+// Function definition at index 12
+#[persistent] public fun has_pressed(l0: address, l1: address, l2: u64): bool acquires PidPressStorage
+    local l3: &PidPressStorage
+    copy_loc l1
+    exists PidPressStorage
+    br_true l0
+    ld_false
+    ret
+    // @5
+l0: move_loc l1
+    borrow_global PidPressStorage
+    st_loc l3
+    copy_loc l3
+    borrow_field PidPressStorage, registries
+    // @10
+    copy_loc l2
+    call smart_table::contains<u64, PressedRegistry>
+    br_true l1
+    move_loc l3
+    pop
+    // @15
+    ld_false
+    ret
+l1: move_loc l3
+    borrow_field PidPressStorage, registries
+    move_loc l2
+    // @20
+    call smart_table::borrow<u64, PressedRegistry>
+    borrow_field PressedRegistry, pressed_by
+    move_loc l0
+    call smart_table::contains<address, bool>
+    ret
+
+// Function definition at index 13
+#[persistent] public fun is_press_enabled(l0: address, l1: u64): bool acquires PidPressStorage
+    copy_loc l0
+    exists PidPressStorage
+    br_true l0
+    ld_false
+    ret
+    // @5
+l0: move_loc l0
+    borrow_global PidPressStorage
+    borrow_field PidPressStorage, configs
+    move_loc l1
+    call smart_table::contains<u64, PressConfig>
+    // @10
+    ret
+
+// Function definition at index 14
+#[persistent] public fun pressed_count(l0: address, l1: u64): u16 acquires PidPressStorage
+    local l2: &PidPressStorage
+    copy_loc l0
+    exists PidPressStorage
+    br_true l0
+    ld_u16 0
+    ret
+    // @5
+l0: move_loc l0
+    borrow_global PidPressStorage
+    st_loc l2
+    copy_loc l2
+    borrow_field PidPressStorage, configs
+    // @10
+    copy_loc l1
+    call smart_table::contains<u64, PressConfig>
+    br_true l1
+    move_loc l2
+    pop
+    // @15
+    ld_u16 0
+    ret
+l1: move_loc l2
+    borrow_field PidPressStorage, configs
+    move_loc l1
+    // @20
+    call smart_table::borrow<u64, PressConfig>
+    borrow_field PressConfig, pressed_count
+    read_ref
+    ret
+
+// Function definition at index 15
+#[persistent] public fun royalty_bps(): u64
+    ld_u64 500
+    ret
+
+// Function definition at index 16
+fun u64_to_string(l0: u64): string::String
+    local l1: vector<u8>
+    local l2: u8
+    copy_loc l0
+    ld_u64 0
+    eq
+    br_false l0
+    ld_const<vector<u8>> [48]
+    // @5
+    call string::utf8
+    ret
+l0: vec_pack <u8>, 0
+    st_loc l1
+l2: copy_loc l0
+    // @10
+    ld_u64 0
+    gt
+    br_false l1
+    copy_loc l0
+    ld_u64 10
+    // @15
+    mod
+    cast_u8
+    ld_u8 48
+    add
+    st_loc l2
+    // @20
+    mut_borrow_loc l1
+    move_loc l2
+    vec_push_back <u8>
+    move_loc l0
+    ld_u64 10
+    // @25
+    div
+    st_loc l0
+    branch l2
+l1: mut_borrow_loc l1
+    call vector::reverse<u8>
+    // @30
+    move_loc l1
+    call string::utf8
+    ret
+

@@ -1,0 +1,475 @@
+// Bytecode version v9
+module 0x7ba7ee5a93694aa5943f4ef344737d95795d51395e3d65a1b732c776d34be724::pulse
+use 0x1::smart_table
+use 0x7ba7ee5a93694aa5943f4ef344737d95795d51395e3d65a1b732c776d34be724::mint
+use 0x1::option
+use 0x7ba7ee5a93694aa5943f4ef344737d95795d51395e3d65a1b732c776d34be724::reference_gate
+use 0x7ba7ee5a93694aa5943f4ef344737d95795d51395e3d65a1b732c776d34be724::link
+use 0x1::signer
+use 0x7ba7ee5a93694aa5943f4ef344737d95795d51395e3d65a1b732c776d34be724::profile
+use 0x1::bcs
+use 0x1::vector
+use 0x1::timestamp
+use 0x7ba7ee5a93694aa5943f4ef344737d95795d51395e3d65a1b732c776d34be724::history
+struct PidReactionRegistry has key
+  active: smart_table::SmartTable<vector<u8>, bool>
+  spark_count_given: u64
+  echo_count_given: u64
+
+struct PulseEvent has drop + store
+  actor_pid: address
+  target_author: address
+  target_seq: u64
+  reaction_kind: u8
+  state: u8
+  timestamp_secs: u64
+
+// Function definition at index 0
+#[persistent] public fun state_add(): u8
+    ld_u8 1
+    ret
+
+// Function definition at index 1
+#[persistent] public fun state_remove(): u8
+    ld_u8 2
+    ret
+
+// Function definition at index 2
+fun check_mint_gate_or_self_exempt(l0: address, l1: address, l2: address, l3: u64, l4: address)
+    local l5: option::Option<reference_gate::ReferenceGate>
+    local l6: bool
+    local l7: reference_gate::ReferenceGate
+    copy_loc l1
+    copy_loc l2
+    eq
+    br_false l0
+    ret
+    // @5
+l0: move_loc l2
+    move_loc l3
+    call mint::get_mint_gate
+    st_loc l5
+    borrow_loc l5
+    // @10
+    call option::is_none<reference_gate::ReferenceGate>
+    br_false l1
+    ret
+l1: borrow_loc l5
+    call option::borrow<reference_gate::ReferenceGate>
+    // @15
+    call reference_gate::target_pid
+    st_loc l2
+    move_loc l1
+    move_loc l2
+    call link::is_synced
+    // @20
+    st_loc l6
+    mut_borrow_loc l5
+    call option::extract<reference_gate::ReferenceGate>
+    st_loc l7
+    borrow_loc l7
+    // @25
+    move_loc l0
+    move_loc l6
+    ld_false
+    move_loc l4
+    call reference_gate::check
+    // @30
+    br_false l2
+    ret
+l2: ld_u64 3
+    abort
+
+// Function definition at index 3
+#[persistent] entry public fun echo(l0: &signer, l1: address, l2: u64, l3: address) acquires PidReactionRegistry
+    local l4: address
+    local l5: address
+    local l6: vector<u8>
+    move_loc l0
+    call signer::address_of
+    st_loc l4
+    copy_loc l4
+    call profile::derive_pid_address
+    // @5
+    st_loc l5
+    copy_loc l5
+    call profile::assert_pid_exists
+    move_loc l4
+    copy_loc l5
+    // @10
+    copy_loc l1
+    copy_loc l2
+    move_loc l3
+    call check_mint_gate_or_self_exempt
+    copy_loc l5
+    // @15
+    call ensure_reaction_registry
+    copy_loc l1
+    copy_loc l2
+    ld_u8 2
+    call make_key
+    // @20
+    st_loc l6
+    move_loc l5
+    borrow_loc l6
+    ld_u8 2
+    move_loc l1
+    // @25
+    move_loc l2
+    ld_true
+    call toggle_reaction
+    ret
+
+// Function definition at index 4
+#[persistent] public fun echo_kind(): u8
+    ld_u8 2
+    ret
+
+// Function definition at index 5
+fun ensure_reaction_registry(l0: address)
+    local l1: signer
+    copy_loc l0
+    exists PidReactionRegistry
+    br_true l0
+    move_loc l0
+    call profile::derive_pid_signer
+    // @5
+    st_loc l1
+    borrow_loc l1
+    call smart_table::new<vector<u8>, bool>
+    ld_u64 0
+    ld_u64 0
+    // @10
+    pack PidReactionRegistry
+    move_to PidReactionRegistry
+    ret
+l0: ret
+
+// Function definition at index 6
+#[persistent] public fun has_reacted(l0: address, l1: address, l2: u64, l3: u8): bool acquires PidReactionRegistry
+    local l4: vector<u8>
+    copy_loc l0
+    exists PidReactionRegistry
+    br_true l0
+    ld_false
+    ret
+    // @5
+l0: move_loc l1
+    move_loc l2
+    move_loc l3
+    call make_key
+    st_loc l4
+    // @10
+    move_loc l0
+    borrow_global PidReactionRegistry
+    borrow_field PidReactionRegistry, active
+    move_loc l4
+    call smart_table::contains<vector<u8>, bool>
+    // @15
+    ret
+
+// Function definition at index 7
+fun make_key(l0: address, l1: u64, l2: u8): vector<u8>
+    local l3: vector<u8>
+    borrow_loc l0
+    call bcs::to_bytes<address>
+    st_loc l3
+    mut_borrow_loc l3
+    borrow_loc l1
+    // @5
+    call bcs::to_bytes<u64>
+    call vector::append<u8>
+    mut_borrow_loc l3
+    move_loc l2
+    vec_push_back <u8>
+    // @10
+    move_loc l3
+    ret
+
+// Function definition at index 8
+#[persistent] entry public fun spark(l0: &signer, l1: address, l2: u64, l3: address) acquires PidReactionRegistry
+    local l4: address
+    local l5: address
+    local l6: vector<u8>
+    move_loc l0
+    call signer::address_of
+    st_loc l4
+    copy_loc l4
+    call profile::derive_pid_address
+    // @5
+    st_loc l5
+    copy_loc l5
+    call profile::assert_pid_exists
+    move_loc l4
+    copy_loc l5
+    // @10
+    copy_loc l1
+    copy_loc l2
+    move_loc l3
+    call check_mint_gate_or_self_exempt
+    copy_loc l5
+    // @15
+    call ensure_reaction_registry
+    copy_loc l1
+    copy_loc l2
+    ld_u8 1
+    call make_key
+    // @20
+    st_loc l6
+    move_loc l5
+    borrow_loc l6
+    ld_u8 1
+    move_loc l1
+    // @25
+    move_loc l2
+    ld_true
+    call toggle_reaction
+    ret
+
+// Function definition at index 9
+#[persistent] public fun spark_kind(): u8
+    ld_u8 1
+    ret
+
+// Function definition at index 10
+fun toggle_reaction(l0: address, l1: &vector<u8>, l2: u8, l3: address, l4: u64, l5: bool) acquires PidReactionRegistry
+    local l6: &mut PidReactionRegistry
+    local l7: u64
+    local l8: address
+    local l9: address
+    local l10: u64
+    local l11: u8
+    local l12: u8
+    local l13: PulseEvent
+    local l14: u8
+    local l15: vector<u8>
+    copy_loc l0
+    exists PidReactionRegistry
+    br_false l0
+    copy_loc l0
+    mut_borrow_global PidReactionRegistry
+    // @5
+    st_loc l6
+    copy_loc l5
+    br_false l1
+    copy_loc l6
+    borrow_field PidReactionRegistry, active
+    // @10
+    copy_loc l1
+    read_ref
+    call smart_table::contains<vector<u8>, bool>
+    br_true l2
+    copy_loc l6
+    // @15
+    mut_borrow_field PidReactionRegistry, active
+    move_loc l1
+    read_ref
+    ld_true
+    call smart_table::add<vector<u8>, bool>
+    // @20
+    copy_loc l2
+    ld_u8 1
+    eq
+    br_false l3
+    copy_loc l6
+    // @25
+    borrow_field PidReactionRegistry, spark_count_given
+    read_ref
+    ld_u64 1
+    add
+    move_loc l6
+    // @30
+    mut_borrow_field PidReactionRegistry, spark_count_given
+    write_ref
+l8: call timestamp::now_seconds
+    st_loc l7
+    copy_loc l0
+    // @35
+    st_loc l8
+    copy_loc l3
+    st_loc l9
+    move_loc l4
+    st_loc l10
+    // @40
+    copy_loc l2
+    st_loc l11
+    move_loc l5
+    br_false l4
+    ld_u8 1
+    // @45
+    st_loc l12
+l7: move_loc l8
+    move_loc l9
+    move_loc l10
+    move_loc l11
+    // @50
+    move_loc l12
+    copy_loc l7
+    pack PulseEvent
+    st_loc l13
+    move_loc l2
+    // @55
+    ld_u8 1
+    eq
+    br_false l5
+    call history::verb_spark
+    st_loc l14
+    // @60
+l6: borrow_loc l13
+    call bcs::to_bytes<PulseEvent>
+    st_loc l15
+    move_loc l0
+    move_loc l14
+    // @65
+    move_loc l7
+    move_loc l3
+    call option::some<address>
+    move_loc l15
+    call option::none<address>
+    // @70
+    call history::new_entry
+    call history::append
+    ret
+l5: call history::verb_echo
+    st_loc l14
+    // @75
+    branch l6
+l4: ld_u8 2
+    st_loc l12
+    branch l7
+l3: copy_loc l6
+    // @80
+    borrow_field PidReactionRegistry, echo_count_given
+    read_ref
+    ld_u64 1
+    add
+    move_loc l6
+    // @85
+    mut_borrow_field PidReactionRegistry, echo_count_given
+    write_ref
+    branch l8
+l2: move_loc l1
+    pop
+    // @90
+    move_loc l6
+    pop
+    ld_u64 4
+    abort
+l1: copy_loc l6
+    // @95
+    borrow_field PidReactionRegistry, active
+    copy_loc l1
+    read_ref
+    call smart_table::contains<vector<u8>, bool>
+    br_false l9
+    // @100
+    copy_loc l6
+    mut_borrow_field PidReactionRegistry, active
+    move_loc l1
+    read_ref
+    call smart_table::remove<vector<u8>, bool>
+    // @105
+    pop
+    copy_loc l2
+    ld_u8 1
+    eq
+    br_false l10
+    // @110
+    copy_loc l6
+    borrow_field PidReactionRegistry, spark_count_given
+    read_ref
+    ld_u64 0
+    gt
+    // @115
+    br_false l11
+    copy_loc l6
+    borrow_field PidReactionRegistry, spark_count_given
+    read_ref
+    ld_u64 1
+    // @120
+    sub
+    move_loc l6
+    mut_borrow_field PidReactionRegistry, spark_count_given
+    write_ref
+    branch l8
+    // @125
+l11: move_loc l6
+    pop
+    branch l8
+l10: copy_loc l6
+    borrow_field PidReactionRegistry, echo_count_given
+    // @130
+    read_ref
+    ld_u64 0
+    gt
+    br_false l12
+    copy_loc l6
+    // @135
+    borrow_field PidReactionRegistry, echo_count_given
+    read_ref
+    ld_u64 1
+    sub
+    move_loc l6
+    // @140
+    mut_borrow_field PidReactionRegistry, echo_count_given
+    write_ref
+    branch l8
+l12: move_loc l6
+    pop
+    // @145
+    branch l8
+l9: move_loc l1
+    pop
+    move_loc l6
+    pop
+    // @150
+    ld_u64 5
+    abort
+l0: move_loc l1
+    pop
+    ld_u64 6
+    // @155
+    abort
+
+// Function definition at index 11
+#[persistent] entry public fun unecho(l0: &signer, l1: address, l2: u64) acquires PidReactionRegistry
+    local l3: vector<u8>
+    move_loc l0
+    call signer::address_of
+    call profile::derive_pid_address
+    copy_loc l1
+    copy_loc l2
+    // @5
+    ld_u8 2
+    call make_key
+    st_loc l3
+    borrow_loc l3
+    ld_u8 2
+    // @10
+    move_loc l1
+    move_loc l2
+    ld_false
+    call toggle_reaction
+    ret
+
+// Function definition at index 12
+#[persistent] entry public fun unspark(l0: &signer, l1: address, l2: u64) acquires PidReactionRegistry
+    local l3: vector<u8>
+    move_loc l0
+    call signer::address_of
+    call profile::derive_pid_address
+    copy_loc l1
+    copy_loc l2
+    // @5
+    ld_u8 1
+    call make_key
+    st_loc l3
+    borrow_loc l3
+    ld_u8 1
+    // @10
+    move_loc l1
+    move_loc l2
+    ld_false
+    call toggle_reaction
+    ret
+

@@ -1,0 +1,981 @@
+// Bytecode version v9
+module 0x7ba7ee5a93694aa5943f4ef344737d95795d51395e3d65a1b732c776d34be724::giveaway
+use 0x1::option
+use 0x1::smart_table
+use 0x1::object
+use 0x7ba7ee5a93694aa5943f4ef344737d95795d51395e3d65a1b732c776d34be724::link
+use 0x4::token
+use 0x4::collection
+use 0x7ba7ee5a93694aa5943f4ef344737d95795d51395e3d65a1b732c776d34be724::lp_staking
+use 0x1::signer
+use 0x7ba7ee5a93694aa5943f4ef344737d95795d51395e3d65a1b732c776d34be724::profile
+use 0x1::timestamp
+use 0x1::fungible_asset
+use 0x1::primary_fungible_store
+use 0x1::event
+use 0x1::vector
+use 0x7ba7ee5a93694aa5943f4ef344737d95795d51395e3d65a1b732c776d34be724::mint
+struct Giveaway has store + key
+  sponsor_pid: address
+  sponsor_wallet: address
+  kind: u8
+  deadline_secs: u64
+  fa_token_metadata: address
+  fa_amount_per_claim: u64
+  fa_total_budget: u64
+  nft_collection_addr: address
+  nft_addrs: vector<address>
+  claims_made: u64
+  follower_only: bool
+  nft_gate: option::Option<address>
+  lp_stake_gate: option::Option<address>
+  claimers: smart_table::SmartTable<address, bool>
+  extend_ref: object::ExtendRef
+
+struct GiveawayClaimed has drop + store
+  giveaway_addr: address
+  claimer_pid: address
+  claim_index: u64
+  timestamp_secs: u64
+
+struct GiveawayCreated has drop + store
+  sponsor_pid: address
+  mint_seq: u64
+  giveaway_addr: address
+  kind: u8
+  deadline_secs: u64
+  timestamp_secs: u64
+
+struct GiveawaySettled has drop + store
+  giveaway_addr: address
+  sponsor_pid: address
+  settler: address
+  refund_amount: u64
+  bounty_paid: u64
+  timestamp_secs: u64
+
+struct PidGiveawayStorage has key
+  giveaways: smart_table::SmartTable<u64, address>
+
+// Function definition at index 0
+fun check_gates(l0: &Giveaway, l1: address, l2: address, l3: address, l4: address)
+    local l5: object::Object<token::Token>
+    local l6: object::Object<collection::Collection>
+    local l7: address
+    local l8: address
+    copy_loc l0
+    borrow_field Giveaway, follower_only
+    read_ref
+    br_true l0
+    branch l1
+    // @5
+l0: move_loc l1
+    copy_loc l0
+    borrow_field Giveaway, sponsor_pid
+    read_ref
+    call link::is_synced
+    // @10
+    br_false l2
+    branch l1
+l1: copy_loc l0
+    borrow_field Giveaway, nft_gate
+    call option::is_some<address>
+    // @15
+    br_true l3
+    branch l4
+l3: copy_loc l0
+    borrow_field Giveaway, nft_gate
+    call option::borrow<address>
+    // @20
+    read_ref
+    st_loc l1
+    copy_loc l3
+    ld_const<address> 0
+    neq
+    // @25
+    br_false l5
+    copy_loc l3
+    call object::object_exists<token::Token>
+    br_false l6
+    move_loc l3
+    // @30
+    call object::address_to_object<token::Token>
+    st_loc l5
+    copy_loc l5
+    call object::owner<token::Token>
+    copy_loc l2
+    // @35
+    eq
+    br_false l7
+    move_loc l5
+    call token::collection_object<token::Token>
+    st_loc l6
+    // @40
+    borrow_loc l6
+    call object::object_address<collection::Collection>
+    move_loc l1
+    eq
+    br_false l8
+    // @45
+    branch l4
+l4: copy_loc l0
+    borrow_field Giveaway, lp_stake_gate
+    call option::is_some<address>
+    br_false l9
+    // @50
+    move_loc l0
+    borrow_field Giveaway, lp_stake_gate
+    call option::borrow<address>
+    read_ref
+    st_loc l7
+    // @55
+    copy_loc l4
+    ld_const<address> 0
+    neq
+    br_false l10
+    copy_loc l4
+    // @60
+    call lp_staking::has_position
+    br_false l11
+    copy_loc l4
+    call lp_staking::position_pool
+    move_loc l7
+    // @65
+    eq
+    br_false l12
+    copy_loc l4
+    call lp_staking::position_recipient_pid
+    st_loc l8
+    // @70
+    copy_loc l8
+    ld_const<address> 0
+    eq
+    br_false l13
+    copy_loc l4
+    // @75
+    call lp_staking::position_owner
+    move_loc l2
+    eq
+    br_false l14
+    branch l15
+    // @80
+l15: move_loc l4
+    call lp_staking::position_shares
+    ld_u128 0
+    gt
+    br_false l16
+    // @85
+    ret
+l16: ld_u64 7
+    abort
+l14: ld_u64 7
+    abort
+    // @90
+l13: move_loc l8
+    call object::address_to_object<object::ObjectCore>
+    call object::owner<object::ObjectCore>
+    move_loc l2
+    eq
+    // @95
+    br_false l17
+    branch l15
+l17: ld_u64 7
+    abort
+l12: ld_u64 7
+    // @100
+    abort
+l11: ld_u64 7
+    abort
+l10: ld_u64 7
+    abort
+    // @105
+l9: move_loc l0
+    pop
+    ret
+l8: move_loc l0
+    pop
+    // @110
+    ld_u64 6
+    abort
+l7: move_loc l0
+    pop
+    ld_u64 6
+    // @115
+    abort
+l6: move_loc l0
+    pop
+    ld_u64 6
+    abort
+    // @120
+l5: move_loc l0
+    pop
+    ld_u64 6
+    abort
+l2: move_loc l0
+    // @125
+    pop
+    ld_u64 5
+    abort
+
+// Function definition at index 1
+#[persistent] entry public fun claim_giveaway(l0: &signer, l1: address, l2: address, l3: address) acquires Giveaway
+    local l4: address
+    local l5: address
+    local l6: &mut Giveaway
+    local l7: u64
+    local l8: signer
+    local l9: object::Object<fungible_asset::Metadata>
+    local l10: fungible_asset::FungibleAsset
+    local l11: object::Object<object::ObjectCore>
+    move_loc l0
+    call signer::address_of
+    st_loc l4
+    copy_loc l4
+    call profile::derive_pid_address
+    // @5
+    st_loc l5
+    copy_loc l5
+    call profile::assert_pid_exists
+    copy_loc l1
+    mut_borrow_global Giveaway
+    // @10
+    st_loc l6
+    call timestamp::now_seconds
+    st_loc l7
+    copy_loc l7
+    copy_loc l6
+    // @15
+    borrow_field Giveaway, deadline_secs
+    read_ref
+    lt
+    br_false l0
+    copy_loc l6
+    // @20
+    borrow_field Giveaway, claimers
+    copy_loc l5
+    call smart_table::contains<address, bool>
+    br_true l1
+    copy_loc l6
+    // @25
+    freeze_ref
+    copy_loc l5
+    copy_loc l4
+    move_loc l2
+    move_loc l3
+    // @30
+    call check_gates
+    copy_loc l6
+    borrow_field Giveaway, extend_ref
+    call object::generate_signer_for_extending
+    st_loc l8
+    // @35
+    copy_loc l6
+    borrow_field Giveaway, kind
+    read_ref
+    ld_u8 1
+    eq
+    // @40
+    br_false l2
+    copy_loc l6
+    borrow_field Giveaway, fa_token_metadata
+    read_ref
+    call object::address_to_object<fungible_asset::Metadata>
+    // @45
+    st_loc l9
+    copy_loc l1
+    copy_loc l9
+    call primary_fungible_store::balance<fungible_asset::Metadata>
+    copy_loc l6
+    // @50
+    borrow_field Giveaway, fa_amount_per_claim
+    read_ref
+    ge
+    br_false l3
+    borrow_loc l8
+    // @55
+    move_loc l9
+    copy_loc l6
+    borrow_field Giveaway, fa_amount_per_claim
+    read_ref
+    call primary_fungible_store::withdraw<fungible_asset::Metadata>
+    // @60
+    st_loc l10
+    move_loc l4
+    move_loc l10
+    call primary_fungible_store::deposit
+l6: copy_loc l6
+    // @65
+    mut_borrow_field Giveaway, claimers
+    copy_loc l5
+    ld_true
+    call smart_table::add<address, bool>
+    copy_loc l6
+    // @70
+    borrow_field Giveaway, claims_made
+    read_ref
+    ld_u64 1
+    add
+    copy_loc l6
+    // @75
+    mut_borrow_field Giveaway, claims_made
+    write_ref
+    move_loc l1
+    move_loc l5
+    move_loc l6
+    // @80
+    borrow_field Giveaway, claims_made
+    read_ref
+    move_loc l7
+    pack GiveawayClaimed
+    call event::emit<GiveawayClaimed>
+    // @85
+    ret
+l3: move_loc l6
+    pop
+    ld_u64 3
+    abort
+    // @90
+l2: copy_loc l6
+    borrow_field Giveaway, kind
+    read_ref
+    ld_u8 2
+    eq
+    // @95
+    br_false l4
+    copy_loc l6
+    borrow_field Giveaway, nft_addrs
+    call vector::is_empty<address>
+    br_true l5
+    // @100
+    copy_loc l6
+    mut_borrow_field Giveaway, nft_addrs
+    ld_u64 0
+    call vector::remove<address>
+    call object::address_to_object<object::ObjectCore>
+    // @105
+    st_loc l11
+    borrow_loc l8
+    move_loc l11
+    move_loc l4
+    call object::transfer<object::ObjectCore>
+    // @110
+    branch l6
+l5: move_loc l6
+    pop
+    ld_u64 3
+    abort
+    // @115
+l4: move_loc l6
+    pop
+    ld_u64 9
+    abort
+l1: move_loc l6
+    // @120
+    pop
+    ld_u64 4
+    abort
+l0: move_loc l6
+    pop
+    // @125
+    ld_u64 2
+    abort
+
+// Function definition at index 2
+#[persistent] public fun claims_made(l0: address): u64 acquires Giveaway
+    move_loc l0
+    borrow_global Giveaway
+    borrow_field Giveaway, claims_made
+    read_ref
+    ret
+
+// Function definition at index 3
+#[persistent] entry public fun create_fa_giveaway(l0: &signer, l1: u64, l2: object::Object<fungible_asset::Metadata>, l3: u64, l4: u64, l5: u64, l6: bool, l7: address, l8: bool, l9: address, l10: bool) acquires PidGiveawayStorage
+    local l11: address
+    local l12: address
+    local l13: fungible_asset::FungibleAsset
+    local l14: object::ConstructorRef
+    local l15: address
+    local l16: object::ExtendRef
+    local l17: signer
+    local l18: address
+    local l19: address
+    local l20: u8
+    local l21: u64
+    local l22: address
+    local l23: u64
+    local l24: u64
+    local l25: address
+    local l26: vector<address>
+    local l27: u64
+    local l28: bool
+    local l29: option::Option<address>
+    local l30: option::Option<address>
+    local l31: smart_table::SmartTable<address, bool>
+    local l32: Giveaway
+    copy_loc l0
+    call signer::address_of
+    st_loc l11
+    copy_loc l11
+    call profile::derive_pid_address
+    // @5
+    st_loc l12
+    copy_loc l12
+    call profile::assert_pid_exists
+    copy_loc l1
+    copy_loc l12
+    // @10
+    call mint::next_seq
+    lt
+    br_false l0
+    move_loc l0
+    copy_loc l2
+    // @15
+    copy_loc l4
+    call primary_fungible_store::withdraw<fungible_asset::Metadata>
+    st_loc l13
+    copy_loc l11
+    call object::create_object
+    // @20
+    st_loc l14
+    borrow_loc l14
+    call object::address_from_constructor_ref
+    st_loc l15
+    borrow_loc l14
+    // @25
+    call object::generate_extend_ref
+    st_loc l16
+    borrow_loc l14
+    call object::generate_signer
+    st_loc l17
+    // @30
+    copy_loc l15
+    move_loc l13
+    call primary_fungible_store::deposit
+    copy_loc l12
+    st_loc l18
+    // @35
+    move_loc l11
+    st_loc l19
+    ld_u8 1
+    st_loc l20
+    copy_loc l5
+    // @40
+    st_loc l21
+    borrow_loc l2
+    call object::object_address<fungible_asset::Metadata>
+    st_loc l22
+    move_loc l3
+    // @45
+    st_loc l23
+    move_loc l4
+    st_loc l24
+    ld_const<address> 0
+    st_loc l25
+    // @50
+    vec_pack <address>, 0
+    st_loc l26
+    ld_u64 0
+    st_loc l27
+    move_loc l6
+    // @55
+    st_loc l28
+    move_loc l8
+    br_false l1
+    move_loc l7
+    call option::some<address>
+    // @60
+    st_loc l29
+l4: move_loc l10
+    br_false l2
+    move_loc l9
+    call option::some<address>
+    // @65
+    st_loc l30
+l3: call smart_table::new<address, bool>
+    st_loc l31
+    move_loc l18
+    move_loc l19
+    // @70
+    move_loc l20
+    move_loc l21
+    move_loc l22
+    move_loc l23
+    move_loc l24
+    // @75
+    move_loc l25
+    move_loc l26
+    move_loc l27
+    move_loc l28
+    move_loc l29
+    // @80
+    move_loc l30
+    move_loc l31
+    move_loc l16
+    pack Giveaway
+    st_loc l32
+    // @85
+    borrow_loc l17
+    move_loc l32
+    move_to Giveaway
+    copy_loc l12
+    call ensure_giveaway_storage
+    // @90
+    copy_loc l12
+    mut_borrow_global PidGiveawayStorage
+    mut_borrow_field PidGiveawayStorage, giveaways
+    copy_loc l1
+    copy_loc l15
+    // @95
+    call smart_table::add<u64, address>
+    move_loc l12
+    move_loc l1
+    move_loc l15
+    ld_u8 1
+    // @100
+    move_loc l5
+    call timestamp::now_seconds
+    pack GiveawayCreated
+    call event::emit<GiveawayCreated>
+    ret
+    // @105
+l2: call option::none<address>
+    st_loc l30
+    branch l3
+l1: call option::none<address>
+    st_loc l29
+    // @110
+    branch l4
+l0: move_loc l0
+    pop
+    ld_u64 13
+    abort
+
+// Function definition at index 4
+#[persistent] public fun deadline_secs(l0: address): u64 acquires Giveaway
+    move_loc l0
+    borrow_global Giveaway
+    borrow_field Giveaway, deadline_secs
+    read_ref
+    ret
+
+// Function definition at index 5
+#[persistent] entry public fun create_nft_giveaway(l0: &signer, l1: u64, l2: address, l3: vector<address>, l4: u64, l5: bool, l6: address, l7: bool, l8: address, l9: bool) acquires PidGiveawayStorage
+    local l10: address
+    local l11: address
+    local l12: object::ConstructorRef
+    local l13: address
+    local l14: object::ExtendRef
+    local l15: signer
+    local l16: u64
+    local l17: u64
+    local l18: object::Object<object::ObjectCore>
+    local l19: address
+    local l20: address
+    local l21: u8
+    local l22: address
+    local l23: u64
+    local l24: u64
+    local l25: address
+    local l26: vector<address>
+    local l27: u64
+    local l28: bool
+    local l29: option::Option<address>
+    local l30: option::Option<address>
+    local l31: smart_table::SmartTable<address, bool>
+    local l32: Giveaway
+    copy_loc l0
+    call signer::address_of
+    st_loc l10
+    copy_loc l10
+    call profile::derive_pid_address
+    // @5
+    st_loc l11
+    copy_loc l11
+    call profile::assert_pid_exists
+    copy_loc l1
+    copy_loc l11
+    // @10
+    call mint::next_seq
+    lt
+    br_false l0
+    copy_loc l10
+    call object::create_object
+    // @15
+    st_loc l12
+    borrow_loc l12
+    call object::address_from_constructor_ref
+    st_loc l13
+    borrow_loc l12
+    // @20
+    call object::generate_extend_ref
+    st_loc l14
+    borrow_loc l12
+    call object::generate_signer
+    st_loc l15
+    // @25
+    borrow_loc l3
+    vec_len <address>
+    st_loc l16
+    copy_loc l16
+    ld_u64 0
+    // @30
+    gt
+    br_false l1
+    ld_u64 0
+    st_loc l17
+l4: copy_loc l17
+    // @35
+    copy_loc l16
+    lt
+    br_false l2
+    borrow_loc l3
+    copy_loc l17
+    // @40
+    vec_borrow <address>
+    read_ref
+    call object::address_to_object<object::ObjectCore>
+    st_loc l18
+    copy_loc l18
+    // @45
+    call object::owner<object::ObjectCore>
+    copy_loc l10
+    eq
+    br_false l3
+    copy_loc l0
+    // @50
+    move_loc l18
+    copy_loc l13
+    call object::transfer<object::ObjectCore>
+    move_loc l17
+    ld_u64 1
+    // @55
+    add
+    st_loc l17
+    branch l4
+l3: move_loc l0
+    pop
+    // @60
+    ld_u64 12
+    abort
+l2: move_loc l0
+    pop
+    copy_loc l11
+    // @65
+    st_loc l19
+    move_loc l10
+    st_loc l20
+    ld_u8 2
+    st_loc l21
+    // @70
+    copy_loc l4
+    st_loc l17
+    ld_const<address> 0
+    st_loc l22
+    ld_u64 0
+    // @75
+    st_loc l23
+    ld_u64 0
+    st_loc l24
+    move_loc l2
+    st_loc l25
+    // @80
+    move_loc l3
+    st_loc l26
+    ld_u64 0
+    st_loc l27
+    move_loc l5
+    // @85
+    st_loc l28
+    move_loc l7
+    br_false l5
+    move_loc l6
+    call option::some<address>
+    // @90
+    st_loc l29
+l8: move_loc l9
+    br_false l6
+    move_loc l8
+    call option::some<address>
+    // @95
+    st_loc l30
+l7: call smart_table::new<address, bool>
+    st_loc l31
+    move_loc l19
+    move_loc l20
+    // @100
+    move_loc l21
+    move_loc l17
+    move_loc l22
+    move_loc l23
+    move_loc l24
+    // @105
+    move_loc l25
+    move_loc l26
+    move_loc l27
+    move_loc l28
+    move_loc l29
+    // @110
+    move_loc l30
+    move_loc l31
+    move_loc l14
+    pack Giveaway
+    st_loc l32
+    // @115
+    borrow_loc l15
+    move_loc l32
+    move_to Giveaway
+    copy_loc l11
+    call ensure_giveaway_storage
+    // @120
+    copy_loc l11
+    mut_borrow_global PidGiveawayStorage
+    mut_borrow_field PidGiveawayStorage, giveaways
+    copy_loc l1
+    copy_loc l13
+    // @125
+    call smart_table::add<u64, address>
+    move_loc l11
+    move_loc l1
+    move_loc l13
+    ld_u8 2
+    // @130
+    move_loc l4
+    call timestamp::now_seconds
+    pack GiveawayCreated
+    call event::emit<GiveawayCreated>
+    ret
+    // @135
+l6: call option::none<address>
+    st_loc l30
+    branch l7
+l5: call option::none<address>
+    st_loc l29
+    // @140
+    branch l8
+l1: move_loc l0
+    pop
+    ld_u64 3
+    abort
+    // @145
+l0: move_loc l0
+    pop
+    ld_u64 13
+    abort
+
+// Function definition at index 6
+fun ensure_giveaway_storage(l0: address)
+    local l1: signer
+    copy_loc l0
+    exists PidGiveawayStorage
+    br_true l0
+    move_loc l0
+    call profile::derive_pid_signer
+    // @5
+    st_loc l1
+    borrow_loc l1
+    call smart_table::new<u64, address>
+    pack PidGiveawayStorage
+    move_to PidGiveawayStorage
+    // @10
+    ret
+l0: ret
+
+// Function definition at index 7
+#[persistent] public fun giveaway_addr_for_mint(l0: address, l1: u64): address acquires PidGiveawayStorage
+    move_loc l0
+    borrow_global PidGiveawayStorage
+    borrow_field PidGiveawayStorage, giveaways
+    move_loc l1
+    call smart_table::borrow<u64, address>
+    // @5
+    read_ref
+    ret
+
+// Function definition at index 8
+#[persistent] public fun has_claimed(l0: address, l1: address): bool acquires Giveaway
+    move_loc l0
+    borrow_global Giveaway
+    borrow_field Giveaway, claimers
+    move_loc l1
+    call smart_table::contains<address, bool>
+    // @5
+    ret
+
+// Function definition at index 9
+#[persistent] public fun kind_fa(): u8
+    ld_u8 1
+    ret
+
+// Function definition at index 10
+#[persistent] public fun kind_nft(): u8
+    ld_u8 2
+    ret
+
+// Function definition at index 11
+#[persistent] public fun settle_bounty_bps(): u64
+    ld_u64 5
+    ret
+
+// Function definition at index 12
+#[persistent] entry public fun settle_giveaway(l0: &signer, l1: address) acquires Giveaway
+    local l2: &mut Giveaway
+    local l3: u64
+    local l4: address
+    local l5: address
+    local l6: signer
+    local l7: u64
+    local l8: u64
+    local l9: object::Object<fungible_asset::Metadata>
+    local l10: u64
+    local l11: fungible_asset::FungibleAsset
+    local l12: object::Object<object::ObjectCore>
+    copy_loc l1
+    mut_borrow_global Giveaway
+    st_loc l2
+    call timestamp::now_seconds
+    st_loc l3
+    // @5
+    copy_loc l3
+    copy_loc l2
+    borrow_field Giveaway, deadline_secs
+    read_ref
+    ge
+    // @10
+    br_false l0
+    move_loc l0
+    call signer::address_of
+    st_loc l4
+    copy_loc l2
+    // @15
+    borrow_field Giveaway, sponsor_wallet
+    read_ref
+    st_loc l5
+    copy_loc l2
+    borrow_field Giveaway, extend_ref
+    // @20
+    call object::generate_signer_for_extending
+    st_loc l6
+    ld_u64 0
+    st_loc l7
+    ld_u64 0
+    // @25
+    st_loc l8
+    copy_loc l2
+    borrow_field Giveaway, kind
+    read_ref
+    ld_u8 1
+    // @30
+    eq
+    br_false l1
+    copy_loc l2
+    borrow_field Giveaway, fa_token_metadata
+    read_ref
+    // @35
+    call object::address_to_object<fungible_asset::Metadata>
+    st_loc l9
+    copy_loc l1
+    copy_loc l9
+    call primary_fungible_store::balance<fungible_asset::Metadata>
+    // @40
+    st_loc l10
+    copy_loc l10
+    ld_u64 0
+    gt
+    br_true l2
+    // @45
+    branch l3
+l2: copy_loc l10
+    ld_u64 5
+    mul
+    ld_u64 10000
+    // @50
+    div
+    st_loc l8
+    move_loc l10
+    copy_loc l8
+    sub
+    // @55
+    st_loc l7
+    copy_loc l8
+    ld_u64 0
+    gt
+    br_true l4
+    // @60
+    branch l5
+l4: borrow_loc l6
+    copy_loc l9
+    copy_loc l8
+    call primary_fungible_store::withdraw<fungible_asset::Metadata>
+    // @65
+    st_loc l11
+    copy_loc l4
+    move_loc l11
+    call primary_fungible_store::deposit
+l5: copy_loc l7
+    // @70
+    ld_u64 0
+    gt
+    br_true l6
+    branch l3
+l6: borrow_loc l6
+    // @75
+    move_loc l9
+    copy_loc l7
+    call primary_fungible_store::withdraw<fungible_asset::Metadata>
+    st_loc l11
+    move_loc l5
+    // @80
+    move_loc l11
+    call primary_fungible_store::deposit
+l3: move_loc l1
+    move_loc l2
+    borrow_field Giveaway, sponsor_pid
+    // @85
+    read_ref
+    move_loc l4
+    move_loc l7
+    move_loc l8
+    move_loc l3
+    // @90
+    pack GiveawaySettled
+    call event::emit<GiveawaySettled>
+    ret
+l1: copy_loc l2
+    borrow_field Giveaway, kind
+    // @95
+    read_ref
+    ld_u8 2
+    eq
+    br_true l7
+    branch l3
+    // @100
+l7: copy_loc l2
+    borrow_field Giveaway, nft_addrs
+    vec_len <address>
+    st_loc l7
+l9: copy_loc l2
+    // @105
+    borrow_field Giveaway, nft_addrs
+    call vector::is_empty<address>
+    br_false l8
+    branch l3
+l8: copy_loc l2
+    // @110
+    mut_borrow_field Giveaway, nft_addrs
+    vec_pop_back <address>
+    call object::address_to_object<object::ObjectCore>
+    st_loc l12
+    borrow_loc l6
+    // @115
+    move_loc l12
+    copy_loc l5
+    call object::transfer<object::ObjectCore>
+    branch l9
+l0: move_loc l0
+    // @120
+    pop
+    move_loc l2
+    pop
+    ld_u64 8
+    abort
+

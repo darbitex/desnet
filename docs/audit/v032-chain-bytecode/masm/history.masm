@@ -1,0 +1,601 @@
+// Bytecode version v9
+module 0x7ba7ee5a93694aa5943f4ef344737d95795d51395e3d65a1b732c776d34be724::history
+use 0x1::option
+use 0x1::object
+use 0x1::signer
+use 0x7ba7ee5a93694aa5943f4ef344737d95795d51395e3d65a1b732c776d34be724::profile
+friend 0x7ba7ee5a93694aa5943f4ef344737d95795d51395e3d65a1b732c776d34be724::link
+friend 0x7ba7ee5a93694aa5943f4ef344737d95795d51395e3d65a1b732c776d34be724::mint
+friend 0x7ba7ee5a93694aa5943f4ef344737d95795d51395e3d65a1b732c776d34be724::press
+friend 0x7ba7ee5a93694aa5943f4ef344737d95795d51395e3d65a1b732c776d34be724::pulse
+struct Entry has copy + drop + store
+  verb: u8
+  timestamp_secs: u64
+  target: option::Option<address>
+  payload: vector<u8>
+  asset: option::Option<address>
+
+struct HistoryChunk has key
+  entries: vector<Entry>
+  sealed: bool
+
+struct HistoryLog has key
+  head_chunk: address
+  sealed_chunks: vector<address>
+  entry_count: u64
+  total_bytes: u64
+  head_chunk_bytes: u64
+  mint_count: u64
+  spark_count: u64
+  voice_count: u64
+  echo_count: u64
+  remix_count: u64
+  press_count: u64
+  sync_count: u64
+
+// Function definition at index 0
+friend fun append(l0: address, l1: Entry) acquires HistoryChunk, HistoryLog
+    local l2: u64
+    local l3: &mut HistoryLog
+    local l4: address
+    local l5: &mut HistoryChunk
+    local l6: object::ConstructorRef
+    local l7: signer
+    local l8: u8
+    copy_loc l0
+    call ensure_history_log
+    borrow_loc l1
+    borrow_field Entry, payload
+    vec_len <u8>
+    // @5
+    ld_u64 64
+    add
+    st_loc l2
+    copy_loc l0
+    mut_borrow_global HistoryLog
+    // @10
+    st_loc l3
+    copy_loc l3
+    borrow_field HistoryLog, head_chunk_bytes
+    read_ref
+    copy_loc l2
+    // @15
+    add
+    ld_u64 30000
+    gt
+    br_true l0
+    branch l1
+    // @20
+l0: copy_loc l3
+    borrow_field HistoryLog, head_chunk
+    read_ref
+    st_loc l4
+    copy_loc l4
+    // @25
+    mut_borrow_global HistoryChunk
+    st_loc l5
+    ld_true
+    move_loc l5
+    mut_borrow_field HistoryChunk, sealed
+    // @30
+    write_ref
+    copy_loc l3
+    mut_borrow_field HistoryLog, sealed_chunks
+    move_loc l4
+    vec_push_back <address>
+    // @35
+    move_loc l0
+    call object::create_object
+    st_loc l6
+    borrow_loc l6
+    call object::generate_signer
+    // @40
+    st_loc l7
+    borrow_loc l7
+    call signer::address_of
+    borrow_loc l7
+    vec_pack <Entry>, 0
+    // @45
+    ld_false
+    pack HistoryChunk
+    move_to HistoryChunk
+    copy_loc l3
+    mut_borrow_field HistoryLog, head_chunk
+    // @50
+    write_ref
+    ld_u64 0
+    copy_loc l3
+    mut_borrow_field HistoryLog, head_chunk_bytes
+    write_ref
+    // @55
+l1: borrow_loc l1
+    borrow_field Entry, verb
+    read_ref
+    st_loc l8
+    copy_loc l3
+    // @60
+    borrow_field HistoryLog, head_chunk
+    read_ref
+    mut_borrow_global HistoryChunk
+    mut_borrow_field HistoryChunk, entries
+    move_loc l1
+    // @65
+    vec_push_back <Entry>
+    copy_loc l3
+    borrow_field HistoryLog, entry_count
+    read_ref
+    ld_u64 1
+    // @70
+    add
+    copy_loc l3
+    mut_borrow_field HistoryLog, entry_count
+    write_ref
+    copy_loc l3
+    // @75
+    borrow_field HistoryLog, total_bytes
+    read_ref
+    copy_loc l2
+    add
+    copy_loc l3
+    // @80
+    mut_borrow_field HistoryLog, total_bytes
+    write_ref
+    copy_loc l3
+    borrow_field HistoryLog, head_chunk_bytes
+    read_ref
+    // @85
+    move_loc l2
+    add
+    copy_loc l3
+    mut_borrow_field HistoryLog, head_chunk_bytes
+    write_ref
+    // @90
+    copy_loc l8
+    ld_u8 0
+    eq
+    br_false l2
+    copy_loc l3
+    // @95
+    borrow_field HistoryLog, mint_count
+    read_ref
+    ld_u64 1
+    add
+    move_loc l3
+    // @100
+    mut_borrow_field HistoryLog, mint_count
+    write_ref
+    ret
+l2: copy_loc l8
+    ld_u8 1
+    // @105
+    eq
+    br_false l3
+    copy_loc l3
+    borrow_field HistoryLog, spark_count
+    read_ref
+    // @110
+    ld_u64 1
+    add
+    move_loc l3
+    mut_borrow_field HistoryLog, spark_count
+    write_ref
+    // @115
+    ret
+l3: copy_loc l8
+    ld_u8 2
+    eq
+    br_false l4
+    // @120
+    copy_loc l3
+    borrow_field HistoryLog, voice_count
+    read_ref
+    ld_u64 1
+    add
+    // @125
+    move_loc l3
+    mut_borrow_field HistoryLog, voice_count
+    write_ref
+    ret
+l4: copy_loc l8
+    // @130
+    ld_u8 3
+    eq
+    br_false l5
+    copy_loc l3
+    borrow_field HistoryLog, echo_count
+    // @135
+    read_ref
+    ld_u64 1
+    add
+    move_loc l3
+    mut_borrow_field HistoryLog, echo_count
+    // @140
+    write_ref
+    ret
+l5: copy_loc l8
+    ld_u8 4
+    eq
+    // @145
+    br_false l6
+    copy_loc l3
+    borrow_field HistoryLog, remix_count
+    read_ref
+    ld_u64 1
+    // @150
+    add
+    move_loc l3
+    mut_borrow_field HistoryLog, remix_count
+    write_ref
+    ret
+    // @155
+l6: copy_loc l8
+    ld_u8 5
+    eq
+    br_false l7
+    copy_loc l3
+    // @160
+    borrow_field HistoryLog, press_count
+    read_ref
+    ld_u64 1
+    add
+    move_loc l3
+    // @165
+    mut_borrow_field HistoryLog, press_count
+    write_ref
+    ret
+l7: move_loc l8
+    ld_u8 6
+    // @170
+    eq
+    br_false l8
+    copy_loc l3
+    borrow_field HistoryLog, sync_count
+    read_ref
+    // @175
+    ld_u64 1
+    add
+    move_loc l3
+    mut_borrow_field HistoryLog, sync_count
+    write_ref
+    // @180
+    ret
+l8: move_loc l3
+    pop
+    ret
+
+// Function definition at index 1
+#[persistent] public fun history_exists(l0: address): bool
+    move_loc l0
+    exists HistoryLog
+    ret
+
+// Function definition at index 2
+#[persistent] public fun chunk_entries_count(l0: address): u64 acquires HistoryChunk
+    copy_loc l0
+    exists HistoryChunk
+    br_true l0
+    ld_u64 0
+    ret
+    // @5
+l0: move_loc l0
+    borrow_global HistoryChunk
+    borrow_field HistoryChunk, entries
+    vec_len <Entry>
+    ret
+
+// Function definition at index 3
+#[persistent] public fun chunk_entry_at(l0: address, l1: u64): (u8, u64, option::Option<address>, vector<u8>, option::Option<address>) acquires HistoryChunk
+    local l2: &Entry
+    copy_loc l0
+    exists HistoryChunk
+    br_false l0
+    move_loc l0
+    borrow_global HistoryChunk
+    // @5
+    borrow_field HistoryChunk, entries
+    move_loc l1
+    vec_borrow <Entry>
+    st_loc l2
+    copy_loc l2
+    // @10
+    borrow_field Entry, verb
+    read_ref
+    copy_loc l2
+    borrow_field Entry, timestamp_secs
+    read_ref
+    // @15
+    copy_loc l2
+    borrow_field Entry, target
+    read_ref
+    copy_loc l2
+    borrow_field Entry, payload
+    // @20
+    read_ref
+    move_loc l2
+    borrow_field Entry, asset
+    read_ref
+    ret
+    // @25
+l0: ld_u64 4
+    abort
+
+// Function definition at index 4
+#[persistent] public fun chunk_is_sealed(l0: address): bool acquires HistoryChunk
+    copy_loc l0
+    exists HistoryChunk
+    br_true l0
+    ld_false
+    ret
+    // @5
+l0: move_loc l0
+    borrow_global HistoryChunk
+    borrow_field HistoryChunk, sealed
+    read_ref
+    ret
+
+// Function definition at index 5
+#[persistent] public fun chunk_rotate_threshold(): u64
+    ld_u64 30000
+    ret
+
+// Function definition at index 6
+#[persistent] public fun count_verb(l0: address, l1: u8): u64 acquires HistoryLog
+    local l2: &HistoryLog
+    copy_loc l0
+    exists HistoryLog
+    br_true l0
+    ld_u64 0
+    ret
+    // @5
+l0: move_loc l0
+    borrow_global HistoryLog
+    st_loc l2
+    copy_loc l1
+    ld_u8 0
+    // @10
+    eq
+    br_false l1
+    move_loc l2
+    borrow_field HistoryLog, mint_count
+    read_ref
+    // @15
+    ret
+l1: copy_loc l1
+    ld_u8 1
+    eq
+    br_false l2
+    // @20
+    move_loc l2
+    borrow_field HistoryLog, spark_count
+    read_ref
+    ret
+l2: copy_loc l1
+    // @25
+    ld_u8 2
+    eq
+    br_false l3
+    move_loc l2
+    borrow_field HistoryLog, voice_count
+    // @30
+    read_ref
+    ret
+l3: copy_loc l1
+    ld_u8 3
+    eq
+    // @35
+    br_false l4
+    move_loc l2
+    borrow_field HistoryLog, echo_count
+    read_ref
+    ret
+    // @40
+l4: copy_loc l1
+    ld_u8 4
+    eq
+    br_false l5
+    move_loc l2
+    // @45
+    borrow_field HistoryLog, remix_count
+    read_ref
+    ret
+l5: copy_loc l1
+    ld_u8 5
+    // @50
+    eq
+    br_false l6
+    move_loc l2
+    borrow_field HistoryLog, press_count
+    read_ref
+    // @55
+    ret
+l6: move_loc l1
+    ld_u8 6
+    eq
+    br_false l7
+    // @60
+    move_loc l2
+    borrow_field HistoryLog, sync_count
+    read_ref
+    ret
+l7: move_loc l2
+    // @65
+    pop
+    ld_u64 0
+    ret
+
+// Function definition at index 7
+fun ensure_history_log(l0: address)
+    local l1: signer
+    local l2: object::ConstructorRef
+    local l3: signer
+    local l4: &signer
+    local l5: HistoryLog
+    copy_loc l0
+    exists HistoryLog
+    br_false l0
+    ret
+l0: copy_loc l0
+    // @5
+    call profile::derive_pid_signer
+    st_loc l1
+    move_loc l0
+    call object::create_object
+    st_loc l2
+    // @10
+    borrow_loc l2
+    call object::generate_signer
+    st_loc l3
+    borrow_loc l3
+    call signer::address_of
+    // @15
+    borrow_loc l3
+    vec_pack <Entry>, 0
+    ld_false
+    pack HistoryChunk
+    move_to HistoryChunk
+    // @20
+    borrow_loc l1
+    st_loc l4
+    vec_pack <address>, 0
+    ld_u64 0
+    ld_u64 0
+    // @25
+    ld_u64 0
+    ld_u64 0
+    ld_u64 0
+    ld_u64 0
+    ld_u64 0
+    // @30
+    ld_u64 0
+    ld_u64 0
+    ld_u64 0
+    pack HistoryLog
+    st_loc l5
+    // @35
+    move_loc l4
+    move_loc l5
+    move_to HistoryLog
+    ret
+
+// Function definition at index 8
+#[persistent] public fun head_chunk_addr(l0: address): address acquires HistoryLog
+    copy_loc l0
+    exists HistoryLog
+    br_false l0
+    move_loc l0
+    borrow_global HistoryLog
+    // @5
+    borrow_field HistoryLog, head_chunk
+    read_ref
+    ret
+l0: ld_u64 3
+    abort
+
+// Function definition at index 9
+#[persistent] public fun max_payload_bytes(): u64
+    ld_u64 12000
+    ret
+
+// Function definition at index 10
+friend fun new_entry(l0: u8, l1: u64, l2: option::Option<address>, l3: vector<u8>, l4: option::Option<address>): Entry
+    copy_loc l0
+    ld_u8 6
+    le
+    br_false l0
+    borrow_loc l3
+    // @5
+    vec_len <u8>
+    ld_u64 12000
+    le
+    br_false l1
+    move_loc l0
+    // @10
+    move_loc l1
+    move_loc l2
+    move_loc l3
+    move_loc l4
+    pack Entry
+    // @15
+    ret
+l1: ld_u64 1
+    abort
+l0: ld_u64 5
+    abort
+
+// Function definition at index 11
+#[persistent] public fun sealed_chunks_list(l0: address): vector<address> acquires HistoryLog
+    copy_loc l0
+    exists HistoryLog
+    br_true l0
+    vec_pack <address>, 0
+    ret
+    // @5
+l0: move_loc l0
+    borrow_global HistoryLog
+    borrow_field HistoryLog, sealed_chunks
+    read_ref
+    ret
+
+// Function definition at index 12
+#[persistent] public fun total_bytes(l0: address): u64 acquires HistoryLog
+    copy_loc l0
+    exists HistoryLog
+    br_true l0
+    ld_u64 0
+    ret
+    // @5
+l0: move_loc l0
+    borrow_global HistoryLog
+    borrow_field HistoryLog, total_bytes
+    read_ref
+    ret
+
+// Function definition at index 13
+#[persistent] public fun total_entries(l0: address): u64 acquires HistoryLog
+    copy_loc l0
+    exists HistoryLog
+    br_true l0
+    ld_u64 0
+    ret
+    // @5
+l0: move_loc l0
+    borrow_global HistoryLog
+    borrow_field HistoryLog, entry_count
+    read_ref
+    ret
+
+// Function definition at index 14
+#[persistent] public fun verb_echo(): u8
+    ld_u8 3
+    ret
+
+// Function definition at index 15
+#[persistent] public fun verb_mint(): u8
+    ld_u8 0
+    ret
+
+// Function definition at index 16
+#[persistent] public fun verb_press(): u8
+    ld_u8 5
+    ret
+
+// Function definition at index 17
+#[persistent] public fun verb_remix(): u8
+    ld_u8 4
+    ret
+
+// Function definition at index 18
+#[persistent] public fun verb_spark(): u8
+    ld_u8 1
+    ret
+
+// Function definition at index 19
+#[persistent] public fun verb_sync(): u8
+    ld_u8 6
+    ret
+
+// Function definition at index 20
+#[persistent] public fun verb_voice(): u8
+    ld_u8 2
+    ret
+

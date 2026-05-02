@@ -1,0 +1,556 @@
+{
+  "address": "0x7ba7ee5a93694aa5943f4ef344737d95795d51395e3d65a1b732c776d34be724",
+  "name": "lp_staking",
+  "friends": [
+    "0x7ba7ee5a93694aa5943f4ef344737d95795d51395e3d65a1b732c776d34be724::factory"
+  ],
+  "exposed_functions": [
+    {
+      "name": "acc_scale",
+      "visibility": "public",
+      "is_entry": false,
+      "is_view": true,
+      "generic_type_params": [],
+      "params": [],
+      "return": [
+        "u128"
+      ]
+    },
+    {
+      "name": "add_liquidity",
+      "visibility": "public",
+      "is_entry": true,
+      "is_view": false,
+      "generic_type_params": [],
+      "params": [
+        "&signer",
+        "vector<u8>",
+        "u64",
+        "u64",
+        "u64"
+      ],
+      "return": []
+    },
+    {
+      "name": "add_liquidity_with_lock",
+      "visibility": "public",
+      "is_entry": true,
+      "is_view": false,
+      "generic_type_params": [],
+      "params": [
+        "&signer",
+        "vector<u8>",
+        "u64",
+        "u64",
+        "u64",
+        "u64"
+      ],
+      "return": []
+    },
+    {
+      "name": "claim",
+      "visibility": "public",
+      "is_entry": true,
+      "is_view": false,
+      "generic_type_params": [],
+      "params": [
+        "&signer",
+        "address"
+      ],
+      "return": []
+    },
+    {
+      "name": "create_pool_and_lock",
+      "visibility": "friend",
+      "is_entry": false,
+      "is_view": false,
+      "generic_type_params": [],
+      "params": [
+        "vector<u8>",
+        "address",
+        "address",
+        "address",
+        "&signer",
+        "u128"
+      ],
+      "return": [
+        "address"
+      ]
+    },
+    {
+      "name": "default_rate_per_sec",
+      "visibility": "public",
+      "is_entry": false,
+      "is_view": true,
+      "generic_type_params": [],
+      "params": [],
+      "return": [
+        "u64"
+      ]
+    },
+    {
+      "name": "has_position",
+      "visibility": "public",
+      "is_entry": false,
+      "is_view": true,
+      "generic_type_params": [],
+      "params": [
+        "address"
+      ],
+      "return": [
+        "bool"
+      ]
+    },
+    {
+      "name": "pool_acc_per_share",
+      "visibility": "public",
+      "is_entry": false,
+      "is_view": true,
+      "generic_type_params": [],
+      "params": [
+        "address"
+      ],
+      "return": [
+        "u128"
+      ]
+    },
+    {
+      "name": "pool_rate_per_sec",
+      "visibility": "public",
+      "is_entry": false,
+      "is_view": true,
+      "generic_type_params": [],
+      "params": [
+        "address"
+      ],
+      "return": [
+        "u64"
+      ]
+    },
+    {
+      "name": "position_fee_debt",
+      "visibility": "public",
+      "is_entry": false,
+      "is_view": true,
+      "generic_type_params": [],
+      "params": [
+        "0x1::object::Object<0x7ba7ee5a93694aa5943f4ef344737d95795d51395e3d65a1b732c776d34be724::lp_staking::Position>"
+      ],
+      "return": [
+        "u128",
+        "u128"
+      ]
+    },
+    {
+      "name": "position_owner",
+      "visibility": "public",
+      "is_entry": false,
+      "is_view": true,
+      "generic_type_params": [],
+      "params": [
+        "address"
+      ],
+      "return": [
+        "address"
+      ]
+    },
+    {
+      "name": "position_pending_all",
+      "visibility": "public",
+      "is_entry": false,
+      "is_view": true,
+      "generic_type_params": [],
+      "params": [
+        "address"
+      ],
+      "return": [
+        "u64",
+        "u64",
+        "u64"
+      ]
+    },
+    {
+      "name": "position_pending_fees",
+      "visibility": "public",
+      "is_entry": false,
+      "is_view": true,
+      "generic_type_params": [],
+      "params": [
+        "0x1::object::Object<0x7ba7ee5a93694aa5943f4ef344737d95795d51395e3d65a1b732c776d34be724::lp_staking::Position>"
+      ],
+      "return": [
+        "u64",
+        "u64"
+      ]
+    },
+    {
+      "name": "position_pool",
+      "visibility": "public",
+      "is_entry": false,
+      "is_view": true,
+      "generic_type_params": [],
+      "params": [
+        "address"
+      ],
+      "return": [
+        "address"
+      ]
+    },
+    {
+      "name": "position_pool_addr",
+      "visibility": "public",
+      "is_entry": false,
+      "is_view": true,
+      "generic_type_params": [],
+      "params": [
+        "0x1::object::Object<0x7ba7ee5a93694aa5943f4ef344737d95795d51395e3d65a1b732c776d34be724::lp_staking::Position>"
+      ],
+      "return": [
+        "address"
+      ]
+    },
+    {
+      "name": "position_recipient_pid",
+      "visibility": "public",
+      "is_entry": false,
+      "is_view": true,
+      "generic_type_params": [],
+      "params": [
+        "address"
+      ],
+      "return": [
+        "address"
+      ]
+    },
+    {
+      "name": "position_shares",
+      "visibility": "public",
+      "is_entry": false,
+      "is_view": true,
+      "generic_type_params": [],
+      "params": [
+        "address"
+      ],
+      "return": [
+        "u128"
+      ]
+    },
+    {
+      "name": "position_shares_obj",
+      "visibility": "public",
+      "is_entry": false,
+      "is_view": true,
+      "generic_type_params": [],
+      "params": [
+        "0x1::object::Object<0x7ba7ee5a93694aa5943f4ef344737d95795d51395e3d65a1b732c776d34be724::lp_staking::Position>"
+      ],
+      "return": [
+        "u128"
+      ]
+    },
+    {
+      "name": "position_unlock_at",
+      "visibility": "public",
+      "is_entry": false,
+      "is_view": true,
+      "generic_type_params": [],
+      "params": [
+        "address"
+      ],
+      "return": [
+        "u64"
+      ]
+    },
+    {
+      "name": "remove_liquidity",
+      "visibility": "public",
+      "is_entry": true,
+      "is_view": false,
+      "generic_type_params": [],
+      "params": [
+        "&signer",
+        "address",
+        "u64",
+        "u64"
+      ],
+      "return": []
+    },
+    {
+      "name": "staking_pool_address_of_handle",
+      "visibility": "public",
+      "is_entry": false,
+      "is_view": false,
+      "generic_type_params": [],
+      "params": [
+        "vector<u8>"
+      ],
+      "return": [
+        "address"
+      ]
+    },
+    {
+      "name": "staking_pool_exists",
+      "visibility": "public",
+      "is_entry": false,
+      "is_view": false,
+      "generic_type_params": [],
+      "params": [
+        "vector<u8>"
+      ],
+      "return": [
+        "bool"
+      ]
+    },
+    {
+      "name": "unlock_forever_marker",
+      "visibility": "public",
+      "is_entry": false,
+      "is_view": true,
+      "generic_type_params": [],
+      "params": [],
+      "return": [
+        "u64"
+      ]
+    }
+  ],
+  "structs": [
+    {
+      "name": "Position",
+      "is_native": false,
+      "is_event": false,
+      "is_enum": false,
+      "abilities": [
+        "key"
+      ],
+      "generic_type_params": [],
+      "fields": [
+        {
+          "name": "pool_addr",
+          "type": "address"
+        },
+        {
+          "name": "handle",
+          "type": "vector<u8>"
+        },
+        {
+          "name": "shares",
+          "type": "u128"
+        },
+        {
+          "name": "last_acc_per_share",
+          "type": "u128"
+        },
+        {
+          "name": "last_fee_per_lp_apt",
+          "type": "u128"
+        },
+        {
+          "name": "last_fee_per_lp_token",
+          "type": "u128"
+        },
+        {
+          "name": "unlock_at_secs",
+          "type": "u64"
+        },
+        {
+          "name": "recipient_pid",
+          "type": "address"
+        }
+      ],
+      "variants": []
+    },
+    {
+      "name": "Claimed",
+      "is_native": false,
+      "is_event": true,
+      "is_enum": false,
+      "abilities": [
+        "drop",
+        "store"
+      ],
+      "generic_type_params": [],
+      "fields": [
+        {
+          "name": "handle",
+          "type": "vector<u8>"
+        },
+        {
+          "name": "position_addr",
+          "type": "address"
+        },
+        {
+          "name": "recipient",
+          "type": "address"
+        },
+        {
+          "name": "emission_amount",
+          "type": "u64"
+        },
+        {
+          "name": "apt_fee_amount",
+          "type": "u64"
+        },
+        {
+          "name": "token_fee_amount",
+          "type": "u64"
+        }
+      ],
+      "variants": []
+    },
+    {
+      "name": "PositionCreated",
+      "is_native": false,
+      "is_event": true,
+      "is_enum": false,
+      "abilities": [
+        "drop",
+        "store"
+      ],
+      "generic_type_params": [],
+      "fields": [
+        {
+          "name": "handle",
+          "type": "vector<u8>"
+        },
+        {
+          "name": "position_addr",
+          "type": "address"
+        },
+        {
+          "name": "owner",
+          "type": "address"
+        },
+        {
+          "name": "shares",
+          "type": "u128"
+        },
+        {
+          "name": "unlock_at_secs",
+          "type": "u64"
+        },
+        {
+          "name": "recipient_pid",
+          "type": "address"
+        },
+        {
+          "name": "kind",
+          "type": "u8"
+        }
+      ],
+      "variants": []
+    },
+    {
+      "name": "PositionRemoved",
+      "is_native": false,
+      "is_event": true,
+      "is_enum": false,
+      "abilities": [
+        "drop",
+        "store"
+      ],
+      "generic_type_params": [],
+      "fields": [
+        {
+          "name": "handle",
+          "type": "vector<u8>"
+        },
+        {
+          "name": "position_addr",
+          "type": "address"
+        },
+        {
+          "name": "owner",
+          "type": "address"
+        },
+        {
+          "name": "shares",
+          "type": "u128"
+        },
+        {
+          "name": "apt_returned",
+          "type": "u64"
+        },
+        {
+          "name": "token_returned",
+          "type": "u64"
+        }
+      ],
+      "variants": []
+    },
+    {
+      "name": "StakingPool",
+      "is_native": false,
+      "is_event": false,
+      "is_enum": false,
+      "abilities": [
+        "key"
+      ],
+      "generic_type_params": [],
+      "fields": [
+        {
+          "name": "handle",
+          "type": "vector<u8>"
+        },
+        {
+          "name": "token_metadata_addr",
+          "type": "address"
+        },
+        {
+          "name": "rate_per_sec",
+          "type": "u64"
+        },
+        {
+          "name": "accumulated_per_share",
+          "type": "u128"
+        },
+        {
+          "name": "last_update_secs",
+          "type": "u64"
+        },
+        {
+          "name": "emission_reserve_addr",
+          "type": "address"
+        },
+        {
+          "name": "extend_ref",
+          "type": "0x1::object::ExtendRef"
+        }
+      ],
+      "variants": []
+    },
+    {
+      "name": "StakingPoolCreated",
+      "is_native": false,
+      "is_event": true,
+      "is_enum": false,
+      "abilities": [
+        "drop",
+        "store"
+      ],
+      "generic_type_params": [],
+      "fields": [
+        {
+          "name": "handle",
+          "type": "vector<u8>"
+        },
+        {
+          "name": "pool_addr",
+          "type": "address"
+        },
+        {
+          "name": "token_metadata_addr",
+          "type": "address"
+        },
+        {
+          "name": "emission_reserve_addr",
+          "type": "address"
+        },
+        {
+          "name": "rate_per_sec",
+          "type": "u64"
+        }
+      ],
+      "variants": []
+    }
+  ]
+}

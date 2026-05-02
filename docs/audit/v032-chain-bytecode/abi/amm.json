@@ -1,0 +1,919 @@
+{
+  "address": "0x7ba7ee5a93694aa5943f4ef344737d95795d51395e3d65a1b732c776d34be724",
+  "name": "amm",
+  "friends": [
+    "0x7ba7ee5a93694aa5943f4ef344737d95795d51395e3d65a1b732c776d34be724::apt_vault",
+    "0x7ba7ee5a93694aa5943f4ef344737d95795d51395e3d65a1b732c776d34be724::lp_staking",
+    "0x7ba7ee5a93694aa5943f4ef344737d95795d51395e3d65a1b732c776d34be724::factory"
+  ],
+  "exposed_functions": [
+    {
+      "name": "swap",
+      "visibility": "public",
+      "is_entry": false,
+      "is_view": false,
+      "generic_type_params": [],
+      "params": [
+        "address",
+        "address",
+        "0x1::fungible_asset::FungibleAsset",
+        "u64"
+      ],
+      "return": [
+        "0x1::fungible_asset::FungibleAsset"
+      ]
+    },
+    {
+      "name": "add_liquidity_internal",
+      "visibility": "friend",
+      "is_entry": false,
+      "is_view": false,
+      "generic_type_params": [],
+      "params": [
+        "vector<u8>",
+        "0x1::fungible_asset::FungibleAsset",
+        "0x1::fungible_asset::FungibleAsset",
+        "u64"
+      ],
+      "return": [
+        "u128",
+        "0x1::fungible_asset::FungibleAsset",
+        "0x1::fungible_asset::FungibleAsset"
+      ]
+    },
+    {
+      "name": "compute_amount_out",
+      "visibility": "public",
+      "is_entry": false,
+      "is_view": true,
+      "generic_type_params": [],
+      "params": [
+        "u64",
+        "u64",
+        "u64"
+      ],
+      "return": [
+        "u64"
+      ]
+    },
+    {
+      "name": "compute_flash_fee",
+      "visibility": "public",
+      "is_entry": false,
+      "is_view": false,
+      "generic_type_params": [],
+      "params": [
+        "u64"
+      ],
+      "return": [
+        "u64"
+      ]
+    },
+    {
+      "name": "create_pool_atomic",
+      "visibility": "friend",
+      "is_entry": false,
+      "is_view": false,
+      "generic_type_params": [],
+      "params": [
+        "vector<u8>",
+        "0x1::fungible_asset::FungibleAsset",
+        "0x1::fungible_asset::FungibleAsset",
+        "address"
+      ],
+      "return": [
+        "u128"
+      ]
+    },
+    {
+      "name": "creator_pid",
+      "visibility": "public",
+      "is_entry": false,
+      "is_view": true,
+      "generic_type_params": [],
+      "params": [
+        "vector<u8>"
+      ],
+      "return": [
+        "address"
+      ]
+    },
+    {
+      "name": "creator_pid_at",
+      "visibility": "public",
+      "is_entry": false,
+      "is_view": true,
+      "generic_type_params": [],
+      "params": [
+        "address"
+      ],
+      "return": [
+        "address"
+      ]
+    },
+    {
+      "name": "extract_fees_for_claim",
+      "visibility": "friend",
+      "is_entry": false,
+      "is_view": false,
+      "generic_type_params": [],
+      "params": [
+        "vector<u8>",
+        "u64",
+        "u64"
+      ],
+      "return": [
+        "0x1::fungible_asset::FungibleAsset",
+        "0x1::fungible_asset::FungibleAsset"
+      ]
+    },
+    {
+      "name": "fee_acc_scale",
+      "visibility": "public",
+      "is_entry": false,
+      "is_view": true,
+      "generic_type_params": [],
+      "params": [],
+      "return": [
+        "u128"
+      ]
+    },
+    {
+      "name": "fee_bps",
+      "visibility": "public",
+      "is_entry": false,
+      "is_view": true,
+      "generic_type_params": [],
+      "params": [
+        "vector<u8>"
+      ],
+      "return": [
+        "u64"
+      ]
+    },
+    {
+      "name": "fee_buckets",
+      "visibility": "public",
+      "is_entry": false,
+      "is_view": true,
+      "generic_type_params": [],
+      "params": [
+        "vector<u8>"
+      ],
+      "return": [
+        "u64",
+        "u64"
+      ]
+    },
+    {
+      "name": "fee_buckets_at",
+      "visibility": "public",
+      "is_entry": false,
+      "is_view": true,
+      "generic_type_params": [],
+      "params": [
+        "address"
+      ],
+      "return": [
+        "u64",
+        "u64"
+      ]
+    },
+    {
+      "name": "fee_per_lp",
+      "visibility": "public",
+      "is_entry": false,
+      "is_view": true,
+      "generic_type_params": [],
+      "params": [
+        "vector<u8>"
+      ],
+      "return": [
+        "u128",
+        "u128"
+      ]
+    },
+    {
+      "name": "flash_borrow",
+      "visibility": "public",
+      "is_entry": false,
+      "is_view": false,
+      "generic_type_params": [],
+      "params": [
+        "address",
+        "0x1::object::Object<0x1::fungible_asset::Metadata>",
+        "u64"
+      ],
+      "return": [
+        "0x1::fungible_asset::FungibleAsset",
+        "0x7ba7ee5a93694aa5943f4ef344737d95795d51395e3d65a1b732c776d34be724::amm::FlashReceipt"
+      ]
+    },
+    {
+      "name": "flash_fee_bps",
+      "visibility": "public",
+      "is_entry": false,
+      "is_view": true,
+      "generic_type_params": [],
+      "params": [],
+      "return": [
+        "u64"
+      ]
+    },
+    {
+      "name": "flash_repay",
+      "visibility": "public",
+      "is_entry": false,
+      "is_view": false,
+      "generic_type_params": [],
+      "params": [
+        "address",
+        "0x1::fungible_asset::FungibleAsset",
+        "0x7ba7ee5a93694aa5943f4ef344737d95795d51395e3d65a1b732c776d34be724::amm::FlashReceipt"
+      ],
+      "return": []
+    },
+    {
+      "name": "lp_fee_per_share",
+      "visibility": "public",
+      "is_entry": false,
+      "is_view": true,
+      "generic_type_params": [],
+      "params": [
+        "address"
+      ],
+      "return": [
+        "u128",
+        "u128"
+      ]
+    },
+    {
+      "name": "lp_fee_per_share_by_handle",
+      "visibility": "public",
+      "is_entry": false,
+      "is_view": true,
+      "generic_type_params": [],
+      "params": [
+        "vector<u8>"
+      ],
+      "return": [
+        "u128",
+        "u128"
+      ]
+    },
+    {
+      "name": "lp_supply",
+      "visibility": "public",
+      "is_entry": false,
+      "is_view": true,
+      "generic_type_params": [],
+      "params": [
+        "vector<u8>"
+      ],
+      "return": [
+        "u128"
+      ]
+    },
+    {
+      "name": "lp_supply_at",
+      "visibility": "public",
+      "is_entry": false,
+      "is_view": true,
+      "generic_type_params": [],
+      "params": [
+        "address"
+      ],
+      "return": [
+        "u128"
+      ]
+    },
+    {
+      "name": "pool_address_of_handle",
+      "visibility": "public",
+      "is_entry": false,
+      "is_view": false,
+      "generic_type_params": [],
+      "params": [
+        "vector<u8>"
+      ],
+      "return": [
+        "address"
+      ]
+    },
+    {
+      "name": "pool_exists",
+      "visibility": "public",
+      "is_entry": false,
+      "is_view": false,
+      "generic_type_params": [],
+      "params": [
+        "vector<u8>"
+      ],
+      "return": [
+        "bool"
+      ]
+    },
+    {
+      "name": "pool_exists_at",
+      "visibility": "public",
+      "is_entry": false,
+      "is_view": false,
+      "generic_type_params": [],
+      "params": [
+        "address"
+      ],
+      "return": [
+        "bool"
+      ]
+    },
+    {
+      "name": "pool_locked",
+      "visibility": "public",
+      "is_entry": false,
+      "is_view": true,
+      "generic_type_params": [],
+      "params": [
+        "address"
+      ],
+      "return": [
+        "bool"
+      ]
+    },
+    {
+      "name": "pool_locked_by_handle",
+      "visibility": "public",
+      "is_entry": false,
+      "is_view": true,
+      "generic_type_params": [],
+      "params": [
+        "vector<u8>"
+      ],
+      "return": [
+        "bool"
+      ]
+    },
+    {
+      "name": "pool_tokens",
+      "visibility": "public",
+      "is_entry": false,
+      "is_view": true,
+      "generic_type_params": [],
+      "params": [
+        "address"
+      ],
+      "return": [
+        "0x1::object::Object<0x1::fungible_asset::Metadata>",
+        "0x1::object::Object<0x1::fungible_asset::Metadata>"
+      ]
+    },
+    {
+      "name": "quote_swap_exact_in",
+      "visibility": "public",
+      "is_entry": false,
+      "is_view": true,
+      "generic_type_params": [],
+      "params": [
+        "vector<u8>",
+        "u64",
+        "bool"
+      ],
+      "return": [
+        "u64"
+      ]
+    },
+    {
+      "name": "quote_swap_exact_in_at",
+      "visibility": "public",
+      "is_entry": false,
+      "is_view": true,
+      "generic_type_params": [],
+      "params": [
+        "address",
+        "u64",
+        "bool"
+      ],
+      "return": [
+        "u64"
+      ]
+    },
+    {
+      "name": "read_warning",
+      "visibility": "public",
+      "is_entry": false,
+      "is_view": true,
+      "generic_type_params": [],
+      "params": [],
+      "return": [
+        "vector<u8>"
+      ]
+    },
+    {
+      "name": "remove_liquidity_internal",
+      "visibility": "friend",
+      "is_entry": false,
+      "is_view": false,
+      "generic_type_params": [],
+      "params": [
+        "vector<u8>",
+        "u128",
+        "u64",
+        "u64"
+      ],
+      "return": [
+        "0x1::fungible_asset::FungibleAsset",
+        "0x1::fungible_asset::FungibleAsset"
+      ]
+    },
+    {
+      "name": "reserves",
+      "visibility": "public",
+      "is_entry": false,
+      "is_view": true,
+      "generic_type_params": [],
+      "params": [
+        "vector<u8>"
+      ],
+      "return": [
+        "u64",
+        "u64"
+      ]
+    },
+    {
+      "name": "reserves_at",
+      "visibility": "public",
+      "is_entry": false,
+      "is_view": true,
+      "generic_type_params": [],
+      "params": [
+        "address"
+      ],
+      "return": [
+        "u64",
+        "u64"
+      ]
+    },
+    {
+      "name": "swap_apt_for_token",
+      "visibility": "public",
+      "is_entry": true,
+      "is_view": false,
+      "generic_type_params": [],
+      "params": [
+        "&signer",
+        "vector<u8>",
+        "u64",
+        "u64"
+      ],
+      "return": []
+    },
+    {
+      "name": "swap_exact_apt_in",
+      "visibility": "public",
+      "is_entry": false,
+      "is_view": false,
+      "generic_type_params": [],
+      "params": [
+        "vector<u8>",
+        "0x1::fungible_asset::FungibleAsset",
+        "u64"
+      ],
+      "return": [
+        "0x1::fungible_asset::FungibleAsset"
+      ]
+    },
+    {
+      "name": "swap_exact_apt_in_actor",
+      "visibility": "public",
+      "is_entry": false,
+      "is_view": false,
+      "generic_type_params": [],
+      "params": [
+        "vector<u8>",
+        "0x1::fungible_asset::FungibleAsset",
+        "u64",
+        "address"
+      ],
+      "return": [
+        "0x1::fungible_asset::FungibleAsset"
+      ]
+    },
+    {
+      "name": "swap_exact_token_in",
+      "visibility": "public",
+      "is_entry": false,
+      "is_view": false,
+      "generic_type_params": [],
+      "params": [
+        "vector<u8>",
+        "0x1::fungible_asset::FungibleAsset",
+        "u64"
+      ],
+      "return": [
+        "0x1::fungible_asset::FungibleAsset"
+      ]
+    },
+    {
+      "name": "swap_exact_token_in_actor",
+      "visibility": "public",
+      "is_entry": false,
+      "is_view": false,
+      "generic_type_params": [],
+      "params": [
+        "vector<u8>",
+        "0x1::fungible_asset::FungibleAsset",
+        "u64",
+        "address"
+      ],
+      "return": [
+        "0x1::fungible_asset::FungibleAsset"
+      ]
+    },
+    {
+      "name": "swap_token_for_apt",
+      "visibility": "public",
+      "is_entry": true,
+      "is_view": false,
+      "generic_type_params": [],
+      "params": [
+        "&signer",
+        "vector<u8>",
+        "u64",
+        "u64"
+      ],
+      "return": []
+    },
+    {
+      "name": "token_metadata_addr",
+      "visibility": "public",
+      "is_entry": false,
+      "is_view": true,
+      "generic_type_params": [],
+      "params": [
+        "vector<u8>"
+      ],
+      "return": [
+        "address"
+      ]
+    }
+  ],
+  "structs": [
+    {
+      "name": "Pool",
+      "is_native": false,
+      "is_event": false,
+      "is_enum": false,
+      "abilities": [
+        "key"
+      ],
+      "generic_type_params": [],
+      "fields": [
+        {
+          "name": "handle",
+          "type": "vector<u8>"
+        },
+        {
+          "name": "apt_reserve",
+          "type": "0x1::object::Object<0x1::fungible_asset::FungibleStore>"
+        },
+        {
+          "name": "token_reserve",
+          "type": "0x1::object::Object<0x1::fungible_asset::FungibleStore>"
+        },
+        {
+          "name": "apt_fees",
+          "type": "0x1::object::Object<0x1::fungible_asset::FungibleStore>"
+        },
+        {
+          "name": "token_fees",
+          "type": "0x1::object::Object<0x1::fungible_asset::FungibleStore>"
+        },
+        {
+          "name": "token_metadata_addr",
+          "type": "address"
+        },
+        {
+          "name": "lp_supply",
+          "type": "u128"
+        },
+        {
+          "name": "fee_per_lp_apt",
+          "type": "u128"
+        },
+        {
+          "name": "fee_per_lp_token",
+          "type": "u128"
+        },
+        {
+          "name": "creator_pid",
+          "type": "address"
+        },
+        {
+          "name": "locked",
+          "type": "bool"
+        },
+        {
+          "name": "extend_ref",
+          "type": "0x1::object::ExtendRef"
+        }
+      ],
+      "variants": []
+    },
+    {
+      "name": "FeesExtractedForClaim",
+      "is_native": false,
+      "is_event": true,
+      "is_enum": false,
+      "abilities": [
+        "drop",
+        "store"
+      ],
+      "generic_type_params": [],
+      "fields": [
+        {
+          "name": "handle",
+          "type": "vector<u8>"
+        },
+        {
+          "name": "pool_addr",
+          "type": "address"
+        },
+        {
+          "name": "apt_extracted",
+          "type": "u64"
+        },
+        {
+          "name": "token_extracted",
+          "type": "u64"
+        }
+      ],
+      "variants": []
+    },
+    {
+      "name": "FlashBorrowed",
+      "is_native": false,
+      "is_event": true,
+      "is_enum": false,
+      "abilities": [
+        "drop",
+        "store"
+      ],
+      "generic_type_params": [],
+      "fields": [
+        {
+          "name": "pool_addr",
+          "type": "address"
+        },
+        {
+          "name": "metadata_addr",
+          "type": "address"
+        },
+        {
+          "name": "amount",
+          "type": "u64"
+        },
+        {
+          "name": "fee",
+          "type": "u64"
+        }
+      ],
+      "variants": []
+    },
+    {
+      "name": "FlashReceipt",
+      "is_native": false,
+      "is_event": false,
+      "is_enum": false,
+      "abilities": [],
+      "generic_type_params": [],
+      "fields": [
+        {
+          "name": "pool_addr",
+          "type": "address"
+        },
+        {
+          "name": "metadata_addr",
+          "type": "address"
+        },
+        {
+          "name": "amount",
+          "type": "u64"
+        },
+        {
+          "name": "fee",
+          "type": "u64"
+        }
+      ],
+      "variants": []
+    },
+    {
+      "name": "FlashRepaid",
+      "is_native": false,
+      "is_event": true,
+      "is_enum": false,
+      "abilities": [
+        "drop",
+        "store"
+      ],
+      "generic_type_params": [],
+      "fields": [
+        {
+          "name": "pool_addr",
+          "type": "address"
+        },
+        {
+          "name": "metadata_addr",
+          "type": "address"
+        },
+        {
+          "name": "repaid",
+          "type": "u64"
+        }
+      ],
+      "variants": []
+    },
+    {
+      "name": "LiquidityAdded",
+      "is_native": false,
+      "is_event": true,
+      "is_enum": false,
+      "abilities": [
+        "drop",
+        "store"
+      ],
+      "generic_type_params": [],
+      "fields": [
+        {
+          "name": "handle",
+          "type": "vector<u8>"
+        },
+        {
+          "name": "pool_addr",
+          "type": "address"
+        },
+        {
+          "name": "apt_in",
+          "type": "u64"
+        },
+        {
+          "name": "token_in",
+          "type": "u64"
+        },
+        {
+          "name": "lp_minted",
+          "type": "u128"
+        },
+        {
+          "name": "new_apt_reserve",
+          "type": "u64"
+        },
+        {
+          "name": "new_token_reserve",
+          "type": "u64"
+        },
+        {
+          "name": "new_lp_supply",
+          "type": "u128"
+        }
+      ],
+      "variants": []
+    },
+    {
+      "name": "LiquidityRemoved",
+      "is_native": false,
+      "is_event": true,
+      "is_enum": false,
+      "abilities": [
+        "drop",
+        "store"
+      ],
+      "generic_type_params": [],
+      "fields": [
+        {
+          "name": "handle",
+          "type": "vector<u8>"
+        },
+        {
+          "name": "pool_addr",
+          "type": "address"
+        },
+        {
+          "name": "lp_burned",
+          "type": "u128"
+        },
+        {
+          "name": "apt_out",
+          "type": "u64"
+        },
+        {
+          "name": "token_out",
+          "type": "u64"
+        },
+        {
+          "name": "new_apt_reserve",
+          "type": "u64"
+        },
+        {
+          "name": "new_token_reserve",
+          "type": "u64"
+        },
+        {
+          "name": "new_lp_supply",
+          "type": "u128"
+        }
+      ],
+      "variants": []
+    },
+    {
+      "name": "PoolCreated",
+      "is_native": false,
+      "is_event": true,
+      "is_enum": false,
+      "abilities": [
+        "drop",
+        "store"
+      ],
+      "generic_type_params": [],
+      "fields": [
+        {
+          "name": "handle",
+          "type": "vector<u8>"
+        },
+        {
+          "name": "pool_addr",
+          "type": "address"
+        },
+        {
+          "name": "token_metadata_addr",
+          "type": "address"
+        },
+        {
+          "name": "apt_in",
+          "type": "u64"
+        },
+        {
+          "name": "token_in",
+          "type": "u64"
+        },
+        {
+          "name": "lp_minted",
+          "type": "u128"
+        },
+        {
+          "name": "creator_pid",
+          "type": "address"
+        }
+      ],
+      "variants": []
+    },
+    {
+      "name": "Swapped",
+      "is_native": false,
+      "is_event": true,
+      "is_enum": false,
+      "abilities": [
+        "drop",
+        "store"
+      ],
+      "generic_type_params": [],
+      "fields": [
+        {
+          "name": "handle",
+          "type": "vector<u8>"
+        },
+        {
+          "name": "pool_addr",
+          "type": "address"
+        },
+        {
+          "name": "actor",
+          "type": "address"
+        },
+        {
+          "name": "apt_to_token",
+          "type": "bool"
+        },
+        {
+          "name": "amount_in",
+          "type": "u64"
+        },
+        {
+          "name": "amount_out",
+          "type": "u64"
+        },
+        {
+          "name": "fee_amount",
+          "type": "u64"
+        },
+        {
+          "name": "new_apt_reserve",
+          "type": "u64"
+        },
+        {
+          "name": "new_token_reserve",
+          "type": "u64"
+        }
+      ],
+      "variants": []
+    }
+  ]
+}
