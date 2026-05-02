@@ -48,12 +48,17 @@ module desnet::handle_fee_vault {
         extend_ref: ExtendRef,
     }
 
-    /// v0.3.3 (G3): two-phase commit-reveal settle state. Lives at `vault_addr()`.
-    /// `min_desnet_out` is computed from amm reserves at request time → 5% slippage
-    /// tolerance baked. `requested_at_secs` enforces 60s delay before execute.
+    /// v0.3.3 (G3 + S1 fix): two-phase commit-reveal settle state. Lives at `vault_addr()`.
+    /// All amounts LOCKED at request time — execute uses these (NOT current balance) so
+    /// (swap_amount, min_out) stay paired from same snapshot. Without this S1 fix, balance
+    /// growing during the 60s window would let attacker sandwich the larger swap with
+    /// trivially-satisfied stale min_out (anchored to smaller request-time amount).
+    /// Excess balance accrued during window stays in vault for next settle cycle.
     struct PendingSettle has key, drop {
         requested_at_secs: u64,
         apt_balance_at_request: u64,
+        to_deployer_at_request: u64,
+        to_burn_at_request: u64,
         min_desnet_out: u64,
     }
 
@@ -144,6 +149,8 @@ module desnet::handle_fee_vault {
         move_to(&vault_signer, PendingSettle {
             requested_at_secs: aptos_framework::timestamp::now_seconds(),
             apt_balance_at_request: total,
+            to_deployer_at_request: to_deployer,
+            to_burn_at_request: to_burn,
             min_desnet_out: min_out,
         });
     }
@@ -164,34 +171,44 @@ module desnet::handle_fee_vault {
         assert!(now >= requested_at + SETTLE_DELAY_SECS, E_PENDING_SETTLE_NOT_RIPE);
         assert!(now <= requested_at + SETTLE_DELAY_SECS + SETTLE_REQUEST_GRACE_SECS, E_PENDING_SETTLE_EXPIRED);
 
-        // Consume the pending settle BEFORE swap (so any abort below resurfaces a
-        // need-to-re-request, but the snapshot doesn't linger past use).
-        let PendingSettle { requested_at_secs: _, apt_balance_at_request: _, min_desnet_out: _ }
-            = move_from<PendingSettle>(v_addr);
+        // S1 fix: extract LOCKED amounts from snapshot — do NOT recompute from current balance.
+        // Excess balance (current - apt_balance_at_request) stays in vault for next cycle.
+        let PendingSettle {
+            requested_at_secs: _,
+            apt_balance_at_request,
+            to_deployer_at_request,
+            to_burn_at_request,
+            min_desnet_out,
+        } = move_from<PendingSettle>(v_addr);
 
-        // Re-fetch CURRENT balance (may have grown since request via new fees).
+        // Sanity check: vault must still have ≥ snapshot amount (vault has no withdraw path
+        // other than this fn, so balance can only grow via deposits — never shrink).
         let apt_meta = object::address_to_object<Metadata>(APT_FA_ADDR);
-        let total = primary_fungible_store::balance(v_addr, apt_meta);
-        assert!(total >= APT_SETTLE_THRESHOLD, E_BELOW_THRESHOLD);
-
-        let to_deployer = (total * SPLIT_DEPLOYER_BPS) / BPS_DENOM;
-        let to_burn = total - to_deployer;
+        let current_total = primary_fungible_store::balance(v_addr, apt_meta);
+        assert!(current_total >= apt_balance_at_request, E_BELOW_THRESHOLD);
 
         let vault = borrow_global<HandleFeeVault>(v_addr);
         let vault_signer = object::generate_signer_for_extending(&vault.extend_ref);
 
-        let apt_for_deployer = primary_fungible_store::withdraw(&vault_signer, apt_meta, to_deployer);
+        let apt_for_deployer = primary_fungible_store::withdraw(&vault_signer, apt_meta, to_deployer_at_request);
         primary_fungible_store::deposit(vault.deployer_beneficiary, apt_for_deployer);
 
         // 90% APT swap with min_out enforcement — sandwich-safe per snapshot.
-        let apt_for_burn_fa = primary_fungible_store::withdraw(&vault_signer, apt_meta, to_burn);
-        let desnet_fa = amm::swap_exact_apt_in(DESNET_HANDLE, apt_for_burn_fa, min_out);
+        // Swap amount AND min_out paired from same request snapshot — slippage check
+        // properly bounds the actual swap size (S1 fix vs anchor-mismatch bug).
+        let apt_for_burn_fa = primary_fungible_store::withdraw(&vault_signer, apt_meta, to_burn_at_request);
+        let desnet_fa = amm::swap_exact_apt_in(DESNET_HANDLE, apt_for_burn_fa, min_desnet_out);
         let desnet_burned = fungible_asset::amount(&desnet_fa);
 
         let desnet_apt_vault = factory::vault_addr_of_handle(DESNET_HANDLE);
         apt_vault::burn_via_vault(desnet_apt_vault, desnet_fa);
 
-        event::emit(Settled { total_apt: total, to_deployer, desnet_burned });
+        // Settled.total_apt reflects snapshot amount actually settled (not current vault balance).
+        event::emit(Settled {
+            total_apt: apt_balance_at_request,
+            to_deployer: to_deployer_at_request,
+            desnet_burned,
+        });
     }
 
     /// v0.3.3 (G3): permissionless cancel of stale/grief'd pending settle. Cost = gas only.
