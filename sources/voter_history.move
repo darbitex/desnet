@@ -279,11 +279,34 @@ module desnet::voter_history {
     /// voting power for all OTHER pre-existing voters by triggering the global flag.
     /// Returns true only when THIS voter has at least one per-token entry under any
     /// token. Governance::voting_power should use this for per-user fallback to legacy.
+    /// v0.3.3 (Qwen R6 H1 NOTE): superseded for voting-power by per-user-per-token
+    /// `has_per_token_entry_for_token` (see below). Kept for indexer compatibility.
+    /// Reason: claim_internal writes per-pool's token (not always DESNET) — this
+    /// generic check returns true for non-DESNET claimers too, which would
+    /// disenfranchise their legacy DESNET balance under voting_power's DESNET-only branch.
     #[view]
     public fun has_per_token_entry(voter_addr: address): bool acquires RegistryByToken {
         if (!exists<RegistryByToken>(@desnet)) return false;
         let registry = borrow_global<RegistryByToken>(@desnet);
         smart_table::contains(&registry.voters, voter_addr)
+    }
+
+    /// v0.3.3 (Qwen R6 H1 fix): per-USER-per-TOKEN existence check. Eliminates the
+    /// disenfranchisement vector where a voter who claims from a non-DESNET pool
+    /// (e.g., $alice token) would have `has_per_token_entry == true` triggering
+    /// the DESNET-only voting_power branch, which then returns 0 because they have
+    /// no DESNET-specific inner entry. governance::voting_power uses THIS view
+    /// (with DESNET_FA_ADDR) so a voter only loses legacy fallback once they have
+    /// an actual DESNET reward entry, not just any token entry.
+    #[view]
+    public fun has_per_token_entry_for_token(voter_addr: address, token_addr: address): bool
+        acquires RegistryByToken
+    {
+        if (!exists<RegistryByToken>(@desnet)) return false;
+        let registry = borrow_global<RegistryByToken>(@desnet);
+        if (!smart_table::contains(&registry.voters, voter_addr)) return false;
+        let voter_tokens = smart_table::borrow(&registry.voters, voter_addr);
+        smart_table::contains(voter_tokens, token_addr)
     }
 
     /// Sum reward entries within last 30d window. Used as filter A in voting power.

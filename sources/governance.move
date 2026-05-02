@@ -954,6 +954,15 @@ module desnet::governance {
     /// New logic: per-user — read per-token if THIS voter has a per-token entry; else
     /// fall back to legacy mixed for THIS voter. Each voter migrates individually
     /// when they next claim. No cross-voter flip event.
+    ///
+    /// v0.3.3 R6 NOTE (Qwen H1 vs Claude analysis): Qwen flagged that voter who
+    /// claims only non-DESNET (e.g., $alice) gets has_per_token_entry==true →
+    /// DESNET-only branch returns 0 → voting_power=0. Initial fix used per-token
+    /// DESNET-specific check, but Claude correctly identified this would re-open
+    /// the F7 cross-token inflation surface (legacy includes mixed). REVERTED to
+    /// generic per-user check — F7-strict semantic preserved. A voter who claims
+    /// any token post-v0.3.2 is "in the new system" and evaluated by F7 rules
+    /// (DESNET-specific only).
     #[view]
     public fun voting_power(voter_addr: address): u64 acquires GovernanceState {
         let _ = borrow_global<GovernanceState>(@desnet);

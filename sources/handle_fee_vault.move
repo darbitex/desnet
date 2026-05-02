@@ -33,6 +33,11 @@ module desnet::handle_fee_vault {
     const E_PENDING_SETTLE_NOT_RIPE: u64 = 5;
     const E_PENDING_SETTLE_EXPIRED: u64 = 6;
     const E_PENDING_SETTLE_ALREADY_EXISTS: u64 = 7;
+    /// v0.3.3 (Qwen R6 M1): distinct from E_BELOW_THRESHOLD — semantic clarity for
+    /// off-chain monitors. Fires when execute_settle finds vault balance has shrunk
+    /// below the request-time snapshot (structurally impossible since vault has no
+    /// withdraw path, but kept as defensive guard).
+    const E_VAULT_SHRUNK_BELOW_SNAPSHOT: u64 = 8;
 
     /// v0.3.3 (G3): commit-reveal delay parameters mirror R3 H3 fix on apt_vault.
     /// 60s delay defeats single-tx sandwich (atomic same-tx grief impossible);
@@ -183,9 +188,10 @@ module desnet::handle_fee_vault {
 
         // Sanity check: vault must still have ≥ snapshot amount (vault has no withdraw path
         // other than this fn, so balance can only grow via deposits — never shrink).
+        // v0.3.3 (Qwen R6 M1): distinct error from anti-dust threshold for monitor clarity.
         let apt_meta = object::address_to_object<Metadata>(APT_FA_ADDR);
         let current_total = primary_fungible_store::balance(v_addr, apt_meta);
-        assert!(current_total >= apt_balance_at_request, E_BELOW_THRESHOLD);
+        assert!(current_total >= apt_balance_at_request, E_VAULT_SHRUNK_BELOW_SNAPSHOT);
 
         let vault = borrow_global<HandleFeeVault>(v_addr);
         let vault_signer = object::generate_signer_for_extending(&vault.extend_ref);
