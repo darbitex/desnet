@@ -1,0 +1,137 @@
+{
+  "tag": "v0.3.3-pre-deploy-r2",
+  "commit": "93a05a2b418259cf6858169e9ebf45a082c5645c",
+  "commit_short": "93a05a2b",
+  "parent_deployed": "v0.3.2-mainnet-live (commit 31765c2, mainnet upgrade_number 4)",
+  "modules": [
+    {
+      "name": "voter_history",
+      "path": "sources/voter_history.move",
+      "lines": 329,
+      "bytes": 13812,
+      "sha3_256": "d9cc507be948a658a645d7f2e561299237b1a4436dd2a63f1e5e4aedfea246c1"
+    },
+    {
+      "name": "governance",
+      "path": "sources/governance.move",
+      "lines": 1083,
+      "bytes": 46747,
+      "sha3_256": "0284da78cc45a64245734d0db9133819cae374f09ab8e1ed6c61356e9e21ed9a"
+    },
+    {
+      "name": "amm",
+      "path": "sources/amm.move",
+      "lines": 1025,
+      "bytes": 37825,
+      "sha3_256": "b5f0a2136e2e0646dfb22e68d88b9cd3bd15848df2d5f2a7144eb47ea34a08c0"
+    },
+    {
+      "name": "apt_vault",
+      "path": "sources/apt_vault.move",
+      "lines": 346,
+      "bytes": 12700,
+      "sha3_256": "2a4a92a63d297c0bf8b5a3e6885d157a21f0c1dcd059f53e8903e047b5fd6c06"
+    },
+    {
+      "name": "assets",
+      "path": "sources/assets.move",
+      "lines": 527,
+      "bytes": 18568,
+      "sha3_256": "c11f3c5e493b13db59267d2b652db60c7c2ea91c0efc879bd22935a6eed4bed2"
+    },
+    {
+      "name": "reaction_emission",
+      "path": "sources/reaction_emission.move",
+      "lines": 244,
+      "bytes": 8765,
+      "sha3_256": "b3d7074176a1ca96844973c713ae71a8e1a643987f1ba49419dc97e124420530"
+    },
+    {
+      "name": "lp_emission",
+      "path": "sources/lp_emission.move",
+      "lines": 192,
+      "bytes": 6300,
+      "sha3_256": "d113c874e46571cd129b2f112b98b4e84999c96107d923619cbf1c6d8b908c79"
+    },
+    {
+      "name": "lp_staking",
+      "path": "sources/lp_staking.move",
+      "lines": 699,
+      "bytes": 27518,
+      "sha3_256": "5082a91a2a783944264c8f06f4a184249ee570d14af74af5435b55683759c46d"
+    },
+    {
+      "name": "factory",
+      "path": "sources/factory.move",
+      "lines": 612,
+      "bytes": 24158,
+      "sha3_256": "53ff5c807b636823b5f25918f203fee2cf054aa6ca6cf42165a3033f81cad766"
+    },
+    {
+      "name": "reference_gate",
+      "path": "sources/reference_gate.move",
+      "lines": 177,
+      "bytes": 8048,
+      "sha3_256": "0c23c711f4e7f10755c5b1a16a0eb3724d657f45634a9c708d0494b2dd4c511d"
+    },
+    {
+      "name": "handle_fee_vault",
+      "path": "sources/handle_fee_vault.move",
+      "lines": 275,
+      "bytes": 12639,
+      "sha3_256": "aaed18c378f3433bdf32ecd8b67625ea22c7df9b892ff3d905131e2db8a6e9d9"
+    },
+    {
+      "name": "profile",
+      "path": "sources/profile.move",
+      "lines": 831,
+      "bytes": 34440,
+      "sha3_256": "754142ec93e82fa147b2d4a7db5086ac008a5c902d40042f0b5b23f80f16027d"
+    },
+    {
+      "name": "history",
+      "path": "sources/history.move",
+      "lines": 454,
+      "bytes": 17672,
+      "sha3_256": "f30d3aa7a629d7d1b97835fd46d9f82e137700e3be72f21797a933e959076f4e"
+    },
+    {
+      "name": "link",
+      "path": "sources/link.move",
+      "lines": 214,
+      "bytes": 8246,
+      "sha3_256": "eedf981f87182bb820a98c5bc074c782b335e20dc53bace4e36f872499649437"
+    },
+    {
+      "name": "mint",
+      "path": "sources/mint.move",
+      "lines": 605,
+      "bytes": 22601,
+      "sha3_256": "915644007bcc28b9701b7d5e40e35ac179b5d9079874a7308873e029b54a4abd"
+    },
+    {
+      "name": "giveaway",
+      "path": "sources/giveaway.move",
+      "lines": 524,
+      "bytes": 21665,
+      "sha3_256": "ec5e2bfba9bd8346a275e3c02f18b61c326fa662932c56814548b5442b6e65ad"
+    },
+    {
+      "name": "press",
+      "path": "sources/press.move",
+      "lines": 471,
+      "bytes": 19784,
+      "sha3_256": "cd4f08b938eaee1b9e148e4594bc7b6ac176f49d94f0be209364d140bd84dc4c"
+    },
+    {
+      "name": "pulse",
+      "path": "sources/pulse.move",
+      "lines": 261,
+      "bytes": 9959,
+      "sha3_256": "73576c3dc4fbc207ba94d3a9e123b1100ede18baab35c34d6ea2a612010d321f"
+    }
+  ],
+  "source_concat_sha3_256": "77f1831c265acbfac8712aeebe56aecd4548b82694a0866c5e29555e6cd7beb0",
+  "total_lines": 8869,
+  "total_bytes": 351447
+}
