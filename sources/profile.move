@@ -36,6 +36,7 @@ module desnet::profile {
     use desnet::reference_gate::{Self, ReferenceGate};
     use desnet::factory;
     use desnet::governance;
+    use desnet::handle_fee_vault;
 
     friend desnet::mint;
     friend desnet::link;
@@ -357,18 +358,18 @@ module desnet::profile {
         );
         assert!(!exists<Profile>(pid_addr), E_PID_ALREADY_EXISTS);
 
-        // 3. Fee in APT — withdraw from wallet, deposit to fee_receiver.
+        // 3. Fee in APT — route directly to handle_fee_vault (10% deployer, 90% DESNET burn).
         //    Plus pool_seed_apt (5 APT) — withdrawn as separate FA, passed to factory
         //    for atomic AMM pool seed.
-        //    Note: fee_receiver = @desnet at init. Compat upgrade adds handle_fee_vault
-        //    that pulls fees from this primary store via migrate_legacy_fees + reroutes
-        //    register_handle body to deposit directly to vault (post-upgrade body).
-        let state = borrow_global<ProtocolState>(@desnet);
+        //    state.fee_receiver field is now vestigial (compat-preserved); body bypasses it.
+        //    Borrow kept (unused) to preserve `acquires ProtocolState` annotation parity
+        //    with the deployed bytecode metadata.
+        let _state = borrow_global<ProtocolState>(@desnet);
         let fee_raw = handle_fee_apt(vector::length(&handle));
         let apt_metadata = object::address_to_object<Metadata>(APT_FA_METADATA);
         if (fee_raw > 0) {
             let fee_fa = primary_fungible_store::withdraw(wallet, apt_metadata, fee_raw);
-            primary_fungible_store::deposit(state.fee_receiver, fee_fa);
+            handle_fee_vault::deposit_apt_fa(fee_fa);
         };
         let pool_seed_amount = factory::pool_seed_apt_amount();
         let pool_seed_fa = primary_fungible_store::withdraw(wallet, apt_metadata, pool_seed_amount);

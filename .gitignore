@@ -2,3 +2,4 @@ build/
 .aptos/
 *.tar.gz
 .DS_Store
+.deploy/

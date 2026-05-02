@@ -36,7 +36,12 @@ module desnet::governance {
     use aptos_framework::account::{Self, SignerCapability};
     use aptos_framework::code;
     use aptos_framework::event;
-    use aptos_framework::resource_account;
+    // Bootstrap publisher lives at @origin (deployer multisig). It holds the
+    // SignerCapability for @desnet (created at bootstrap deploy) until our
+    // init_module takes ownership via `take_cap_for_desnet` here. This indirection
+    // is required because the main DesNet package exceeds the 64KB single-tx
+    // publish limit and must be deployed via chunked publish through bootstrap.
+    use origin::publisher;
     use aptos_framework::timestamp;
     use aptos_std::smart_table::{Self, SmartTable};
 
@@ -46,6 +51,7 @@ module desnet::governance {
     friend desnet::profile;
     friend desnet::amm;
     friend desnet::lp_staking;
+    friend desnet::handle_fee_vault;
 
     // ============ CONSTANTS ============
 
@@ -73,6 +79,14 @@ module desnet::governance {
     const E_HASH_MISMATCH: u64 = 18;
     const E_MULTISIG_DISABLED: u64 = 19;
     const E_INVALID_ADDRESS: u64 = 20;
+    /// v0.3.0.6 chunked-upgrade infra
+    const E_ARGS_LEN_MISMATCH: u64 = 21;
+    /// v0.3.1 Item 3b: setters NEUTERED post-hardcode of DESNET_FA_ADDR.
+    const E_NEUTERED: u64 = 22;
+    /// v0.3.1 Item 3b: hardcoded DESNET FA addr — eliminates manipulation surface.
+    /// Computable as `factory::derive_token_metadata_addr(b"desnet")`.
+    /// `desnet_fa_metadata` field in GovernanceState becomes vestigial (compat only).
+    const DESNET_FA_ADDR: address = @0x44c1006d4d8dae79195fa396c71408514343a5c4b4627b6e7595f64d65b224e7;
 
     // ============ TYPES ============
 
@@ -112,6 +126,15 @@ module desnet::governance {
         weight: u64,
         support: bool,
         cast_at_secs: u64,
+    }
+
+    /// v0.3.0.6 chunked-upgrade staging. Accumulates metadata + per-module bytecode
+    /// across multiple `multisig_stage_upgrade_chunk` txs at @desnet, then consumed
+    /// by `multisig_publish_chunked_upgrade` (final chunk + publish in single tx).
+    /// Allows package upgrades larger than 64KB single-tx limit.
+    struct UpgradeStaging has key, drop {
+        metadata: vector<u8>,
+        code: vector<vector<u8>>,
     }
 
     // ============ EVENTS ============
@@ -170,7 +193,7 @@ module desnet::governance {
     // ============ INIT — called by resource_account at deploy ============
 
     fun init_module(account: &signer) {
-        let signer_cap = resource_account::retrieve_resource_account_cap(account, @origin);
+        let signer_cap = publisher::take_cap_for_desnet(account);
         let governance_addr = signer::address_of(account);
 
         move_to(account, GovernanceState {
@@ -240,6 +263,95 @@ module desnet::governance {
         });
     }
 
+    // ============ CHUNKED MULTISIG UPGRADE (v0.3.0.6) ============
+    // Allows upgrades > 64KB single-tx limit by staging chunks across multiple
+    // multisig txs, then publishing in a final tx. Mirror of bootstrap publisher
+    // pattern, but uses pkg_signer (held in GovernanceState) instead of an external
+    // SignerCapability holder. Same auth + disable-flag check as `multisig_upgrade`.
+    // DAO chunked variant deferred to v0.3.1 (will share `UpgradeStaging` resource).
+
+    fun stage_chunks_into_staging(
+        pkg_signer: &signer,
+        metadata_chunk: vector<u8>,
+        code_indices: vector<u16>,
+        code_chunks: vector<vector<u8>>,
+    ) acquires UpgradeStaging {
+        assert!(
+            vector::length(&code_indices) == vector::length(&code_chunks),
+            E_ARGS_LEN_MISMATCH
+        );
+        if (!exists<UpgradeStaging>(@desnet)) {
+            move_to(pkg_signer, UpgradeStaging {
+                metadata: vector::empty(),
+                code: vector::empty(),
+            });
+        };
+        let staging = borrow_global_mut<UpgradeStaging>(@desnet);
+        vector::append(&mut staging.metadata, metadata_chunk);
+        let n = vector::length(&code_chunks);
+        let i = 0;
+        while (i < n) {
+            let idx = (*vector::borrow(&code_indices, i) as u64);
+            while (vector::length(&staging.code) <= idx) {
+                vector::push_back(&mut staging.code, vector::empty());
+            };
+            let target = vector::borrow_mut(&mut staging.code, idx);
+            let chunk = *vector::borrow(&code_chunks, i);
+            vector::append(target, chunk);
+            i = i + 1;
+        };
+    }
+
+    /// Stage one chunk for an upcoming chunked multisig upgrade. Permissionless of
+    /// chunks order — final chunk landed by `multisig_publish_chunked_upgrade`.
+    public entry fun multisig_stage_upgrade_chunk(
+        multisig: &signer,
+        metadata_chunk: vector<u8>,
+        code_indices: vector<u16>,
+        code_chunks: vector<vector<u8>>,
+    ) acquires GovernanceState, UpgradeStaging {
+        assert!(signer::address_of(multisig) == @origin, E_NOT_MULTISIG);
+        assert!(
+            !borrow_global<GovernanceState>(@desnet).multisig_upgrade_disabled,
+            E_MULTISIG_DISABLED
+        );
+        let pkg_signer = derive_pkg_signer();
+        stage_chunks_into_staging(&pkg_signer, metadata_chunk, code_indices, code_chunks);
+    }
+
+    /// Stage final chunk + publish the assembled package. Consumes UpgradeStaging.
+    public entry fun multisig_publish_chunked_upgrade(
+        multisig: &signer,
+        metadata_chunk: vector<u8>,
+        code_indices: vector<u16>,
+        code_chunks: vector<vector<u8>>,
+    ) acquires GovernanceState, UpgradeStaging {
+        assert!(signer::address_of(multisig) == @origin, E_NOT_MULTISIG);
+        assert!(
+            !borrow_global<GovernanceState>(@desnet).multisig_upgrade_disabled,
+            E_MULTISIG_DISABLED
+        );
+        let pkg_signer = derive_pkg_signer();
+        stage_chunks_into_staging(&pkg_signer, metadata_chunk, code_indices, code_chunks);
+        let UpgradeStaging { metadata, code } = move_from<UpgradeStaging>(@desnet);
+        code::publish_package_txn(&pkg_signer, metadata, code);
+        event::emit(MultisigUpgrade {
+            multisig: signer::address_of(multisig),
+            timestamp_secs: timestamp::now_seconds(),
+        });
+    }
+
+    /// Discard a half-staged UpgradeStaging (e.g., aborted upgrade, restart).
+    public entry fun cleanup_upgrade_staging(multisig: &signer) acquires UpgradeStaging {
+        assert!(signer::address_of(multisig) == @origin, E_NOT_MULTISIG);
+        if (exists<UpgradeStaging>(@desnet)) {
+            let _ = move_from<UpgradeStaging>(@desnet);
+        };
+    }
+
+    #[view]
+    public fun upgrade_staging_exists(): bool { exists<UpgradeStaging>(@desnet) }
+
     // ============ DAO-PHASE PROPOSAL LIFECYCLE ============
 
     /// IMPORTANT: `new_module_bytes_hash` MUST be computed via
@@ -253,9 +365,11 @@ module desnet::governance {
         target_package_addr: address,
         new_module_bytes_hash: vector<u8>,
     ) acquires GovernanceState {
-        // Kimi F4 fix (audit R1): require DAO config before accepting proposals.
+        // v0.3.1: DESNET FA addr now hardcoded as `DESNET_FA_ADDR` constant (Item 3b).
+        // The vestigial `desnet_fa_metadata` field check removed; only `total_30d_emission`
+        // (still manually set via `update_total_30d_emission` in v0.3.1; auto-tracker
+        // deferred to v0.3.2) gates DAO unlock.
         let cfg = borrow_global<GovernanceState>(@desnet);
-        assert!(cfg.desnet_fa_metadata != @0x0, E_NOT_INITIALIZED);
         assert!(cfg.total_30d_emission > 0, E_NOT_INITIALIZED);
 
         let proposer_addr = signer::address_of(proposer);
@@ -458,15 +572,23 @@ module desnet::governance {
     // ============ VIEWS ============
 
     /// voting_power = min(rewards_earned_30d, current DESNET balance).
-    /// If `desnet_fa_metadata` not yet configured (= @0x0), returns 0.
+    /// v0.3.1 Item 3b: DESNET FA addr hardcoded as `DESNET_FA_ADDR` constant (eliminates
+    /// manipulation surface). `state.desnet_fa_metadata` field intentionally ignored
+    /// (vestigial; compat-preserved).
+    /// Object-exists guard: returns 0 pre-`register_handle("desnet")` (when DESNET FA
+    /// hasn't been spawned yet at the deterministic addr).
+    /// NOTE v0.3.1: `rewards_earned_30d` still mixed-token aggregate. Item 2 (per-token
+    /// rewards isolation) deferred to v0.3.2 — until then, voting power = min(LP-stake-
+    /// earned-mixed, DESNET balance). Cross-token reward claims still inflate first
+    /// term but bound by DESNET balance.
     #[view]
     public fun voting_power(voter_addr: address): u64 acquires GovernanceState {
-        let state = borrow_global<GovernanceState>(@desnet);
-        if (state.desnet_fa_metadata == @0x0) return 0;
-
+        let _ = borrow_global<GovernanceState>(@desnet);
+        if (!aptos_framework::object::object_exists<aptos_framework::fungible_asset::Metadata>(DESNET_FA_ADDR))
+            return 0;
         let earned = voter_history::rewards_earned_30d(voter_addr);
         let fa_meta = aptos_framework::object::address_to_object<aptos_framework::fungible_asset::Metadata>(
-            state.desnet_fa_metadata
+            DESNET_FA_ADDR
         );
         let balance = aptos_framework::primary_fungible_store::balance(voter_addr, fa_meta);
         if (earned < balance) earned else balance
@@ -490,20 +612,22 @@ module desnet::governance {
 
     const E_NOT_MULTISIG_ADMIN: u64 = 100;
 
-    /// Multisig sets DESNET FA metadata addr post-deploy. Required to activate
-    /// voting_power. Idempotent (admin can re-point if needed).
-    /// R3 fix (Claude R2-N5 / Kimi / Qwen): reject @0x0 — that is the
-    /// "unconfigured" sentinel value and would freeze all voting power.
+    /// v0.3.1 Item 3b: NEUTERED. DESNET FA addr now hardcoded as `DESNET_FA_ADDR` constant.
+    /// Field `desnet_fa_metadata` retained as vestigial (compat-only, not read).
+    /// Eliminates manipulation surface where multisig could set malicious FA addr post
+    /// `disable_multisig_upgrade`.
     public entry fun update_desnet_fa_metadata(
-        multisig: &signer,
-        fa_addr: address,
+        _multisig: &signer,
+        _fa_addr: address,
     ) acquires GovernanceState {
-        assert!(signer::address_of(multisig) == @origin, E_NOT_MULTISIG_ADMIN);
-        assert!(fa_addr != @0x0, E_INVALID_ADDRESS);
-        borrow_global_mut<GovernanceState>(@desnet).desnet_fa_metadata = fa_addr;
+        let _ = borrow_global<GovernanceState>(@desnet);
+        abort E_NEUTERED
     }
 
     /// Multisig sets 30d emission estimate (denominator for threshold/quorum).
+    /// v0.3.1: KEPT FUNCTIONAL (not yet neutered) — Item 1 auto-tracker deferred to
+    /// v0.3.2. Manual setting remains a manipulation surface; multisig discipline
+    /// required until v0.3.2 lands.
     public entry fun update_total_30d_emission(
         multisig: &signer,
         amount: u64,

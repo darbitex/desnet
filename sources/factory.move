@@ -555,6 +555,16 @@ module desnet::factory {
         smart_table::borrow(&registry.records, handle).apt_vault
     }
 
+    /// v0.3.1: single-hop handle → apt_vault lookup. Used by handle_fee_vault::settle
+    /// to delegate-burn DESNET via desnet's apt_vault BurnRef.
+    #[view]
+    public fun vault_addr_of_handle(handle: vector<u8>): address acquires FactoryRegistry {
+        let registry = borrow_global<FactoryRegistry>(@desnet);
+        let key = string::utf8(handle);
+        assert!(smart_table::contains(&registry.records, key), E_TOKEN_NOT_FOUND);
+        smart_table::borrow(&registry.records, key).apt_vault
+    }
+
     #[view]
     public fun pool_seed_apt_amount(): u64 { POOL_SEED_APT_AMOUNT }
 
