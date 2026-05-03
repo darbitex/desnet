@@ -24,6 +24,7 @@ module desnet::history {
     friend desnet::pulse;
     friend desnet::link;
     friend desnet::press;
+    friend desnet::opinion;
 
     // ============ CONSTANTS ============
 
@@ -35,6 +36,9 @@ module desnet::history {
     const VERB_REMIX: u8 = 4;
     const VERB_PRESS: u8 = 5;
     const VERB_SYNC: u8 = 6;
+    /// Opinion verb: covers both opinion-mint creation and opinion-vote (deposit/swap/redeem).
+    /// Payload struct distinguishes sub-action; appended to actor's PID history.
+    const VERB_OPINION: u8 = 7;
 
     /// Chunk rotation threshold: when current chunk's tracked size exceeds this,
     /// seal it and allocate a new one. ~30KB ≈ 375 small entries.
@@ -108,7 +112,7 @@ module desnet::history {
         payload: vector<u8>,
         asset: Option<address>,
     ): Entry {
-        assert!(verb <= VERB_SYNC, E_INVALID_VERB);
+        assert!(verb <= VERB_OPINION, E_INVALID_VERB);
         assert!(vector::length(&payload) <= MAX_PAYLOAD_BYTES, E_PAYLOAD_TOO_LARGE);
         Entry { verb, timestamp_secs, target, payload, asset }
     }
@@ -311,6 +315,9 @@ module desnet::history {
     public fun verb_sync(): u8 { VERB_SYNC }
 
     #[view]
+    public fun verb_opinion(): u8 { VERB_OPINION }
+
+    #[view]
     public fun max_payload_bytes(): u64 { MAX_PAYLOAD_BYTES }
 
     #[view]
@@ -344,7 +351,12 @@ module desnet::history {
     #[test]
     #[expected_failure(abort_code = E_INVALID_VERB, location = Self)]
     fun test_new_entry_invalid_verb() {
-        let _e = new_entry(7, 0, std::option::none<address>(), vector::empty(), std::option::none<address>());
+        let _e = new_entry(8, 0, std::option::none<address>(), vector::empty(), std::option::none<address>());
+    }
+
+    #[test]
+    fun test_new_entry_opinion_verb_accepted() {
+        let _e = new_entry(VERB_OPINION, 0, std::option::none<address>(), vector::empty(), std::option::none<address>());
     }
 
     #[test]
