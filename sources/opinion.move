@@ -117,6 +117,10 @@ module desnet::opinion {
     const E_INITIAL_MC_OUT_OF_RANGE: u64 = 11;
     const E_TAX_BPS_TOO_HIGH: u64 = 12;
     const E_OPINION_LIMIT_REACHED: u64 = 13;
+    /// rc2 D-M2 / Claude M-N2: prevents zero-output swap with naive min_out=0.
+    const E_ZERO_OUTPUT: u64 = 14;
+    /// rc2 Claude M-N1 sanity (impossible while MAX_TAX_BPS=1000<10000, but guards against future bps cap raise).
+    const E_TAX_EXCEEDS_AMOUNT: u64 = 15;
 
     // ============ TYPES ============
 
@@ -553,6 +557,10 @@ module desnet::opinion {
         assert!(pool_yay_r > 0 && pool_nay_r > 0, E_POOL_NOT_ACTIVE);
 
         let amount_out = compute_amount_out(pool_yay_r, pool_nay_r, amount_in);
+        // rc2 D-M2 / M-N2 FIX (convergent DeepSeek+Claude): hard floor on amount_out
+        // prevents zero-output swap (user pays input + tax for 0 output) when naive
+        // frontend defaults min_out=0. Catches CPMM truncation at extreme pool ratios.
+        assert!(amount_out > 0, E_ZERO_OUTPUT);
         assert!(amount_out >= min_out, E_SLIPPAGE_EXCEEDED);
 
         let user_addr = signer::address_of(user);
@@ -567,8 +575,13 @@ module desnet::opinion {
         let nay_out = fungible_asset::withdraw(&market_signer, mkt.pool_nay, amount_out);
         primary_fungible_store::deposit(user_addr, nay_out);
 
-        // Tax burn (proportional to amount_in — YAY is 1:1 with creator_token redemption)
-        let tax_burned = burn_tax(user, mkt.creator_token, mkt.author_pid, amount_in, mkt.tax_bps);
+        // rc2 D-M1 FIX (convergent Gemini+DeepSeek): tax base = $creator_token equivalent
+        // of amount_in via opinion pool spot price, NOT raw YAY units. 1 YAY ≠ 1 $token
+        // standalone (only PAIR redeems 1:1). Spot value: 1 YAY = nay_r/(yay_r+nay_r) $token.
+        // Pool reserves captured pre-swap (pool_yay_r, pool_nay_r) for accurate spot.
+        let amount_in_token_equiv = (((amount_in as u128) * (pool_nay_r as u128))
+            / ((pool_yay_r as u128) + (pool_nay_r as u128))) as u64;
+        let tax_burned = burn_tax(user, mkt.creator_token, mkt.author_pid, amount_in_token_equiv, mkt.tax_bps);
 
         // M1 FIX: defense-in-depth conservation check. Swap shouldn't change vault
         // or total supplies, but assert here catches any future regression.
@@ -622,7 +635,11 @@ module desnet::opinion {
         let yay_out = fungible_asset::withdraw(&market_signer, mkt.pool_yay, amount_out);
         primary_fungible_store::deposit(user_addr, yay_out);
 
-        let tax_burned = burn_tax(user, mkt.creator_token, mkt.author_pid, amount_in, mkt.tax_bps);
+        // rc2 D-M1 FIX: same as swap_yay_for_nay but reverse direction.
+        // 1 NAY spot value = yay_r/(yay_r+nay_r) $token.
+        let amount_in_token_equiv = (((amount_in as u128) * (pool_yay_r as u128))
+            / ((pool_yay_r as u128) + (pool_nay_r as u128))) as u64;
+        let tax_burned = burn_tax(user, mkt.creator_token, mkt.author_pid, amount_in_token_equiv, mkt.tax_bps);
 
         // M1 FIX: defense-in-depth conservation check (same rationale as swap_yay_for_nay).
         assert_conservation(mkt);
@@ -669,6 +686,14 @@ module desnet::opinion {
 
         let user_addr = signer::address_of(user);
 
+        // rc2 Claude M-N1 FIX: skim tax FROM VAULT OUTPUT instead of pulling extra
+        // $creator_token from user. Preserves pair-mint AMM "always-exit" safety:
+        // user holding (X YAY, X NAY, 0 $token) can now redeem (gets amount-tax,
+        // tax sourced from vault). Economic effect identical (tax_amount $token
+        // burned per redemption); funds source shifts user-wallet → vault output.
+        let tax_amount = compute_tax(amount, mkt.tax_bps);
+        assert!(tax_amount <= amount, E_TAX_EXCEEDS_AMOUNT);    // sanity (impossible at MAX_TAX_BPS=1000)
+
         // Pull YAY and NAY from user, burn both
         let yay_obj = object::address_to_object<Metadata>(mkt.yay_metadata);
         let nay_obj = object::address_to_object<Metadata>(mkt.nay_metadata);
@@ -679,13 +704,23 @@ module desnet::opinion {
         mkt.total_yay_supply = mkt.total_yay_supply - amount;
         mkt.total_nay_supply = mkt.total_nay_supply - amount;
 
-        // Release collateral from vault
+        // Release collateral from vault, split into user-output + tax-burn (M-N1).
         let market_signer = object::generate_signer_for_extending(&mkt.market_extend_ref);
-        let token_out = fungible_asset::withdraw(&market_signer, mkt.vault_token, amount);
-        primary_fungible_store::deposit(user_addr, token_out);
+        let user_out_amount = amount - tax_amount;
 
-        // Tax burn (proportional to redeem amount)
-        let tax_burned = burn_tax(user, mkt.creator_token, mkt.author_pid, amount, mkt.tax_bps);
+        if (user_out_amount > 0) {
+            let user_fa = fungible_asset::withdraw(&market_signer, mkt.vault_token, user_out_amount);
+            primary_fungible_store::deposit(user_addr, user_fa);
+        };
+
+        let tax_burned = if (tax_amount > 0) {
+            let tax_fa = fungible_asset::withdraw(&market_signer, mkt.vault_token, tax_amount);
+            let vault_addr = factory::vault_addr_of_pid(mkt.author_pid);
+            apt_vault::burn_via_vault(vault_addr, tax_fa);
+            tax_amount
+        } else {
+            0
+        };
 
         assert_conservation(mkt);
 
@@ -711,12 +746,15 @@ module desnet::opinion {
     /// CPMM constant-product: pure quote (no LP fee — opinion pool has no LP role).
     /// Mirrors amm::compute_amount_out shape (darbitex-shape signature kept).
     /// L1 FIX: #[view] annotation for off-chain SDK / indexer call.
+    /// rc2 Claude L-N1 FIX: defensive early-return on degenerate inputs to avoid
+    /// framework div-by-zero abort when called from off-chain SDK.
     #[view]
     public fun compute_amount_out(
         reserve_in: u64,
         reserve_out: u64,
         amount_in: u64,
     ): u64 {
+        if (amount_in == 0 || reserve_in == 0 || reserve_out == 0) return 0;
         // No fee: amount_in_after_fee = amount_in
         let amount_in_u128 = amount_in as u128;
         let numerator = amount_in_u128 * (reserve_out as u128);
@@ -728,8 +766,11 @@ module desnet::opinion {
     /// Returns ceil(amount × tax_bps / BPS_DENOM). Pure function for testability.
     /// If tax_bps = 0 returns 0 (free market). If amount = 0 returns 0.
     /// For amount > 0 and tax_bps > 0, always returns >= 1 (anti-dust floor).
+    /// rc2 Claude L-N2 FIX: assert tax_bps bound on public surface (matches
+    /// internal create_opinion validation).
     #[view]
     public fun compute_tax(amount: u64, tax_bps: u64): u64 {
+        assert!(tax_bps <= MAX_TAX_BPS, E_TAX_BPS_TOO_HIGH);
         if (tax_bps == 0 || amount == 0) return 0;
         let numerator = (amount as u128) * (tax_bps as u128) + (BPS_DENOM as u128) - 1;
         (numerator / (BPS_DENOM as u128)) as u64
@@ -737,10 +778,29 @@ module desnet::opinion {
 
     /// Conservation invariant: vault == total_yay_supply == total_nay_supply.
     /// Held by atomic pair-mint (deposit/create) and pair-burn (redeem) semantics.
+    /// rc2 Claude L-N3 FIX: cross-check module-local counter against FA framework
+    /// supply view. Defense-in-depth catches any future regression in mint/burn
+    /// pairing where local counter drifts from FA framework supply.
     fun assert_conservation(mkt: &OpinionMarket) {
         let vault_amt = fungible_asset::balance(mkt.vault_token);
         assert!(mkt.total_yay_supply == mkt.total_nay_supply, E_CONSERVATION_BROKEN);
         assert!(vault_amt == mkt.total_yay_supply, E_CONSERVATION_BROKEN);
+
+        // L-N3 cross-check: FA framework supply must match tracked counter.
+        // For supplies that don't track (unlimited unconstrained), framework returns
+        // None — skip the cross-check in that case (still safe via local counter).
+        let yay_meta = object::address_to_object<Metadata>(mkt.yay_metadata);
+        let nay_meta = object::address_to_object<Metadata>(mkt.nay_metadata);
+        let yay_supply_opt = fungible_asset::supply(yay_meta);
+        let nay_supply_opt = fungible_asset::supply(nay_meta);
+        if (option::is_some(&yay_supply_opt)) {
+            let yay_fa_supply = option::extract(&mut yay_supply_opt);
+            assert!(yay_fa_supply == (mkt.total_yay_supply as u128), E_CONSERVATION_BROKEN);
+        };
+        if (option::is_some(&nay_supply_opt)) {
+            let nay_fa_supply = option::extract(&mut nay_supply_opt);
+            assert!(nay_fa_supply == (mkt.total_nay_supply as u128), E_CONSERVATION_BROKEN);
+        };
     }
 
     /// Pull `compute_tax(amount, tax_bps)` $creator_token from user and burn it via
@@ -1132,5 +1192,104 @@ module desnet::opinion {
         // would lock 10k × 1M = 10B token, which exceeds 1B factory supply ×10.
         // So limit is bound by token supply long before the count cap kicks in.
         // The cap is defense against state-rent grief, not capital griefing.
+    }
+
+    // ============ rc2 FIX TESTS ============
+
+    // --- L-N1: compute_amount_out defensive early returns ---
+
+    #[test]
+    fun test_compute_amount_out_zero_reserve_in() {
+        // L-N1: would div-by-zero in old code; now early-returns 0
+        assert!(compute_amount_out(0, 100, 50) == 0, 1);
+    }
+
+    #[test]
+    fun test_compute_amount_out_zero_reserve_out() {
+        // L-N1: zero output reserve → output 0 (no liquidity to give)
+        assert!(compute_amount_out(100, 0, 50) == 0, 1);
+    }
+
+    #[test]
+    fun test_compute_amount_out_all_zero() {
+        // L-N1: degenerate (0,0,0) safe early-return
+        assert!(compute_amount_out(0, 0, 0) == 0, 1);
+    }
+
+    // --- L-N2: compute_tax public-surface tax_bps bound ---
+
+    #[test]
+    #[expected_failure(abort_code = E_TAX_BPS_TOO_HIGH, location = Self)]
+    fun test_compute_tax_rejects_excessive_tax_bps() {
+        // L-N2: public surface enforces tax_bps <= MAX_TAX_BPS even from external callers
+        let _ = compute_tax(1_000_000_000, MAX_TAX_BPS + 1);
+    }
+
+    #[test]
+    fun test_compute_tax_accepts_max_tax_bps() {
+        // boundary: MAX_TAX_BPS itself is allowed
+        let _ = compute_tax(1_000_000_000, MAX_TAX_BPS);
+    }
+
+    // --- D-M1 sanity: spot-price equivalent computation ---
+
+    #[test]
+    fun test_swap_tax_spot_value_correctness() {
+        // D-M1 / G-H1: at pool (10, 100), spot price of YAY = nay_r/(yay_r+nay_r) = 100/110 ≈ 0.909
+        // Swapping 11 YAY: spot value = 11 × 100/110 = 10 $token
+        // Compared to old (face-value): tax was on 11 YAY raw. Now: tax on 10 $token.
+        let pool_yay_r = 10u64;
+        let pool_nay_r = 100u64;
+        let amount_in = 11u64;
+        let amount_in_token_equiv = (((amount_in as u128) * (pool_nay_r as u128))
+            / ((pool_yay_r as u128) + (pool_nay_r as u128))) as u64;
+        // 11 × 100 / 110 = 1100 / 110 = 10 exactly
+        assert!(amount_in_token_equiv == 10, 1);
+        // Tax on 10 at default 10 bps = ceil(10*10/10000) = 1
+        assert!(compute_tax(amount_in_token_equiv, 10) == 1, 2);
+    }
+
+    #[test]
+    fun test_swap_tax_extreme_skew_value() {
+        // D-M1: extreme skew (1, 999) — 1 YAY worth almost full $token
+        // amount_in = 1, spot value = 1 × 999/1000 ≈ 0 (rounds down)
+        // amount_in = 1000 (10× pool_yay), spot value = 1000 × 999 / 1001 ≈ 998
+        let v = (((1000u128) * (999u128)) / ((1u128) + (999u128))) as u64;
+        // 999000 / 1000 = 999
+        assert!(v == 999, 1);
+    }
+
+    // --- M-N1 sanity: redeem skim math ---
+
+    #[test]
+    fun test_redeem_skim_math() {
+        // M-N1: redeem 1000 with tax_bps=10
+        // tax_amount = ceil(1000 × 10 / 10000) = 1
+        // user receives 1000 - 1 = 999
+        // tax_burned = 1 (from vault output, not user external)
+        let amount = 1000u64;
+        let tax_amount = compute_tax(amount, 10);
+        assert!(tax_amount == 1, 1);
+        let user_out = amount - tax_amount;
+        assert!(user_out == 999, 2);
+        // Pool dust scenario: redeem 1, tax=1, user_out=0
+        let dust_tax = compute_tax(1, 10);
+        assert!(dust_tax == 1, 3);
+        assert!(1 - dust_tax == 0, 4);            // user gets nothing on dust redeem
+    }
+
+    // --- D-M2: zero-output swap detection (constant only — full integration deferred) ---
+
+    #[test]
+    fun test_zero_output_detection_math() {
+        // D-M2 / M-N2: pool (1e18, 1) swapping 1 YAY for NAY
+        // amount_out = 1 × 1 / (1e18 + 1) = 0
+        // The swap entry now asserts amount_out > 0 before mutation
+        let huge_reserve_in = 1_000_000_000_000_000_000u64;        // 1e18
+        let amount_in = 1u64;
+        let amount_out = compute_amount_out(huge_reserve_in, 1, amount_in);
+        assert!(amount_out == 0, 1);
+        // E_ZERO_OUTPUT would abort the swap — verified at module-level constant
+        assert!(E_ZERO_OUTPUT == 14, 2);
     }
 }
