@@ -1,9 +1,14 @@
 # DeSNet Opinion Pool — AMM Design Lock
 
-**Date:** 2026-05-03 (rev 2)
-**Status:** Design FULLY locked (curve + collateral + tax + creator-position); implementation pending refactor of v1 scaffold
+**Date:** 2026-05-03 (rev 4)
+**Status:** Design FULLY locked (curve + collateral + tax + symmetric pool seed at create); implementation pending refactor of v1 scaffold
 **Author:** Locked-in via design conversation
-**Supersedes:** none (greenfield substrate); v1 scaffold (commit `63f9d88`) used APT collateral and is being superseded by this rev — see §10
+**Supersedes:** rev2 (3-option creator_position) and rev3 (literal burn at create — math broken). v1 scaffold (commit `63f9d88`) used APT collateral and is being superseded — see §10
+**Revision history:**
+- rev1 (commit `8411947`): Mirror-Mint Bootstrap, APT collateral, no creator pre-position
+- rev2 (commit `d900e47`): creator-token collateral, 3-option creator_position (NONE/Y/N/BOTH default BOTH)
+- rev3 (discarded): literal burn at create — broken (no pool seed compensation path for redemption symmetry)
+- rev4 (this commit): symmetric pool seed at create (creator pays initial_mc, mints both sides to pool, gets 0 position, vault locks initial_mc forever)
 
 ## 0. Premise
 
@@ -23,13 +28,19 @@ DeSNet's "prediction-market substrate" is **NOT** a Polymarket/Azuro-style marke
 
 ---
 
-## 1. Curve Lock: "Mirror-Mint Bootstrap"
+## 1. Curve Lock: "x*y=k with symmetric pool seed at create"
 
-**Single rule (applies to every deposit, from block 0):**
+**Two rules** (one for create, one for subsequent trader deposits):
 
-> Deposit `c` $creator_token → atomically mint `c` Y + `c` N. User keeps `c` of chosen side. The other `c` auto-deposits into the pool.
+**Rule A — Create (creator-only, once per opinion):**
+> Creator pays `initial_mc` $creator_token → vault. Mint `initial_mc` Y + `initial_mc` N → BOTH go to pool. Creator receives 0 position. `initial_mc` is locked permanently in vault (no creator-redemption path).
+
+**Rule B — Subsequent deposits (any trader, including creator post-create):**
+> Deposit `c` $creator_token → atomically mint `c` Y + `c` N. User keeps `c` of chosen side. The other `c` auto-deposits into the pool. ("Mirror-Mint Bootstrap" semantics — but pool is already active from create, so this is just standard pair-mint-and-pick-side trading.)
 
 **Collateral lock**: vault denominated in **creator's $token** (looked up via `factory::token_metadata_of_owner(author_pid)` at create time, immutable thereafter). NOT APT, NOT DESNET. See §4 for economic-loop justification.
+
+**Pool active from block 0** (k = initial_mc² > 0 always). No phase-1 lockup risk.
 
 The pool maintains pure constant product `Y_reserve × N_reserve = k` (UniV2-style). It bootstraps itself from `(0,0)` without creator seed.
 
@@ -133,25 +144,47 @@ Pure CPMM constraint preserved.
 |---|---|---|
 | 1 | Token count | **2-token YES/NO pair** (required by Mirror-Mint design) |
 | 2 | Curve type | **Pure x*y=k with Mirror-Mint Bootstrap** |
-| 3 | Initial liquidity source | **Zero-seed; first 2 traders bootstrap (or creator pre-positions via §4.7 BOTH default)** |
+| 3 | Initial liquidity source | **Symmetric pool seed at create** (creator pays initial_mc, mints initial_mc Y + initial_mc N, both → pool, vault locks initial_mc forever) |
 | 4 | **Vault collateral** | **Creator's $token** via `factory::token_metadata_of_owner(author_pid)` — NOT APT, NOT DESNET |
 | 5 | **Tax token** | **Same $creator_token, BURNED** via `apt_vault::burn_via_vault(factory::vault_addr_of_pid(author_pid), fa)` |
 | 6 | **Tax behavior** | **On top** of deposit (user pays c + tax, gets c Y or c N) — NOT skimmed |
-| 7 | **Creator position** | **3-option** (NONE / Y / N / BOTH); default **BOTH** (pool active immediately) |
-| 8 | **tax_bps scope** | **Per-opinion**, creator-set at create, immutable post-create. Default 30 bps, max 1000 bps (10%) |
+| 7 | **Creator position at create** | **Symmetric only** — creator pays `initial_mc` $token, mints `initial_mc` Y + `initial_mc` N, both go to pool, creator gets 0 position. Vault locks initial_mc forever (alias di-burn dari POV creator). Pool active day 1. **`initial_mc` bounds: [1M, 100M] WHOLE $token** (= 0.1%-10% of 1B factory supply). |
+| 7b | **Creator post-create rights** | Allowed: deposit_pick_side / swap / redeem (sebagai trader normal, pay tax + collateral). NOT allowed: creator-only privileged add_liquidity_symmetric (creator's only liquidity contribution is at create). "Berhak beropini" — creator boleh ekspresi opini lewat trade, tapi gak bisa inject more liquidity. |
+| 8 | **tax_bps scope** | **Per-opinion**, creator-set at create, immutable post-create. Default **10 bps (0.1%)**, max 1000 bps (10%) |
 | 9 | **Swap tax** | **Proportional** to `amount_in` converted to $token via factory AMM quote, with flat floor (anti-dust) |
 | 10 | Guest restriction | **Only registered handles can create opinions** (required because vault denomination needs $token to exist) |
 | 11 | DESNET coupling | **Decoupled** — opinion module independent from DESNET (DESNET keeps utility via handle fees + governance + AMM) |
 
-### 4.7 Three-option creator position (locked)
+### 4.7 Symmetric pool seed at create (locked rev4)
 
-| Option | Cost ($creator_token) | Tax | Pool state | Use case |
-|---|---|---|---|---|
-| **NONE** (0) | 0 | 0 | (0, 0) — empty | Curator/moderator just opens topic; no skin in game |
-| **Y** (1) or **N** (2) | c | c × tax_bps / 10000 | one-sided (c on opposite side in pool) | Creator expresses strong opinion publicly; accepts phase 1 lockup |
-| **BOTH** (3, **DEFAULT**) | 2c | 2c × tax_bps / 10000 | (c, c) — active immediately | Bootstrap full market without outcome exposure; recommended default |
+**Single mechanic, no options:**
 
-BOTH = "pricing of certainty" — pay 2× to make pool active from block 0. Creator keeps balanced (c Y + c N), pool keeps balanced (c Y + c N). Creator immediate-redeemable for c $token if pool stays balanced; faces impermanent-loss-like exposure if pool drifts.
+```
+create_opinion(author, content_text, initial_mc, tax_bps):
+  validate initial_mc ∈ [1M, 100M] WHOLE $creator_token
+                       (raw range: [10^14, 10^16] at 8 decimals)
+                       (= 0.1% to 10% of 1B factory total supply)
+  validate tax_bps ≤ 1000 (10% cap), default 10 bps (0.1%)
+
+  Pull initial_mc $creator_token from author wallet → vault store
+  Mint initial_mc Y → pool_y store
+  Mint initial_mc N → pool_n store
+  Creator wallet: 0 Y, 0 N
+
+  Final state:
+    Vault: initial_mc $creator_token (LOCKED forever for creator)
+    Pool: (initial_mc, initial_mc), k = initial_mc² > 0 — TRADABLE day 1
+    total_y_supply = total_n_supply = initial_mc
+    Conservation: vault == total_y == total_n ✓
+    $creator_token total_supply: UNCHANGED (no literal burn)
+    Circulating ↓ by initial_mc (stranded in vault — only retrievable by traders who burn balanced pairs they earned)
+```
+
+**Cost to creator: 1× initial_mc** (NOT 2× — early hybrid drafts of literal-burn-plus-pool-seed had broken math because the burn portion had no Y/N to back it for redemption).
+
+**"Locked = burned from POV creator"**: vault floor = initial_mc forever. Reason: every redeem requires user to burn equal Y+N from their own primary store. Pool reserves can't be self-redeemed (no wallet owns them — they're in pool stores). So pool reserves stay locked, and the initial_mc collateral backing them stays in vault forever. Creator has 0 Y, 0 N, no path to redeem.
+
+**Anti-spam**: spam 1000 opinions × initial_mc = 1000 × initial_mc $token stranded forever. Self-defeating economic burn. Self-governed QC.
 
 ### 4.8 Closed economic loop (justification for §4 locks)
 
@@ -167,7 +200,7 @@ Creator earns $creator_token passively via:
   - press emission via factory::emit_press_to_presser
 
 Creator USES accumulated $creator_token to:
-  - Open opinion markets (BOTH option costs 2c, locks 2c in vault — uses own stash, NO market dump)
+  - Open opinion markets (initial_mc cost, locked in vault forever — uses own stash, NO market dump)
 
 Engagers acquire $creator_token via factory AMM:
   - Demand pressure on $creator_token price
@@ -237,9 +270,12 @@ The v1 scaffold (commit `63f9d88`) used **APT as collateral** and had `fee_bps` 
 
 - [ ] Replace `APT_FA_ADDR` constant usage with dynamic `factory::token_metadata_of_owner(author_pid)` lookup at create_opinion
 - [ ] Add `creator_token: address` field to OpinionMarket struct (cached at create for fast access)
-- [ ] Add `tax_bps: u64` arg to `create_opinion` (validate ≤ 1000)
-- [ ] Add `creator_position: u8` arg (NONE=0, Y=1, N=2, BOTH=3); default BOTH if unset
-- [ ] Implement BOTH atomically as 2× single-side deposit (pay 2c, mint 2c Y + 2c N, keep c each, pool gets c each)
+- [ ] Add `tax_bps: u64` arg to `create_opinion` (validate ≤ 1000, default 10)
+- [ ] Add `initial_mc: u64` arg (validate ∈ [1M, 100M] whole token = [10^14, 10^16] raw)
+- [ ] DROP `creator_position`, `initial_pick_side`, `initial_pick_apt` args (rev2 leftovers)
+- [ ] Symmetric pool seed: pull initial_mc $token → vault, mint initial_mc Y + initial_mc N → both to pool, creator gets 0
+- [ ] Creator post-create participation: NO hard-ban (creator boleh trade as normal user; pays tax + collateral like anyone)
+- [ ] DROP creator-only `add_liquidity_symmetric_creator` (not in v1)
 - [ ] Add tax burn flow: pull extra $creator_token from user, call `apt_vault::burn_via_vault(factory::vault_addr_of_pid(author_pid), fa)`
 - [ ] Swap tax: convert `amount_in` to $creator_token equivalent via `amm::compute_amount_out` quote, apply `swap_tax_bps`, with flat floor (e.g. 1000 raw units)
 - [ ] Add `friend desnet::opinion;` to `apt_vault.move`
