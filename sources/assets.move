@@ -896,6 +896,8 @@ module desnet::assets {
         let uploader_addr = signer::address_of(uploader);
 
         // Pre-compute master addr off-chain (the JS-equivalent path).
+        // Cross-verified 2026-05-03 against frontend `deriveMasterAddrV2`:
+        // both yield 0x539417401dc65683d7f3d98d30006ce261c172240fa5a45cd94a7dbe0846a1e4.
         let predicted_master = derive_master_addr_v2(uploader_addr, 42);
         let master_addr = start_upload_v2(uploader, MIME_PNG, 100, @0xfeed, 42);
         assert!(predicted_master == master_addr, 1);
