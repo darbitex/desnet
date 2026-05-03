@@ -204,4 +204,57 @@ docs/audit/v040-rc1-submission/
 
 Source under audit: commit `6ace5a4` (`opinion-pool-design` branch tip).
 
-**Next action:** Per user direction, NO fixes applied yet. Awaiting user decision to scope v0.4.0-rc2 fix bundle.
+---
+
+## v0.4.0-rc2 STATUS — APPLIED 2026-05-03 (commit `aa06c37`)
+
+**Fix bundle applied** per Priority 1 + 3 + (parts of 2):
+
+| ID | Status | Commit |
+|---|---|---|
+| M-N1 (exit-liquidity trap) | ✅ APPLIED — redeem now skims tax from vault output, preserving "always-exit" property | `aa06c37` |
+| D-M2 / M-N2 (zero-output swap) | ✅ APPLIED — `assert!(amount_out > 0, E_ZERO_OUTPUT)` in both swap entries | `aa06c37` |
+| D-M1 / G-H1 (swap tax base) | ✅ APPLIED — tax now uses opinion pool spot value (cleaner than factory AMM hop, same intent) | `aa06c37` |
+| L-N1 (compute_amount_out defensive) | ✅ APPLIED — early-return 0 on degenerate inputs | `aa06c37` |
+| L-N2 (compute_tax public bound) | ✅ APPLIED — assert tax_bps ≤ MAX_TAX_BPS on public surface | `aa06c37` |
+| L-N3 (FA framework supply cross-check) | ⚠️ APPLIED — **runtime untested, smoke-test gate before mainnet** | `aa06c37` |
+| Integration test scaffold | ❌ DEFERRED — separate commit (~150-200 LoC mock factory + profile setup) | TBD |
+| Q-I-01 history sync | ❌ DEFERRED — solo MED, doc-note acceptable | — |
+| G-L1 double-withdraw | ❌ DEFERRED — gas opt only | — |
+| K-INFO-3 ensure_storage refactor | ❌ DEFERRED — cosmetic | — |
+
+**Self-audit on rc2 patches** (2026-05-03):
+- M-N1: SOUND — conservation traced (vault -A == total_yay -A == total_nay -A)
+- D-M2: SOUND — assert placed before min_out check
+- D-M1: SOUND — pre-swap reserves used for spot value, u128 overflow safe
+- L-N1: SOUND — 3 new tests cover all zero-input combinations
+- L-N2: SOUND — tested rejection + boundary
+- **L-N3: SOUND IN THEORY, RUNTIME UNVERIFIED**
+
+### L-N3 testnet smoke gate (Option B accepted)
+
+L-N3 cross-checks `fungible_asset::supply(metadata)` against module-local counter on every mutating entry. Theoretically equal in correct code (both updated 1:1 with mint/burn), but `fungible_asset::supply()` return semantics for unlimited-supply FAs (created with `option::none<u128>()`) is not verified at runtime.
+
+**Mitigation strategy: testnet smoke before mainnet**
+1. Deploy v0.4.0-rc2 opinion module to testnet
+2. Register handle + factory token for test signer (existing factory v1.2 flow)
+3. Call `opinion::create_opinion(test_signer, b"smoke test", 100_000_000_000_000, 10)`
+   - If success → assert_conservation passes → L-N3 cross-check works → ✅ green
+   - If abort with E_CONSERVATION_BROKEN → `fungible_asset::supply()` returned mismatched value → revert L-N3 (Option A)
+4. Additional smoke: full `deposit_pick_side → swap_yay_for_nay → redeem_complete_set` cycle to validate all conservation paths
+5. Only after testnet smoke GREEN → promote to mainnet
+
+**Cost of failure**: testnet deploy iteration (~1 hour + revert+redeploy if L-N3 needs removal). No user funds at risk.
+
+**Tests post-rc2**: 23 opinion + 102/102 full suite GREEN.
+
+---
+
+## Final Acceptance Status
+
+✅ **R7 PASSES** (5 GREEN + 1 YELLOW; 0 unfixed HIGH)
+✅ **rc2 fix bundle APPLIED** (commit `aa06c37`) covering 6/6 high-impact + convergent findings
+⚠️ **L-N3 needs testnet validation** before mainnet
+❌ **Integration test scaffold pending** (separate commit, optional pre-mainnet)
+
+**Next action**: testnet deployment + smoke test. If GREEN → mainnet promotion ready.
