@@ -37,6 +37,7 @@ module desnet::mint {
     use desnet::history;
     use desnet::assets;
     use desnet::factory;
+    use desnet::opinion;
 
     friend desnet::pulse;
     friend desnet::press;
@@ -161,6 +162,10 @@ module desnet::mint {
         tags: vector<vector<u8>>,                   // ≤5, lowercase a-z/0-9/-
         tickers: vector<address>,                   // ≤5 factory-spawned FA addrs
         tips: vector<Tip>,                          // ≤10 atomic transfers
+        // rc3 (2026-05-03): opinion-mint flag. If true, an OpinionMarket is
+        // bootstrapped at deterministic addr derived from (author, seq) atomically.
+        // Frontend reads this flag to render YAY/NAY trade UI on opinion mints.
+        is_opinion: bool,
     }
 
     /// Atomic tip executed during mint creation (paired with MintEvent).
@@ -228,6 +233,15 @@ module desnet::mint {
         // mime=assets::mime_of(asset_master_addr), ref_blob_id=bcs(asset_master_addr).
         asset_master_addr: address,
         asset_master_set: bool,
+        // rc3 (2026-05-03): opinion-mint flag. If true, an OpinionMarket is
+        // bootstrapped at deterministic addr derived from (author_pid, seq) atomically.
+        // Allowed on all 3 mint modes (Mint/Voice/Remix). Caller must hold
+        // ≥ opinion_initial_mc of own $creator_token (factory-spawned).
+        // tax_bps fixed at DEFAULT_TAX_BPS (10) — not user-configurable.
+        is_opinion: bool,
+        // Pool seed amount in $creator_token raw units. Validated [1M, 100M] whole
+        // token at 8 decimals = [10^14, 10^16] raw. Ignored if is_opinion=false.
+        opinion_initial_mc: u64,
     ) acquires PidMintMeta {
         let author_addr = signer::address_of(author);
         let author_pid = profile::derive_pid_address(author_addr);
@@ -339,6 +353,7 @@ module desnet::mint {
             tags,
             tickers,
             tips: tips_vec,
+            is_opinion,                            // rc3: visible flag in BCS payload
         };
 
         // Verb dispatch: Mint=0 (no parent/quote), Voice=2 (parent_set), Remix=4 (quote_set).
@@ -370,6 +385,19 @@ module desnet::mint {
             author_pid,
             history::new_entry(verb, now_secs, target, payload, asset_ref),
         );
+
+        // rc3: atomic opinion-market bootstrap if flagged. Friend call into
+        // opinion module — validates initial_mc bounds + creator factory token,
+        // creates OpinionMarket at deterministic addr from (author_pid, seq).
+        // Atomic — fail any step → revert entire mint tx.
+        if (is_opinion) {
+            opinion::bootstrap_market_for_mint(
+                author,                            // signer for primary_fungible_store::withdraw
+                author_pid,
+                seq,
+                opinion_initial_mc,
+            );
+        };
     }
 
     // ============ INTERNAL — tip execution ============

@@ -57,6 +57,10 @@ module desnet::opinion {
     use desnet::history;
     use desnet::profile;
 
+    /// rc3: mint module calls bootstrap_market_for_mint atomically when
+    /// is_opinion=true flag is passed to mint::create_mint.
+    friend desnet::mint;
+
     // ============ CONSTANTS ============
 
     /// Content text cap mirrors mint::CONTENT_TEXT_MAX_BYTES for feed consistency.
@@ -68,11 +72,15 @@ module desnet::opinion {
     const SIDE_NAY: u8 = 2;
 
     /// Event-kind discriminator inside OpinionFeedEntry payload.
+    /// rc3: KIND_CREATE no longer used by trade events — create event lives in
+    /// MintEvent (VERB_MINT) with is_opinion=true flag. Kept for potential v2.
     const KIND_CREATE: u8 = 0;
     const KIND_DEPOSIT: u8 = 1;
     const KIND_SWAP_YAY_FOR_NAY: u8 = 2;
     const KIND_SWAP_NAY_FOR_YAY: u8 = 3;
     const KIND_REDEEM: u8 = 4;
+    /// rc3: atomic balanced-pair mint (anyone). Pool unchanged. KIND for event payload.
+    const KIND_DEPOSIT_BALANCED: u8 = 5;
 
     /// FA decimals for opinion tokens. Matches factory token decimals (8) so
     /// 1 YAY redeems 1:1 with 1 $creator_token (with 1 NAY) via complete-set burn.
@@ -141,7 +149,9 @@ module desnet::opinion {
         author_pid: address,
         seq: u64,
         creator_wallet: address,
-        content_text: vector<u8>,                  // ≤333B, immutable
+        // rc3: content_text dropped — lives in MintEvent (single source of truth via history).
+        // Frontend reads MintEvent at history(author_pid)[seq] for content; OpinionMarket
+        // keeps only AMM/economic state.
         // Creator's $token denomination (cached at create — immutable lookup)
         creator_token: address,                    // factory::token_metadata_of_owner(author_pid)
         creator_initial_mc: u64,                   // visible commitment signal (immutable)
@@ -170,23 +180,11 @@ module desnet::opinion {
 
     // ============ EVENTS (#[event] Aptos events for indexers) ============
 
-    /// Sentinel marker per user-spec: `is_opinion: bool = true`.
-    /// Frontend MUST check this flag to distinguish from regular mint events.
-    #[event]
-    struct OpinionMintCreated has drop, store {
-        is_opinion: bool,                          // = true (sentinel)
-        author_pid: address,
-        seq: u64,
-        market_addr: address,
-        creator_token: address,
-        creator_initial_mc: u64,
-        tax_bps: u64,
-        yay_metadata: address,
-        nay_metadata: address,
-        content_text: vector<u8>,
-        creator_wallet: address,
-        timestamp_secs: u64,
-    }
+    // rc3: OpinionMintCreated event DROPPED. Create event now lives in
+    // MintEvent (BCS-encoded into history with VERB_MINT) with is_opinion=true
+    // flag. Indexers detect opinion-mints by parsing MintEvent.is_opinion.
+    // OpinionMarket existence at deterministic addr from (author_pid, seq)
+    // confirms the AMM bootstrap.
 
     /// Vote-like action (deposit / swap / redeem). Aggregator-friendly.
     #[event]
@@ -210,24 +208,10 @@ module desnet::opinion {
 
     // ============ HISTORY-PAYLOAD STRUCTS (BCS-encoded into Entry.payload) ============
 
-    /// Payload for VERB_OPINION entries with kind=KIND_CREATE.
-    struct OpinionFeedCreate has copy, drop, store {
-        is_opinion: bool,                          // = true (sentinel)
-        kind: u8,                                  // = KIND_CREATE
-        author_pid: address,
-        seq: u64,
-        market_addr: address,
-        creator_token: address,
-        creator_initial_mc: u64,
-        tax_bps: u64,
-        yay_metadata: address,
-        nay_metadata: address,
-        content_text: vector<u8>,
-        creator_wallet: address,
-        timestamp_secs: u64,
-    }
+    // rc3: OpinionFeedCreate struct DROPPED. Create event uses MintEvent
+    // (mint::create_mint appends VERB_MINT to history with is_opinion=true).
 
-    /// Payload for VERB_OPINION entries with kind in {DEPOSIT, SWAP_*, REDEEM}.
+    /// Payload for VERB_OPINION entries with kind in {DEPOSIT, SWAP_*, REDEEM, BALANCED}.
     struct OpinionFeedAction has copy, drop, store {
         is_opinion: bool,                          // = true (sentinel)
         kind: u8,
@@ -259,55 +243,49 @@ module desnet::opinion {
         };
     }
 
-    // ============ CREATE OPINION — main entry ============
+    // ============ BOOTSTRAP — friend-only, called by mint::create_mint ============
 
-    /// Create an opinion market with symmetric pool seed.
-    /// Creator pays `initial_mc` $creator_token; mints initial_mc YAY + initial_mc NAY,
-    /// BOTH go to pool. Creator wallet receives nothing (0 YAY, 0 NAY).
-    /// Pool active from block 0 (k = initial_mc²). Vault locks initial_mc forever.
+    /// rc3: bootstrap an OpinionMarket atomically as part of mint::create_mint
+    /// when is_opinion=true. Friend-only — no public entry.
     ///
-    /// Restrictions:
-    /// - Author MUST have a Profile (mint::E_GUEST_CANNOT_MINT analog)
-    /// - Author's wallet MUST have a registered factory token (E_NO_FACTORY_TOKEN)
-    /// - initial_mc ∈ [1M, 100M] WHOLE $token (raw [1e14, 1e16] at 8 decimals)
-    /// - tax_bps ≤ MAX_TAX_BPS (1000 = 10%)
-    public entry fun create_opinion(
-        author: &signer,
-        content_text: vector<u8>,
+    /// Mint already validated profile + allocated seq + appended MintEvent to history
+    /// (with is_opinion=true flag). This fn handles the AMM bootstrap side:
+    ///   - Validate creator has factory token + initial_mc bounds
+    ///   - Create OpinionMarket at deterministic addr from (author_pid, mint_seq)
+    ///   - Pull initial_mc $creator_token from author wallet → vault
+    ///   - Mint initial_mc YAY + initial_mc NAY → both to pool stores
+    ///   - Creator gets 0 position; vault locks initial_mc forever
+    ///   - Tax_bps fixed at DEFAULT_TAX_BPS (10) — not user-configurable per design
+    ///   - Pool active day 1, k = initial_mc²
+    ///
+    /// Atomic — any failure here reverts the entire mint tx (including MintEvent).
+    public(friend) fun bootstrap_market_for_mint(
+        author: &signer,                  // signer from mint, for primary store withdraw
+        author_pid: address,
+        mint_seq: u64,
         initial_mc: u64,
-        tax_bps: u64,
     ) acquires PidOpinionMeta, PidOpinionIndex, OpinionMarket {
-        let author_addr = signer::address_of(author);
-        let author_pid = profile::derive_pid_address(author_addr);
-        profile::assert_pid_exists(author_pid);
-
-        // Validate content + bounds
-        assert!(
-            vector::length(&content_text) <= CONTENT_TEXT_MAX_BYTES,
-            E_CONTENT_TOO_LONG,
-        );
+        let author_wallet = signer::address_of(author);
+        // Validate bounds (mint side already validated profile)
         assert!(
             initial_mc >= MIN_INITIAL_MC && initial_mc <= MAX_INITIAL_MC,
             E_INITIAL_MC_OUT_OF_RANGE,
         );
-        assert!(tax_bps <= MAX_TAX_BPS, E_TAX_BPS_TOO_HIGH);
 
-        // Guest restriction: author must have a registered factory token (the
-        // opinion's denomination). If not, abort.
-        // H1 FIX: factory::owner_index is keyed by PID address (not wallet) — see
-        // factory.move:474-475 docstring. Use author_pid throughout for consistency
-        // with vault_addr_of_pid call in burn_tax (which already uses PID).
+        // Guest restriction (must have factory token for $creator_token denomination)
         assert!(factory::owner_has_token(author_pid), E_NO_FACTORY_TOKEN);
         let creator_token = factory::token_metadata_of_owner(author_pid);
 
         ensure_opinion_storage(author_pid);
 
-        // Allocate seq + enforce per-PID cap (M5: anti opinion-spam grief)
+        // Per-PID opinion cap (M5: anti-grief)
         let meta = borrow_global_mut<PidOpinionMeta>(author_pid);
         assert!(meta.opinion_count < MAX_OPINIONS_PER_PID, E_OPINION_LIMIT_REACHED);
-        let seq = meta.next_seq;
-        meta.next_seq = seq + 1;
         meta.opinion_count = meta.opinion_count + 1;
+
+        // rc3: seq comes from mint::PidMintMeta — no separate opinion seq counter.
+        let seq = mint_seq;
+        let tax_bps = DEFAULT_TAX_BPS;
 
         // Bootstrap market object as named child of pid_addr → deterministic addr.
         let pid_signer = profile::derive_pid_signer(author_pid);
@@ -372,7 +350,8 @@ module desnet::opinion {
         let vault_token_store = create_store_at_market(market_addr, creator_token_obj);
 
         // ============ Symmetric pool seed ============
-        // Pull initial_mc $creator_token from author → vault (locked forever for creator)
+        // Pull initial_mc $creator_token from author wallet (signer from mint) → vault.
+        // rc3: author signer is `author` (passed-through from mint::create_mint).
         let collateral_in = primary_fungible_store::withdraw(
             author, creator_token_obj, initial_mc,
         );
@@ -388,8 +367,7 @@ module desnet::opinion {
         move_to(&market_signer, OpinionMarket {
             author_pid,
             seq,
-            creator_wallet: author_addr,
-            content_text,
+            creator_wallet: author_wallet,
             creator_token,
             creator_initial_mc: initial_mc,
             tax_bps,
@@ -412,50 +390,76 @@ module desnet::opinion {
         let mkt_ref = borrow_global<OpinionMarket>(market_addr);
         assert_conservation(mkt_ref);
 
-        // Register in PID's opinion index
+        // Register in PID's opinion index (frontend lookup convenience)
         let idx = borrow_global_mut<PidOpinionIndex>(author_pid);
         smart_table::add(&mut idx.markets, seq, market_addr);
 
-        // Append to history
-        let feed_payload = OpinionFeedCreate {
-            is_opinion: true,
-            kind: KIND_CREATE,
-            author_pid,
-            seq,
-            market_addr,
-            creator_token,
-            creator_initial_mc: initial_mc,
-            tax_bps,
-            yay_metadata,
-            nay_metadata,
-            content_text: mkt_ref.content_text,
-            creator_wallet: author_addr,
-            timestamp_secs: now_secs,
-        };
-        history::append(
-            author_pid,
-            history::new_entry(
-                history::verb_opinion(),
-                now_secs,
-                option::none<address>(),
-                bcs::to_bytes(&feed_payload),
-                option::some(market_addr),
-            ),
+        // rc3: NO history::append (mint::create_mint already appended VERB_MINT
+        // with is_opinion=true flag in MintEvent payload — single source of truth).
+        // NO #[event] emit (indexers parse MintEvent.is_opinion to detect opinion-mints).
+    }
+
+    // ============ DEPOSIT BALANCED (atomic balanced-pair mint, rc3) ============
+
+    /// Deposit `amount` $creator_token, mint `amount` YAY + `amount` NAY → BOTH
+    /// to user's primary store (NOT to pool). Pool reserves UNCHANGED.
+    /// Tax: ceil(amount × tax_bps / 10000) $creator_token, BURNED on top.
+    ///
+    /// Use case (per design):
+    ///   - User wants neutral position (no directional bet)
+    ///   - User wants atomic redeem-prep (mint balanced then immediately burn pair
+    ///     for $token redemption)
+    ///   - 1-tx atomic alternative to (deposit_pick_side YAY + deposit_pick_side NAY)
+    ///     which costs 2× and exposes user to MEV between tx
+    ///
+    /// Conservation: vault +amount, total_yay +amount, total_nay +amount ✓
+    /// (Same shape as deposit_pick_side accounting; different distribution.)
+    public entry fun deposit_balanced(
+        user: &signer,
+        author_pid: address,
+        seq: u64,
+        amount: u64,
+    ) acquires OpinionMarket {
+        assert!(amount > 0, E_AMOUNT_ZERO);
+        let market_addr = market_addr_of(author_pid, seq);
+        assert!(exists<OpinionMarket>(market_addr), E_MARKET_NOT_FOUND);
+        let mkt = borrow_global_mut<OpinionMarket>(market_addr);
+
+        let user_addr = signer::address_of(user);
+
+        // Pull collateral
+        let creator_token_obj = object::address_to_object<Metadata>(mkt.creator_token);
+        let token_in = primary_fungible_store::withdraw(user, creator_token_obj, amount);
+        fungible_asset::deposit(mkt.vault_token, token_in);
+
+        // Mint balanced pair → BOTH to user (pool unchanged)
+        let yay_minted = fungible_asset::mint(&mkt.yay_mint_ref, amount);
+        let nay_minted = fungible_asset::mint(&mkt.nay_mint_ref, amount);
+        mkt.total_yay_supply = mkt.total_yay_supply + amount;
+        mkt.total_nay_supply = mkt.total_nay_supply + amount;
+        primary_fungible_store::deposit(user_addr, yay_minted);
+        primary_fungible_store::deposit(user_addr, nay_minted);
+
+        // Tax burn (same pattern as deposit_pick_side)
+        let tax_burned = burn_tax(user, mkt.creator_token, mkt.author_pid, amount, mkt.tax_bps);
+
+        assert_conservation(mkt);
+
+        let now_secs = timestamp::now_seconds();
+        let new_pool_yay = fungible_asset::balance(mkt.pool_yay);
+        let new_pool_nay = fungible_asset::balance(mkt.pool_nay);
+        emit_action(
+            mkt,
+            user_addr,
+            KIND_DEPOSIT_BALANCED,
+            SIDE_NONE,                                // no directional side
+            amount,
+            amount,                                   // amount_in == amount_out (no swap math)
+            tax_burned,
+            new_pool_yay,
+            new_pool_nay,
+            now_secs,
         );
-        event::emit(OpinionMintCreated {
-            is_opinion: true,
-            author_pid,
-            seq,
-            market_addr,
-            creator_token,
-            creator_initial_mc: initial_mc,
-            tax_bps,
-            yay_metadata,
-            nay_metadata,
-            content_text: feed_payload.content_text,
-            creator_wallet: author_addr,
-            timestamp_secs: now_secs,
-        });
     }
 
     // ============ DEPOSIT (Mirror-Mint pair-mint, anyone) ============
@@ -993,15 +997,8 @@ module desnet::opinion {
         mkt.tax_bps
     }
 
-    #[view]
-    public fun content_text(author_pid: address, seq: u64): vector<u8>
-        acquires OpinionMarket
-    {
-        let market_addr = market_addr_of(author_pid, seq);
-        assert!(exists<OpinionMarket>(market_addr), E_MARKET_NOT_FOUND);
-        let mkt = borrow_global<OpinionMarket>(market_addr);
-        mkt.content_text
-    }
+    // rc3: content_text view DROPPED. Frontend reads content from MintEvent at
+    // history(author_pid)[seq] (single source of truth via mint module).
 
     #[view]
     public fun is_pool_active(author_pid: address, seq: u64): bool
