@@ -1180,6 +1180,377 @@ module desnet::opinion {
         assert!(tax <= max_amt / 10 + 1, 2);
     }
 
+    // ============ INTEGRATION TEST SCAFFOLD (rc3) ============
+    // Addresses 4-way convergent gap from R7 audit (Grok+Kimi+Claude+Qwen):
+    // no end-to-end test exercising create→deposit→swap→redeem invariant flow.
+    //
+    // Strategy: bypass factory dependency via direct OpinionMarket construction
+    // with mock $creator_token. Use tax_bps=0 to skip apt_vault::burn_via_vault
+    // (which would require full factory + apt_vault setup). Tax math separately
+    // covered by existing pure-helper unit tests (test_compute_tax_*).
+
+    #[test_only]
+    use aptos_framework::aptos_coin::{Self, AptosCoin};
+    #[test_only]
+    use aptos_framework::coin;
+    #[test_only]
+    use aptos_framework::account;
+
+    /// Create a mock $token that mimics factory-spawned creator token semantics.
+    /// Returns (metadata_addr, mint_ref) so test can mint test balance to user wallets.
+    #[test_only]
+    fun setup_mock_creator_token(creator: &signer, symbol: vector<u8>): (address, MintRef) {
+        let constructor = object::create_named_object(creator, symbol);
+        let metadata_addr = object::address_from_constructor_ref(&constructor);
+        primary_fungible_store::create_primary_store_enabled_fungible_asset(
+            &constructor,
+            option::some(100_000_000_000_000_000u128),    // 1B token at 8 decimals
+            string::utf8(symbol),
+            string::utf8(symbol),
+            8,
+            string::utf8(b""),
+            string::utf8(b""),
+        );
+        let mint_ref = fungible_asset::generate_mint_ref(&constructor);
+        (metadata_addr, mint_ref)
+    }
+
+    /// Mint test $token balance to a wallet address.
+    #[test_only]
+    fun mint_test_balance(mint_ref: &MintRef, to: address, amount: u64) {
+        let fa = fungible_asset::mint(mint_ref, amount);
+        primary_fungible_store::deposit(to, fa);
+    }
+
+    /// Build an OpinionMarket directly (bypasses mint::create_mint and factory check).
+    /// Used for testing trade entries (deposit/swap/redeem/balanced) in isolation.
+    /// tax_bps=0 to skip apt_vault dependency.
+    #[test_only]
+    fun setup_test_opinion_market(
+        creator: &signer,
+        creator_token_addr: address,
+        creator_token_mint_ref: &MintRef,
+        initial_mc: u64,
+    ): (address, address) {
+        // Init framework requirements (timestamp + protocol singletons)
+        let creator_addr = signer::address_of(creator);
+        let pid_addr = profile::setup_test_pid(creator);
+
+        ensure_opinion_storage(pid_addr);
+
+        // Allocate seq from PidOpinionMeta + bump opinion_count
+        let meta = borrow_global_mut<PidOpinionMeta>(pid_addr);
+        let seq = meta.next_seq;       // 0 for first call
+        meta.next_seq = seq + 1;
+        meta.opinion_count = meta.opinion_count + 1;
+
+        // Bootstrap market object as named child of PID
+        let pid_signer = profile::derive_pid_signer(pid_addr);
+        let market_seed = make_market_seed(seq);
+        let market_constructor = object::create_named_object(&pid_signer, market_seed);
+        let market_addr = object::address_from_constructor_ref(&market_constructor);
+        let market_signer = object::generate_signer(&market_constructor);
+        let market_extend_ref = object::generate_extend_ref(&market_constructor);
+        let mkt_transfer = object::generate_transfer_ref(&market_constructor);
+        object::disable_ungated_transfer(&mkt_transfer);
+
+        // Mint YAY + NAY FA (no seq suffix in test for simplicity)
+        let yay_constructor = object::create_named_object(&market_signer, SEED_YAY);
+        let yay_metadata = object::address_from_constructor_ref(&yay_constructor);
+        primary_fungible_store::create_primary_store_enabled_fungible_asset(
+            &yay_constructor, option::none<u128>(),
+            string::utf8(b"OPN-YAY-test"), string::utf8(b"OPN-YAY-T"),
+            OPN_DECIMALS, string::utf8(b""), string::utf8(b""),
+        );
+        let yay_mint_ref = fungible_asset::generate_mint_ref(&yay_constructor);
+        let yay_burn_ref = fungible_asset::generate_burn_ref(&yay_constructor);
+
+        let nay_constructor = object::create_named_object(&market_signer, SEED_NAY);
+        let nay_metadata = object::address_from_constructor_ref(&nay_constructor);
+        primary_fungible_store::create_primary_store_enabled_fungible_asset(
+            &nay_constructor, option::none<u128>(),
+            string::utf8(b"OPN-NAY-test"), string::utf8(b"OPN-NAY-T"),
+            OPN_DECIMALS, string::utf8(b""), string::utf8(b""),
+        );
+        let nay_mint_ref = fungible_asset::generate_mint_ref(&nay_constructor);
+        let nay_burn_ref = fungible_asset::generate_burn_ref(&nay_constructor);
+
+        // FungibleStores at market_addr
+        let yay_meta_obj = object::address_to_object<Metadata>(yay_metadata);
+        let nay_meta_obj = object::address_to_object<Metadata>(nay_metadata);
+        let creator_token_obj = object::address_to_object<Metadata>(creator_token_addr);
+        let pool_yay_store = create_store_at_market(market_addr, yay_meta_obj);
+        let pool_nay_store = create_store_at_market(market_addr, nay_meta_obj);
+        let vault_token_store = create_store_at_market(market_addr, creator_token_obj);
+
+        // Mint creator_token balance for the bootstrap deposit + give to creator
+        mint_test_balance(creator_token_mint_ref, creator_addr, initial_mc);
+
+        // Symmetric pool seed: pull initial_mc from creator → vault, mint YAY+NAY → pool
+        let collateral_in = primary_fungible_store::withdraw(
+            creator, creator_token_obj, initial_mc,
+        );
+        fungible_asset::deposit(vault_token_store, collateral_in);
+        let yay_seed = fungible_asset::mint(&yay_mint_ref, initial_mc);
+        let nay_seed = fungible_asset::mint(&nay_mint_ref, initial_mc);
+        fungible_asset::deposit(pool_yay_store, yay_seed);
+        fungible_asset::deposit(pool_nay_store, nay_seed);
+
+        let now_secs = timestamp::now_seconds();
+        move_to(&market_signer, OpinionMarket {
+            author_pid: pid_addr,
+            seq,
+            creator_wallet: creator_addr,
+            creator_token: creator_token_addr,
+            creator_initial_mc: initial_mc,
+            tax_bps: 0,                   // ← test sentinel: skips apt_vault dep
+            yay_metadata, nay_metadata,
+            yay_mint_ref, yay_burn_ref,
+            nay_mint_ref, nay_burn_ref,
+            pool_yay: pool_yay_store, pool_nay: pool_nay_store,
+            vault_token: vault_token_store,
+            total_yay_supply: initial_mc, total_nay_supply: initial_mc,
+            created_at_secs: now_secs,
+            market_extend_ref,
+        });
+
+        let mkt_ref = borrow_global<OpinionMarket>(market_addr);
+        assert_conservation(mkt_ref);
+
+        let idx = borrow_global_mut<PidOpinionIndex>(pid_addr);
+        smart_table::add(&mut idx.markets, seq, market_addr);
+
+        (pid_addr, market_addr)
+    }
+
+    /// Helper: setup framework + create test creator with mock token.
+    /// Returns (pid_addr, market_addr, mock_token_addr, mock_token_mint_ref) for trade tests.
+    #[test_only]
+    fun setup_full_market(framework: &signer, creator: &signer): (address, address, address, MintRef) {
+        timestamp::set_time_has_started_for_testing(framework);
+        let creator_addr = signer::address_of(creator);
+        account::create_account_for_test(creator_addr);
+
+        let (token_addr, token_mint_ref) = setup_mock_creator_token(creator, b"SMK");
+        let (pid_addr, market_addr) = setup_test_opinion_market(
+            creator, token_addr, &token_mint_ref, MIN_INITIAL_MC,
+        );
+        (pid_addr, market_addr, token_addr, token_mint_ref)
+    }
+
+    // ============ INTEGRATION TESTS ============
+
+    #[test(framework = @aptos_framework, creator = @0xCAFE)]
+    fun test_integration_market_setup(framework: &signer, creator: &signer)
+        acquires PidOpinionMeta, PidOpinionIndex, OpinionMarket
+    {
+        let (pid, market_addr, _token, token_mint_ref) = setup_full_market(framework, creator);
+
+        // Verify initial state matches design spec
+        assert!(market_exists(pid, 0), 1);
+        let (yay_r, nay_r) = pool_reserves(pid, 0);
+        assert!(yay_r == MIN_INITIAL_MC, 2);
+        assert!(nay_r == MIN_INITIAL_MC, 3);
+        assert!(vault_balance(pid, 0) == MIN_INITIAL_MC, 4);
+        let (total_y, total_n) = total_supplies(pid, 0);
+        assert!(total_y == MIN_INITIAL_MC, 5);
+        assert!(total_n == MIN_INITIAL_MC, 6);
+        assert!(creator_initial_mc(pid, 0) == MIN_INITIAL_MC, 7);
+        assert!(market_addr == market_addr_of(pid, 0), 8);
+
+        // Cleanup
+        let mkt_for_clean = borrow_global<OpinionMarket>(market_addr);
+        assert_conservation(mkt_for_clean);
+        let _ = token_mint_ref;
+    }
+
+    #[test(framework = @aptos_framework, creator = @0xCAFE, bob = @0xB0B)]
+    fun test_integration_deposit_pick_side_yay(
+        framework: &signer, creator: &signer, bob: &signer,
+    ) acquires PidOpinionMeta, PidOpinionIndex, OpinionMarket {
+        let (pid, _market_addr, _token, token_mint_ref) = setup_full_market(framework, creator);
+        let bob_addr = signer::address_of(bob);
+        account::create_account_for_test(bob_addr);
+
+        // Mint test balance to Bob: 1M token to deposit + buffer
+        let deposit_amt: u64 = 1_000_000_000_000;     // 10K token (1e12 raw)
+        mint_test_balance(&token_mint_ref, bob_addr, deposit_amt);
+
+        // Bob picks YAY → keeps deposit_amt YAY, pool gets deposit_amt NAY
+        deposit_pick_side(bob, pid, 0, SIDE_YAY, deposit_amt);
+
+        // Verify: pool YAY unchanged, pool NAY +deposit_amt
+        let (yay_r, nay_r) = pool_reserves(pid, 0);
+        assert!(yay_r == MIN_INITIAL_MC, 1);                       // unchanged
+        assert!(nay_r == MIN_INITIAL_MC + deposit_amt, 2);          // +deposit
+        // Vault + supplies up by deposit_amt
+        assert!(vault_balance(pid, 0) == MIN_INITIAL_MC + deposit_amt, 3);
+        let (ty, tn) = total_supplies(pid, 0);
+        assert!(ty == MIN_INITIAL_MC + deposit_amt, 4);
+        assert!(tn == MIN_INITIAL_MC + deposit_amt, 5);
+
+        let _ = token_mint_ref;
+    }
+
+    #[test(framework = @aptos_framework, creator = @0xCAFE, bob = @0xB0B)]
+    fun test_integration_deposit_pick_side_nay(
+        framework: &signer, creator: &signer, bob: &signer,
+    ) acquires PidOpinionMeta, PidOpinionIndex, OpinionMarket {
+        let (pid, _market_addr, _token, token_mint_ref) = setup_full_market(framework, creator);
+        let bob_addr = signer::address_of(bob);
+        account::create_account_for_test(bob_addr);
+
+        let deposit_amt: u64 = 1_000_000_000_000;
+        mint_test_balance(&token_mint_ref, bob_addr, deposit_amt);
+
+        deposit_pick_side(bob, pid, 0, SIDE_NAY, deposit_amt);
+
+        // Mirror of YAY test: pool NAY unchanged, pool YAY +deposit
+        let (yay_r, nay_r) = pool_reserves(pid, 0);
+        assert!(yay_r == MIN_INITIAL_MC + deposit_amt, 1);
+        assert!(nay_r == MIN_INITIAL_MC, 2);
+
+        let _ = token_mint_ref;
+    }
+
+    #[test(framework = @aptos_framework, creator = @0xCAFE, bob = @0xB0B)]
+    fun test_integration_deposit_balanced(
+        framework: &signer, creator: &signer, bob: &signer,
+    ) acquires PidOpinionMeta, PidOpinionIndex, OpinionMarket {
+        let (pid, _market_addr, _token, token_mint_ref) = setup_full_market(framework, creator);
+        let bob_addr = signer::address_of(bob);
+        account::create_account_for_test(bob_addr);
+
+        let deposit_amt: u64 = 1_000_000_000_000;
+        mint_test_balance(&token_mint_ref, bob_addr, deposit_amt);
+
+        deposit_balanced(bob, pid, 0, deposit_amt);
+
+        // Pool UNCHANGED (key property of deposit_balanced)
+        let (yay_r, nay_r) = pool_reserves(pid, 0);
+        assert!(yay_r == MIN_INITIAL_MC, 1);                       // unchanged
+        assert!(nay_r == MIN_INITIAL_MC, 2);                       // unchanged
+
+        // Vault + supplies up by deposit_amt
+        assert!(vault_balance(pid, 0) == MIN_INITIAL_MC + deposit_amt, 3);
+        let (ty, tn) = total_supplies(pid, 0);
+        assert!(ty == MIN_INITIAL_MC + deposit_amt, 4);
+        assert!(tn == MIN_INITIAL_MC + deposit_amt, 5);
+
+        let _ = token_mint_ref;
+    }
+
+    #[test(framework = @aptos_framework, creator = @0xCAFE, bob = @0xB0B)]
+    fun test_integration_swap_yay_for_nay(
+        framework: &signer, creator: &signer, bob: &signer,
+    ) acquires PidOpinionMeta, PidOpinionIndex, OpinionMarket {
+        let (pid, _market_addr, _token, token_mint_ref) = setup_full_market(framework, creator);
+        let bob_addr = signer::address_of(bob);
+        account::create_account_for_test(bob_addr);
+
+        // Bob deposits NAY first (keeps NAY, pool gets YAY)
+        // Then Bob swaps NAY → YAY back via pool
+        let deposit_amt: u64 = 1_000_000_000_000;
+        mint_test_balance(&token_mint_ref, bob_addr, deposit_amt);
+        deposit_pick_side(bob, pid, 0, SIDE_YAY, deposit_amt);
+        // Bob now has deposit_amt YAY in primary store; pool=(MIN, MIN+deposit)
+
+        // Swap 100K YAY for some NAY (slippage will reduce output)
+        let swap_in: u64 = 100_000_000_000;
+        swap_yay_for_nay(bob, pid, 0, swap_in, 1);     // min_out=1 (lenient)
+
+        // Verify: vault unchanged, supplies unchanged (swap doesn't mint/burn)
+        assert!(vault_balance(pid, 0) == MIN_INITIAL_MC + deposit_amt, 1);
+        let (ty, tn) = total_supplies(pid, 0);
+        assert!(ty == MIN_INITIAL_MC + deposit_amt, 2);
+        assert!(tn == MIN_INITIAL_MC + deposit_amt, 3);
+        // Pool YAY ↑ (received), pool NAY ↓ (gave out)
+        let (yay_r, nay_r) = pool_reserves(pid, 0);
+        assert!(yay_r == MIN_INITIAL_MC + swap_in, 4);
+        assert!(nay_r < MIN_INITIAL_MC + deposit_amt, 5);          // some out
+
+        let _ = token_mint_ref;
+    }
+
+    #[test(framework = @aptos_framework, creator = @0xCAFE, bob = @0xB0B)]
+    fun test_integration_redeem_complete_set_full_cycle(
+        framework: &signer, creator: &signer, bob: &signer,
+    ) acquires PidOpinionMeta, PidOpinionIndex, OpinionMarket {
+        let (pid, _market_addr, _token, token_mint_ref) = setup_full_market(framework, creator);
+        let bob_addr = signer::address_of(bob);
+        account::create_account_for_test(bob_addr);
+
+        // Setup: Bob does deposit_balanced → has X YAY + X NAY
+        let deposit_amt: u64 = 1_000_000_000_000;
+        mint_test_balance(&token_mint_ref, bob_addr, deposit_amt);
+        deposit_balanced(bob, pid, 0, deposit_amt);
+
+        // Pre-redeem state
+        assert!(vault_balance(pid, 0) == MIN_INITIAL_MC + deposit_amt, 1);
+
+        // Bob redeems half of his pair → gets half deposit_amt back as $token
+        let redeem_amt: u64 = deposit_amt / 2;
+        redeem_complete_set(bob, pid, 0, redeem_amt);
+
+        // Vault drops by redeem_amt (M-N1 skim with tax_bps=0 = no tax skim)
+        assert!(vault_balance(pid, 0) == MIN_INITIAL_MC + deposit_amt - redeem_amt, 2);
+        // Total supplies drop by redeem_amt
+        let (ty, tn) = total_supplies(pid, 0);
+        assert!(ty == MIN_INITIAL_MC + deposit_amt - redeem_amt, 3);
+        assert!(tn == MIN_INITIAL_MC + deposit_amt - redeem_amt, 4);
+        // Pool unchanged (redeem only burns user-held pairs)
+        let (yay_r, nay_r) = pool_reserves(pid, 0);
+        assert!(yay_r == MIN_INITIAL_MC, 5);
+        assert!(nay_r == MIN_INITIAL_MC, 6);
+
+        let _ = token_mint_ref;
+    }
+
+    #[test(framework = @aptos_framework, creator = @0xCAFE, bob = @0xB0B, carol = @0xCA401)]
+    fun test_integration_conservation_across_full_cycle(
+        framework: &signer, creator: &signer, bob: &signer, carol: &signer,
+    ) acquires PidOpinionMeta, PidOpinionIndex, OpinionMarket {
+        // The big invariant test: vault == total_yay == total_nay holds across
+        // create + deposit (Y) + deposit (N) + balanced + swap + redeem.
+        let (pid, market_addr, _token, token_mint_ref) = setup_full_market(framework, creator);
+        let bob_addr = signer::address_of(bob);
+        let carol_addr = signer::address_of(carol);
+        account::create_account_for_test(bob_addr);
+        account::create_account_for_test(carol_addr);
+
+        let amt: u64 = 1_000_000_000_000;     // 10K each op
+
+        // Op 1: Bob deposit YAY 10K
+        mint_test_balance(&token_mint_ref, bob_addr, amt);
+        deposit_pick_side(bob, pid, 0, SIDE_YAY, amt);
+        assert_conservation(borrow_global<OpinionMarket>(market_addr));
+
+        // Op 2: Carol deposit NAY 10K
+        mint_test_balance(&token_mint_ref, carol_addr, amt);
+        deposit_pick_side(carol, pid, 0, SIDE_NAY, amt);
+        assert_conservation(borrow_global<OpinionMarket>(market_addr));
+
+        // Op 3: Bob deposit_balanced 5K (NEW rc3 primitive)
+        mint_test_balance(&token_mint_ref, bob_addr, amt / 2);
+        deposit_balanced(bob, pid, 0, amt / 2);
+        assert_conservation(borrow_global<OpinionMarket>(market_addr));
+
+        // Op 4: Carol swaps some NAY for YAY
+        swap_nay_for_yay(carol, pid, 0, amt / 4, 1);
+        assert_conservation(borrow_global<OpinionMarket>(market_addr));
+
+        // Op 5: Bob redeems some balanced pair
+        redeem_complete_set(bob, pid, 0, amt / 4);
+        assert_conservation(borrow_global<OpinionMarket>(market_addr));
+
+        // Final: vault should == both totals
+        let (final_y, final_n) = total_supplies(pid, 0);
+        assert!(final_y == final_n, 1);
+        assert!(vault_balance(pid, 0) == final_y, 2);
+
+        let _ = token_mint_ref;
+    }
+
     // ============ M5 FIX TEST — opinion limit constant ============
 
     #[test]
