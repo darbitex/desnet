@@ -150,6 +150,8 @@ Pure CPMM constraint preserved.
 | 6 | **Tax behavior** | **On top** of deposit (user pays c + tax, gets c Y or c N) — NOT skimmed |
 | 7 | **Creator position at create** | **Symmetric only** — creator pays `initial_mc` $token, mints `initial_mc` Y + `initial_mc` N, both go to pool, creator gets 0 position. Vault locks initial_mc forever (alias di-burn dari POV creator). Pool active day 1. **`initial_mc` bounds: [1M, 100M] WHOLE $token** (= 0.1%-10% of 1B factory supply). |
 | 7b | **Creator post-create rights** | Allowed: deposit_pick_side / swap / redeem (sebagai trader normal, pay tax + collateral). NOT allowed: creator-only privileged add_liquidity_symmetric (creator's only liquidity contribution is at create). "Berhak beropini" — creator boleh ekspresi opini lewat trade, tapi gak bisa inject more liquidity. |
+| 12 | **No LP shares / no LP fee** | Mirror-Mint has NO `add_liquidity` function for anyone. Pool grows only via `create_opinion` (symmetric, creator-once) and `deposit_pick_side` (asymmetric, anyone-many). NO LP shares issued. NO LP fee mechanism (no proportional fee recipient exists). Pool is coordination state, not ownable claim. tax_bps stays as $creator_token BURN (deflationary), NOT replaced with LP fee. Math stays simple CPMM x*y=k without LP-share accounting. |
+| 13 | **Press × Opinion coupling** | **CLOSED PERMANENTLY** (not deferred to v2). Press = airdrop reward scheme (presser receives $token emission via factory v1.2 `emit_press_to_presser`); Opinion = financial bet scheme (trader stakes belief via deposit_pick_side). Mixing makes both messier. Orthogonal verbs forever. Use existing `press::press_pid` for endorsement reactions; use `opinion::deposit_pick_side` for opinion votes. Two separate flows. |
 | 8 | **tax_bps scope** | **Per-opinion**, creator-set at create, immutable post-create. Default **10 bps (0.1%)**, max 1000 bps (10%) |
 | 9 | **Swap tax** | **Proportional** to `amount_in` converted to $token via factory AMM quote, with flat floor (anti-dust) |
 | 10 | Guest restriction | **Only registered handles can create opinions** (required because vault denomination needs $token to exist) |
@@ -227,13 +229,15 @@ Pasar self-segregates. Tidak butuh moderator manusia.
 
 ---
 
-## 5. Open knobs (still UNLOCKED — sign-off required before code)
+## 5. Knob status (cleaned up post-rev4 clarification)
 
 | # | Knob | Notes |
 |---|---|---|
-| A | "Graduation" mechanic | Mirror-Mint already always-on-main-AMM from day-1 (no separate launchpad → main-DEX phase). Likely N/A. Confirm. |
-| B | Press / echo / emission interplay | Should `press` trigger auto-deposit? At what amount? Likely keep separate (press = reaction, vote = explicit deposit). Defer pending UX testing. |
-| C | Multi-outcome (>2 sides) | Mirror-Mint extends naturally: `c` $creator_token mints `c` of each of N tokens, user keeps c of chosen, rest (n−1) sides auto-deposit. Pool invariant becomes `prod(reserves) = k`. **Defer to v2 as sibling module `desnet::opinion_multi`** (do NOT refactor v1). |
+| A | "Graduation" mechanic | **CLOSED** — Pool always on main from create (no separate launchpad → main-DEX phase needed). N/A by design. |
+| B | Press × Opinion coupling | **CLOSED PERMANENTLY** (not deferred). Press = airdrop scheme (presser receives $token emission via `factory::emit_press_to_presser`). Opinion = financial bet scheme (`opinion::deposit_pick_side`). Different paradigms — mixing makes both messier. Orthogonal verbs forever. |
+| C | Multi-outcome (>2 sides) | **DEFERRED to v2** as sibling module `desnet::opinion_multi`. Math extends naturally: `c` $creator_token mints `c` of each of N tokens, user keeps c of chosen, rest (n−1) sides auto-deposit. Pool invariant becomes `prod(reserves) = k`. Do NOT refactor v1. |
+| D | Privileged `add_liquidity_symmetric_creator` post-create | **DROPPED from v1, NOT planned for v2** — would re-introduce creator-supply-control vector (anti-manipulation regression). Creator's only liquidity contribution is at create-time symmetric seed. |
+| E | LP shares + LP fee model | **REJECTED** — Mirror-Mint has no LP role by design. Adopting UniV2-style LP shares would add significant accounting complexity (LP mint/burn, proportional fee distribution) for marginal benefit. tax_bps as $token-burn is the chosen design. Pool grows organically via `deposit_pick_side`; depth is collective property, not LP-claim. |
 
 ---
 
