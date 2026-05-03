@@ -129,6 +129,14 @@ module desnet::opinion {
     const E_ZERO_OUTPUT: u64 = 14;
     /// rc2 Claude M-N1 sanity (impossible while MAX_TAX_BPS=1000<10000, but guards against future bps cap raise).
     const E_TAX_EXCEEDS_AMOUNT: u64 = 15;
+    /// rc4 L1: defense-in-depth — burn_tax aborts if tax_bps drifts from DEFAULT_TAX_BPS.
+    /// Catches future regression where a setter is added to OpinionMarket.tax_bps.
+    /// Placed after compute_tax short-circuit so tax_bps=0 test sentinel still skips burn.
+    const E_TAX_DRIFT: u64 = 16;
+    /// rc4 L2: defense-in-depth — bootstrap_market_for_mint explicit re-bootstrap guard.
+    /// Currently structurally impossible (friend-only + monotonic seq + EOBJECT_EXISTS),
+    /// but explicit assert produces a domain-specific abort code.
+    const E_MARKET_ALREADY_EXISTS: u64 = 17;
 
     // ============ TYPES ============
 
@@ -290,6 +298,12 @@ module desnet::opinion {
         // Bootstrap market object as named child of pid_addr → deterministic addr.
         let pid_signer = profile::derive_pid_signer(author_pid);
         let market_seed = make_market_seed(seq);
+        // rc4 L2 FIX: explicit re-bootstrap guard. Currently structurally
+        // impossible (friend-only + monotonic seq from mint::PidMintMeta),
+        // but explicit check produces a domain-specific abort instead of
+        // relying on framework EOBJECT_EXISTS. Cheaper to read than to debug.
+        let predicted_market_addr = object::create_object_address(&author_pid, market_seed);
+        assert!(!exists<OpinionMarket>(predicted_market_addr), E_MARKET_ALREADY_EXISTS);
         let market_constructor = object::create_named_object(&pid_signer, market_seed);
         let market_addr = object::address_from_constructor_ref(&market_constructor);
         let market_signer = object::generate_signer(&market_constructor);
@@ -394,9 +408,13 @@ module desnet::opinion {
         let idx = borrow_global_mut<PidOpinionIndex>(author_pid);
         smart_table::add(&mut idx.markets, seq, market_addr);
 
-        // rc3: NO history::append (mint::create_mint already appended VERB_MINT
-        // with is_opinion=true flag in MintEvent payload — single source of truth).
-        // NO #[event] emit (indexers parse MintEvent.is_opinion to detect opinion-mints).
+        // Pattern B (2026-05-03): NO history::append here — mint::create_opinion_mint
+        // → do_create_mint already appended VERB_MINT with the regular MintEvent
+        // (no is_opinion field — compat-safe). Indexers detect opinion-mints by
+        // calling `opinion::market_exists(author_pid, seq)` view (returns true iff
+        // OpinionMarket resource exists at deterministic addr from this seed).
+        // NO #[event] emit either — market existence at predictable addr is the
+        // single source of truth.
     }
 
     // ============ DEPOSIT BALANCED (atomic balanced-pair mint, rc3) ============
@@ -627,6 +645,9 @@ module desnet::opinion {
         assert!(pool_yay_r > 0 && pool_nay_r > 0, E_POOL_NOT_ACTIVE);
 
         let amount_out = compute_amount_out(pool_nay_r, pool_yay_r, amount_in);
+        // rc4 M1 FIX: symmetric to swap_yay_for_nay — hard floor on amount_out
+        // prevents zero-output swap when naive frontend defaults min_out=0.
+        assert!(amount_out > 0, E_ZERO_OUTPUT);
         assert!(amount_out >= min_out, E_SLIPPAGE_EXCEEDED);
 
         let user_addr = signer::address_of(user);
@@ -819,6 +840,11 @@ module desnet::opinion {
     ): u64 {
         let tax_amount = compute_tax(amount, tax_bps);
         if (tax_amount == 0) return 0;
+        // rc4 L1 FIX: defense-in-depth — once we're past the short-circuit, the
+        // effective tax_bps MUST equal DEFAULT_TAX_BPS. Any future setter that
+        // mutates OpinionMarket.tax_bps to a non-default non-zero value will
+        // be caught here. Placement preserves the tax_bps=0 test sentinel.
+        assert!(tax_bps == DEFAULT_TAX_BPS, E_TAX_DRIFT);
         let creator_token_obj = object::address_to_object<Metadata>(creator_token_addr);
         let tax_fa = primary_fungible_store::withdraw(user, creator_token_obj, tax_amount);
         let vault_addr = factory::vault_addr_of_pid(author_pid);
@@ -1659,5 +1685,68 @@ module desnet::opinion {
         assert!(amount_out == 0, 1);
         // E_ZERO_OUTPUT would abort the swap — verified at module-level constant
         assert!(E_ZERO_OUTPUT == 14, 2);
+    }
+
+    // ============ rc4 FIX TESTS ============
+
+    // --- M1: swap_nay_for_yay symmetric E_ZERO_OUTPUT defense ---
+
+    #[test(framework = @aptos_framework, creator = @0xCAFE, bob = @0xB0B)]
+    #[expected_failure(abort_code = E_ZERO_OUTPUT, location = Self)]
+    fun test_rc4_m1_swap_nay_for_yay_zero_output_aborts(
+        framework: &signer, creator: &signer, bob: &signer,
+    ) acquires PidOpinionMeta, PidOpinionIndex, OpinionMarket {
+        // M1: trigger amount_out=0 in swap_nay_for_yay. Default pool=(MIN,MIN).
+        // After bob deposit_pick_side(YAY,1) pool=(MIN, MIN+1) and bob has 1 YAY.
+        // Then bob deposit_pick_side(NAY,1) pool=(MIN+1, MIN+1), bob has 1 YAY + 1 NAY.
+        // swap_nay_for_yay(1) → out = (MIN+1)*1/(MIN+1+1) = (MIN+1)/(MIN+2) which
+        // truncates to 0 for any MIN >= 1. New assert must fire with E_ZERO_OUTPUT.
+        let (pid, _market_addr, _token, token_mint_ref) = setup_full_market(framework, creator);
+        let bob_addr = signer::address_of(bob);
+        account::create_account_for_test(bob_addr);
+
+        // Bob needs 2 tokens (1 for each deposit; tax_bps=0 in test → no tax burn).
+        mint_test_balance(&token_mint_ref, bob_addr, 2);
+        deposit_pick_side(bob, pid, 0, SIDE_YAY, 1);
+        deposit_pick_side(bob, pid, 0, SIDE_NAY, 1);
+
+        // Pool is now (MIN+1, MIN+1). Tiny swap input → 0 output.
+        swap_nay_for_yay(bob, pid, 0, 1, 0);
+        let _ = token_mint_ref;
+    }
+
+    // --- L1: tax_bps drift defense in burn_tax ---
+
+    #[test(user = @0xB0B)]
+    #[expected_failure(abort_code = E_TAX_DRIFT, location = Self)]
+    fun test_rc4_l1_burn_tax_drift_aborts(user: &signer) {
+        // L1: burn_tax must abort if tax_bps != DEFAULT_TAX_BPS (and tax_amount > 0).
+        // amount=1000 with tax_bps=20 → compute_tax = ceil(1000*20/10000) = 2 > 0 →
+        // assert fires BEFORE primary_fungible_store::withdraw, so no balance setup
+        // needed. @0xCAFE / @0xC4FE are placeholder addrs that are never dereferenced.
+        burn_tax(user, @0xCAFE, @0xC4FE, 1000, 20);
+    }
+
+    #[test(user = @0xB0B)]
+    fun test_rc4_l1_burn_tax_zero_short_circuits(user: &signer) {
+        // L1 negative: burn_tax with tax_bps=0 must short-circuit to 0 BEFORE the
+        // E_TAX_DRIFT assert. Preserves the test sentinel pattern used throughout
+        // setup_test_opinion_market (tax_bps=0 to skip apt_vault dependency).
+        let burned = burn_tax(user, @0xCAFE, @0xC4FE, 1000, 0);
+        assert!(burned == 0, 1);
+    }
+
+    // --- L2: explicit re-bootstrap guard constants ---
+
+    #[test]
+    fun test_rc4_l2_constants() {
+        // L2: defense-in-depth assert in bootstrap_market_for_mint. Currently
+        // structurally unreachable (friend-only + monotonic seq + framework
+        // EOBJECT_EXISTS). Test verifies the new error code exists and is
+        // distinct from the lookup-side E_MARKET_NOT_FOUND.
+        assert!(E_MARKET_ALREADY_EXISTS == 17, 1);
+        assert!(E_MARKET_ALREADY_EXISTS != E_MARKET_NOT_FOUND, 2);
+        assert!(E_TAX_DRIFT == 16, 3);
+        assert!(E_TAX_DRIFT != E_TAX_BPS_TOO_HIGH, 4);
     }
 }
