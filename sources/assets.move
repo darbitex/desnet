@@ -393,6 +393,14 @@ module desnet::assets {
         assert!(total_size > 0, E_TOTAL_SIZE_ZERO);
         assert!(total_size <= MAX_TOTAL_SIZE, E_TOTAL_SIZE_EXCEEDED);
 
+        // R3 audit L1 — explicit pre-check is BELT + SUSPENDERS. Aptos
+        // `create_named_object` aborts on collision (EOBJECT_EXISTS),
+        // so this exists<Master> assertion is technically redundant.
+        // Kept because: (a) we get a domain-specific error code
+        // (E_SEED_TAKEN) instead of the framework's generic one, which
+        // makes frontend error decoding cleaner; (b) gas overhead is
+        // ~200 units, negligible vs the create_named_object cost; (c)
+        // fails CLOSED on any future framework change to abort behavior.
         let seed = master_seed(nonce);
         let uploader_addr = signer::address_of(uploader);
         let derived = object::create_object_address(&uploader_addr, seed);

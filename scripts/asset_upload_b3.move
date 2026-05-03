@@ -27,7 +27,9 @@ script {
         node_chunk_counts: vector<u64>,
         depth: u8,
     ) {
-        assert!(depth <= 2, 99);
+        // Script-side abort codes are in the 100-range to avoid visual
+        // collision with assets.move module errors (1-13).
+        assert!(depth <= 2, 100);
         let master_addr = assets::start_upload_v2(
             uploader, mime, total_size, creator_pid, master_nonce
         );
@@ -51,7 +53,7 @@ script {
         vector::destroy_empty(chunks);
 
         if (depth == 0) {
-            assert!(n == 1, 1);
+            assert!(n == 1, 101);
             let root = *vector::borrow(&chunk_addrs, 0);
             // verify_seed=true: assets.move recomputes seed and double-checks root.
             // root_index for depth=0 == 0 (the lone chunk's index).
@@ -60,8 +62,8 @@ script {
         };
 
         if (depth == 1) {
-            assert!(vector::length(&node_chunk_counts) == 1, 2);
-            assert!(*vector::borrow(&node_chunk_counts, 0) == n, 3);
+            assert!(vector::length(&node_chunk_counts) == 1, 102);
+            assert!(*vector::borrow(&node_chunk_counts, 0) == n, 103);
             let root = assets::deploy_node_v2(uploader, master_addr, chunk_addrs, 0);
             assets::finalize_v2(uploader, master_addr, root, 1, 0, true);
             return
@@ -69,7 +71,7 @@ script {
 
         // depth == 2
         let m = vector::length(&node_chunk_counts);
-        assert!(m > 0, 4);
+        assert!(m > 0, 104);
         let leaf_node_addrs = vector::empty<address>();
 
         let cursor = 0u64;
@@ -91,7 +93,7 @@ script {
             cursor = cursor + c;
             g = g + 1;
         };
-        assert!(cursor == n, 5);
+        assert!(cursor == n, 105);
 
         let root_index = m;
         let root = assets::deploy_node_v2(uploader, master_addr, leaf_node_addrs, root_index);

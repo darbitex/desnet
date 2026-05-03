@@ -31,11 +31,16 @@ script {
         node_chunk_counts: vector<u64>,
         depth: u8,
     ) {
+        // Script-side abort codes are in the 100-range to avoid visual
+        // collision with assets.move module errors (1-13). When `Move abort
+        // in script: 99` surfaces in tooling, devs no longer have to guess
+        // whether it came from the script's shape validation or from
+        // assets.move's E_NOT_CREATOR (=11) etc.
+        //
         // Depth is bounded by assets.move semantics (single chunk, single
         // node, or root-over-leaves). Higher depths aren't reachable through
-        // the existing tree shape, so reject up-front rather than failing
-        // mid-script with confusing assertion codes.
-        assert!(depth <= 2, 99);
+        // the existing tree shape, so reject up-front.
+        assert!(depth <= 2, 100);
         let master_addr = assets::start_upload_pub(uploader, mime, total_size, creator_pid);
 
         // ============ Deploy all chunks (pop-from-back + reverse) ============
@@ -57,7 +62,7 @@ script {
 
         // ============ depth = 0: root IS the single chunk ============
         if (depth == 0) {
-            assert!(n == 1, 1);
+            assert!(n == 1, 101);
             let root = *vector::borrow(&chunk_addrs, 0);
             assets::finalize_pub(uploader, master_addr, root, 0);
             return
@@ -65,8 +70,8 @@ script {
 
         // ============ depth = 1: single root node holds all chunks ============
         if (depth == 1) {
-            assert!(vector::length(&node_chunk_counts) == 1, 2);
-            assert!(*vector::borrow(&node_chunk_counts, 0) == n, 3);
+            assert!(vector::length(&node_chunk_counts) == 1, 102);
+            assert!(*vector::borrow(&node_chunk_counts, 0) == n, 103);
             // chunk_addrs is exactly the children list for this node.
             let root = assets::deploy_node_pub(uploader, master_addr, chunk_addrs);
             assets::finalize_pub(uploader, master_addr, root, 1);
@@ -76,7 +81,7 @@ script {
         // ============ depth = 2: M leaf nodes, then a root node over them ============
         // depth == 2 from here on. (caller should not pass higher; tree caps at 5MB ≈ 167 chunks)
         let m = vector::length(&node_chunk_counts);
-        assert!(m > 0, 4);
+        assert!(m > 0, 104);
         let leaf_node_addrs = vector::empty<address>();
 
         // Walk node_chunk_counts: slice chunk_addrs into groups of size c.
@@ -96,7 +101,7 @@ script {
             cursor = cursor + c;
             g = g + 1;
         };
-        assert!(cursor == n, 5);
+        assert!(cursor == n, 105);
 
         // Root node aggregates the M leaf nodes.
         let root = assets::deploy_node_pub(uploader, master_addr, leaf_node_addrs);
