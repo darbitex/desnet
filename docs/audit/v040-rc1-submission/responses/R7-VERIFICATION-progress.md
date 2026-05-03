@@ -1,6 +1,6 @@
 # R7 Audit Panel Verification — v0.4.0-rc1 Opinion Module (PROGRESS)
 
-**Status:** WORK IN PROGRESS — 3/6 reviewers in
+**Status:** WORK IN PROGRESS — 4/6 reviewers in
 **Last updated:** 2026-05-03
 **Acceptance bar:** ≥4 GREEN out of 6 reviewers + zero unfixed HIGH
 
@@ -11,112 +11,110 @@
 | Reviewer | Verdict | HIGH | MED | LOW | INFO | Notes |
 |---|---|---|---|---|---|---|
 | **Grok** | ✅ GREEN | 0 | 0 | 2 | 4 | 1 LOW false positive (claimed truncation that doesn't exist) |
-| **Gemini** | 🟡 YELLOW | 1 | 1 | 1 | 1 | HIGH (G-H1) on swap tax overcharge — DISPUTED by Kimi |
+| **Gemini** | 🟡 YELLOW | 1 | 1 | 1 | 1 | HIGH (G-H1) on swap tax overcharge — DOWNGRADED to convergent MED via DeepSeek |
 | **Kimi** | ✅ GREEN | 0 | 0 | 0 | 4 | Explicitly REJECTS Gemini G-H1 (counter-analysis: face-value tax is internally consistent design choice, not a bug) |
+| **DeepSeek** | ✅ GREEN | 0 | 2 | 0 | 1 | Confirms G-H1 at MED severity (D-M1) + new MED on zero-output swap (D-M2) |
 | Claude | ⏳ pending | — | — | — | — | — |
-| DeepSeek | ⏳ pending | — | — | — | — | — |
 | Qwen | ⏳ optional | — | — | — | — | — |
 
 **Acceptance bar progress:**
-- GREEN count: **2/4 required** (need 2 more)
-- Unfixed HIGH count: **1 DISPUTED** (Gemini G-H1 vs Kimi explicit counter; needs ≥2 counter-analyses per R6 precedent to definitively reject)
-- Currently approaching bar; awaiting Claude + DeepSeek for tie-break
+- GREEN count: **3/4 required** (need 1 more from Claude or Qwen)
+- Unfixed HIGH count: **0** (Gemini's HIGH downgraded to convergent MED via DeepSeek panel consensus)
+- Convergent MED count: **1** (D-M1 / G-H1 swap tax base — must address per R6 protocol)
+- Currently very close to bar; needs 1 more GREEN + addresses convergent MED
 
 ---
 
 ## Findings Tracker
 
-### HIGH (1 — DISPUTED, awaiting resolution)
+### HIGH (0 unfixed) — G-H1 downgraded
 
-| ID | Reviewer | Description | Status | Counter-analyses | Resolution path |
-|---|---|---|---|---|---|
-| **G-H1** | Gemini | Swap tax computed on raw YAY/NAY units instead of $creator_token-equivalent. Argues this overcharges traders ~11×–100× depending on pool skew. Cites design doc §4 #9 which mentions "via factory AMM quote". | **DISPUTED** | Kimi (INFO-1): explicit reject — argues face-value tax is internally consistent (1 YAY minted 1:1 with $token), gas-cheaper, predictable, and §4 locked decisions don't mandate AMM-quote taxation. §10 is process docs not spec. | Need ≥2 counter-analyses per R6 precedent (Qwen Q-H1 reject pattern). Currently 1/2. Await Claude + DeepSeek. |
+| ID | Reviewer | Description | Status | Resolution |
+|---|---|---|---|---|
+| ~~G-H1~~ | ~~Gemini~~ | ~~HIGH on swap tax base~~ | **DOWNGRADED to MED** (= D-M1 convergent) | DeepSeek confirms bug at MED severity. Kimi explicit counter not sufficient (needs ≥2 counters to fully reject). Final severity = MED via 2-reviewer convergence with lower assessment of the 2 confirmers. |
 
-### MED (1)
+### MED (3 — must address; 1 convergent + 2 solo)
 
 | ID | Reviewer | Description | Status | Fix path |
 |---|---|---|---|---|
-| **G-M1** | Gemini | Dust redemption (1 raw YAY+NAY pair) → 100% effective tax via M3 ceiling. By design but UX-confusing. | **DEFERRED** | Frontend guard: warn / block sub-threshold redeems. Optionally document in design doc as accepted-by-design. |
+| **D-M1 / G-H1** | DeepSeek + Gemini (CONVERGENT) | Swap tax computed on raw YAY/NAY units instead of $creator_token value. Spec violation per §4 #9. Overcharges or undercharges depending on pool skew. | **MUST FIX** (convergent) | Two options: (a) factory AMM quote (per spec); (b) opinion pool spot price (cleaner, no external dep). Deferred to rc2. |
+| **D-M2** | DeepSeek (solo) | Zero-output swap possible with naive `min_out=0`. User loses input + tax for 0 output. | **STRONG SUGGEST FIX** (trivial) | Add `assert!(amount_out > 0, E_SLIPPAGE_EXCEEDED)` in both swap functions. ~2 lines per fn. |
+| **G-M1** | Gemini (solo) | Dust redemption (1 raw YAY+NAY pair) → 100% effective tax via M3 ceiling. By design but UX-confusing. | **DEFERRED** | Frontend guard: warn / block sub-threshold redeems. Acceptable per anti-dust intent. |
 
 ### LOW (3)
 
 | ID | Reviewer | Description | Status | Fix path |
 |---|---|---|---|---|
-| **R-L1 / K-INFO-2** | Grok + Kimi | No end-to-end integration test (create→deposit→swap→redeem) — **CONVERGENT** | **ACKNOWLEDGED GAP** | Add factory token + profile setup scaffold; defer to rc2 |
+| **R-L1 / K-INFO-2** | Grok + Kimi (CONVERGENT) | No end-to-end integration test (create→deposit→swap→redeem) | **ACKNOWLEDGED GAP** | Add factory token + profile setup scaffold; defer to rc2 |
 | **R-L2** | Grok | "Missing redeem_complete_set source" — FALSE POSITIVE | **DISMISSED** | Source IS present at 03-source-code.md lines ~549-607 |
-| **G-L1** | Gemini | Double-withdraw in deposit/swap/redeem flow — gas inefficiency + redundant events | **DEFERRED** | Compute tax upfront, single withdraw `amount + tax`, split FA. ~3 lines per entry fn |
+| **G-L1** | Gemini (solo) | Double-withdraw in deposit/swap/redeem flow — gas inefficiency + redundant events | **DEFERRED** | Compute tax upfront, single withdraw `amount + tax`, split FA. ~3 lines per entry fn |
 
-### INFO (8)
+### INFO (10+)
 
 | ID | Reviewer | Description | Status |
 |---|---|---|---|
-| R-I1 | Grok | Consider `#[view]` on more helpers | NOTED — most already covered |
-| R-I2 | Grok | Document guest trading clearly | NOTED — exists in design doc |
-| R-I3 | Grok | Add input validation on swap amounts (UX) | NOTED — framework handles, optional pre-check |
-| R-I4 | Grok | Long-term: formal specs for invariant | NOTED — v2+ work |
-| G-I1 | Gemini | History append fall-through compat validation | CONFIRMED sound |
-| K-INFO-1 | Kimi | Design doc §10 stale AMM-quote reference | RECOMMEND — update doc §10 to remove stale reference (no code change) |
-| K-INFO-3 | Kimi | `ensure_opinion_storage` double signer derivation | CONSIDER — cosmetic optimization, ~3 line refactor |
-| K-INFO-4 | Kimi | CPMM rounding donation to pool | CONFIRMED — standard CPMM behavior, not a bug |
+| R-I1..4 | Grok | View annotations, guest docs, swap input pre-checks, formal specs | NOTED — most addressed, optional |
+| G-I1 | Gemini | History append fall-through compat | CONFIRMED sound |
+| K-INFO-1 | Kimi | Design doc §10 stale AMM-quote reference | RECOMMEND doc update (BUT: now that D-M1 is being fixed, the AMM-quote requirement is enforced — keep §10 ref accurate) |
+| K-INFO-3 | Kimi | `ensure_opinion_storage` double signer derivation | OPTIONAL — cosmetic refactor |
+| K-INFO-4 | Kimi | CPMM rounding donation | CONFIRMED — standard, not a bug |
+| D-INFO-1 | DeepSeek | compute_tax u64::MAX overflow safety | CONFIRMED via existing test |
 
 ---
 
-## Convergence Analysis
+## Convergence Analysis (UPDATED with DeepSeek)
 
 **Convergent findings (≥2 reviewers same finding):**
-- ✅ **Integration test gap** (R-L1 + K-INFO-2): both Grok and Kimi flag absence of end-to-end test. Confirmed gap. Action: add scaffold in rc2.
+- 🔴 **Swap tax base** (D-M1 = G-H1): Gemini + DeepSeek both flag as bug. Severity median = MED (Gemini wanted HIGH, DeepSeek says MED, take lower). Kimi's counter alone not enough to reject (need ≥2 counters per R6).
+- ✅ **Integration test gap** (R-L1 + K-INFO-2): Grok + Kimi convergent. Confirmed acknowledged gap.
 
 **Divergent findings:**
-- 🔥 **G-H1 (swap tax base)**: Gemini = HIGH bug; Kimi = INFO/non-issue. Direct disagreement on whether face-value taxation is a design flaw or a design choice. Awaiting Claude + DeepSeek to break tie.
+- (none — Kimi's counter on G-H1 is now outweighed by 2-reviewer confirmation of bug)
 
-**Solo findings (1 reviewer only, no convergence yet):**
-- G-M1 (dust redeem 100% tax): Gemini-only MED. Acceptable per anti-dust design intent.
-- G-L1 (double-withdraw inefficiency): Gemini-only LOW. Genuine optimization.
-- K-INFO-1, K-INFO-3, K-INFO-4: Kimi-only suggestions.
-- R-I1..4: Grok-only INFO suggestions.
-
----
-
-## R6 Precedent Application
-
-The v0.3.3 R6 audit had a similar dispute: **Qwen flagged Q-H1 (per-token voting power flip), but Claude + Kimi explicitly counter-analyzed and rejected it**. Final outcome: 5/6 consensus REJECTED Q-H1, preserved current design. Memory entry quote:
-> "R6 panel 6/6 received, 5 GREEN + 1 YELLOW (Qwen Q-H1 disputed → REJECTED on Claude+Kimi explicit counter-analysis preserving F7 cross-token-inflation defense, 5/6 reviewer consensus accept current G1 design)"
-
-**Application to G-H1:**
-- Currently: 1 HIGH (Gemini) vs 1 explicit counter (Kimi) = 1-1 tie
-- Need ≥2 explicit counter-analyses to definitively reject (matching R6 protocol)
-- If Claude + DeepSeek both counter Gemini → G-H1 REJECTED, panel converges 4-5 GREEN
-- If Claude + DeepSeek both confirm Gemini → G-H1 ESCALATED, must fix in rc2
-- If split (1 confirm, 1 counter) → user judgment call
+**Solo findings:**
+- D-M2 (zero-output swap): DeepSeek only. VALID — trivial fix worth bundling.
+- G-M1 (dust redeem 100% tax): Gemini only. Acceptable per design.
+- G-L1 (double-withdraw): Gemini only. Optimization, deferrable.
+- Various INFO items per reviewer.
 
 ---
 
-## Decision Matrix (when 5-6 reviewers in)
+## R6 Precedent — How G-H1 Resolved
 
-### Scenario A: Final 4+ GREEN with G-H1 REJECTED via consensus
-→ Module passes acceptance bar. Promote to mainnet. Bundle minor LOW + INFO items as v0.4.0 polish (post-mainnet).
+The v0.3.3 R6 audit had Qwen flag Q-H1 (per-token voting power) → REJECTED via Claude+Kimi explicit counter (≥2 counters). This time:
 
-### Scenario B: Final 4+ GREEN with G-H1 ESCALATED (≥3 confirm)
-→ Apply G-H1 fix (swap tax = spot-equivalent computation, ~5 lines per swap fn). Plus optional G-L1 (double-withdraw). Re-submit as v0.4.0-rc2 to remaining reviewers for final pass. Tag rc2-mainnet-ready.
+- G-H1 (Gemini HIGH) had ONE explicit counter (Kimi) — not enough to reject per R6 threshold.
+- DeepSeek arrived as 2nd confirming reviewer (at MED severity) — escalated to convergent.
+- Net: G-H1 status = CONVERGENT MED (downgraded from HIGH via DeepSeek's lower severity rating, but still requires fix).
 
-### Scenario C: Final < 4 GREEN
-→ Address all valid HIGH/MED findings + iterate. Multi-cycle audit until threshold met.
+This is consistent with R6 protocol where panel CONSENSUS determines final severity, not any single reviewer's opinion.
+
+---
+
+## Decision Matrix Update (after Claude + Qwen)
+
+### Scenario A (likely): Claude verdict GREEN with no new HIGH
+→ 4/4+ GREEN, 0 unfixed HIGH, 1 convergent MED (D-M1) to address. Apply rc2 fix bundle (D-M1 + D-M2 + optionally G-L1). Re-test, re-submit lite review or proceed direct to mainnet with self-audit on rc2 deltas.
+
+### Scenario B: Claude flags new HIGH or escalates D-M1 to HIGH
+→ Address fix bundle, re-submit full panel review for rc3.
+
+### Scenario C: Claude verdict GREEN but advocates Kimi's position (counter-counter on D-M1)
+→ Net 2 reviewers reject D-M1, 2 reviewers confirm. Tie. User judgment call: accept design as-is (with doc clarification per Kimi K-INFO-1) OR fix to be safe.
 
 ---
 
 ## Decision: NO FIXES APPLIED YET
 
-Per user direction: **consolidate + document only at this stage**. No code changes. Awaiting:
+Per user direction: **consolidate + document only**. No code changes. Awaiting:
 - Claude verdict
-- DeepSeek verdict
 - (Optionally Qwen)
 
 Once all reviewer responses are in, this document will be finalized as `R7-VERIFICATION.md` with:
-1. Final convergence triage
-2. G-H1 resolution (ACCEPTED or REJECTED with explicit reviewer count)
-3. Fix bundle scope for v0.4.0-rc2 (if needed)
-4. Accept-by-design rejections with rationale
-5. Final acceptance bar status
+1. Final convergence triage (lock D-M1 status, severity, fix path)
+2. Fix bundle scope for v0.4.0-rc2 (very likely: D-M1 + D-M2 + integration tests; optional: G-L1, K-INFO-3)
+3. Accept-by-design rejections with rationale (G-M1 frontend, L4 vault floor)
+4. Final acceptance bar status + mainnet promotion gate
 
 ---
 
@@ -132,6 +130,7 @@ docs/audit/v040-rc1-submission/
     ├── grok-verdict.md
     ├── gemini-verdict.md
     ├── kimi-verdict.md
+    ├── deepseek-verdict.md
     └── R7-VERIFICATION-progress.md  ← this file (will be finalized as R7-VERIFICATION.md)
 ```
 
