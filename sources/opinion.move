@@ -50,6 +50,7 @@ module desnet::opinion {
     use aptos_framework::primary_fungible_store;
     use aptos_framework::timestamp;
     use aptos_std::smart_table::{Self, SmartTable};
+    use aptos_std::string_utils;
 
     use desnet::apt_vault;
     use desnet::factory;
@@ -89,6 +90,13 @@ module desnet::opinion {
     const MAX_TAX_BPS: u64 = 1000;       // 10% cap (anti-trap)
     const BPS_DENOM: u64 = 10000;
 
+    /// Per-PID cap on # opinion markets a single PID can spawn.
+    /// Prevents storage-rent grief via opinion spam (each create allocates 1 market
+    /// object + 3 FungibleStore children + 2 FA Metadata objects + SmartTable entry).
+    /// 10_000 chosen as practical ceiling — far above any realistic creator's lifetime
+    /// opinion count, while bounding worst-case state bloat at ~10k entries.
+    const MAX_OPINIONS_PER_PID: u64 = 10_000;
+
     /// Object seed prefixes (deterministic addrs).
     const SEED_MARKET_PREFIX: vector<u8> = b"opinion_market::";
     const SEED_YAY: vector<u8> = b"YAY";
@@ -108,6 +116,7 @@ module desnet::opinion {
     const E_NO_FACTORY_TOKEN: u64 = 10;
     const E_INITIAL_MC_OUT_OF_RANGE: u64 = 11;
     const E_TAX_BPS_TOO_HIGH: u64 = 12;
+    const E_OPINION_LIMIT_REACHED: u64 = 13;
 
     // ============ TYPES ============
 
@@ -281,13 +290,17 @@ module desnet::opinion {
 
         // Guest restriction: author must have a registered factory token (the
         // opinion's denomination). If not, abort.
-        assert!(factory::owner_has_token(author_addr), E_NO_FACTORY_TOKEN);
-        let creator_token = factory::token_metadata_of_owner(author_addr);
+        // H1 FIX: factory::owner_index is keyed by PID address (not wallet) — see
+        // factory.move:474-475 docstring. Use author_pid throughout for consistency
+        // with vault_addr_of_pid call in burn_tax (which already uses PID).
+        assert!(factory::owner_has_token(author_pid), E_NO_FACTORY_TOKEN);
+        let creator_token = factory::token_metadata_of_owner(author_pid);
 
         ensure_opinion_storage(author_pid);
 
-        // Allocate seq
+        // Allocate seq + enforce per-PID cap (M5: anti opinion-spam grief)
         let meta = borrow_global_mut<PidOpinionMeta>(author_pid);
+        assert!(meta.opinion_count < MAX_OPINIONS_PER_PID, E_OPINION_LIMIT_REACHED);
         let seq = meta.next_seq;
         meta.next_seq = seq + 1;
         meta.opinion_count = meta.opinion_count + 1;
@@ -303,14 +316,23 @@ module desnet::opinion {
         let mkt_transfer = object::generate_transfer_ref(&market_constructor);
         object::disable_ungated_transfer(&mkt_transfer);
 
+        // L2 FIX: include seq in FA name + symbol for wallet UI uniqueness across
+        // opinions. Without this, all YAY tokens display as identical "OPN-YAY"
+        // in wallets which makes multi-opinion holdings impossible to distinguish.
+        let seq_str = string_utils::to_string<u64>(&seq);
+
         // Mint YAY FA as named child of market → deterministic addr
         let yay_constructor = object::create_named_object(&market_signer, SEED_YAY);
         let yay_metadata = object::address_from_constructor_ref(&yay_constructor);
+        let yay_name = string::utf8(b"Opinion YAY Share #");
+        string::append(&mut yay_name, seq_str);
+        let yay_symbol = string::utf8(b"OPN-YAY#");
+        string::append(&mut yay_symbol, seq_str);
         primary_fungible_store::create_primary_store_enabled_fungible_asset(
             &yay_constructor,
             option::none<u128>(),                  // unlimited supply (bounded by collateral inflow)
-            string::utf8(b"Opinion YAY Share"),
-            string::utf8(b"OPN-YAY"),
+            yay_name,
+            yay_symbol,
             OPN_DECIMALS,
             string::utf8(b""),
             string::utf8(b""),
@@ -321,11 +343,15 @@ module desnet::opinion {
         // Mint NAY FA as named child of market
         let nay_constructor = object::create_named_object(&market_signer, SEED_NAY);
         let nay_metadata = object::address_from_constructor_ref(&nay_constructor);
+        let nay_name = string::utf8(b"Opinion NAY Share #");
+        string::append(&mut nay_name, seq_str);
+        let nay_symbol = string::utf8(b"OPN-NAY#");
+        string::append(&mut nay_symbol, seq_str);
         primary_fungible_store::create_primary_store_enabled_fungible_asset(
             &nay_constructor,
             option::none<u128>(),
-            string::utf8(b"Opinion NAY Share"),
-            string::utf8(b"OPN-NAY"),
+            nay_name,
+            nay_symbol,
             OPN_DECIMALS,
             string::utf8(b""),
             string::utf8(b""),
@@ -432,8 +458,11 @@ module desnet::opinion {
 
     /// Deposit `amount_token` $creator_token, mint amount_token YAY + amount_token NAY,
     /// keep chosen side, opposite side auto-deposits to pool.
-    /// Tax: amount_token × tax_bps / 10000 $creator_token, BURNED on top of deposit.
+    /// Tax: ceil(amount_token × tax_bps / 10000) $creator_token, BURNED on top.
     /// Creator NOT banned — boleh participate as normal trader.
+    ///
+    /// UX REQUIREMENT (M4): user must hold `amount_token + tax_amount` $creator_token
+    /// in primary store before tx — abort otherwise (atomic revert).
     public entry fun deposit_pick_side(
         user: &signer,
         author_pid: address,
@@ -447,6 +476,13 @@ module desnet::opinion {
         let market_addr = market_addr_of(author_pid, seq);
         assert!(exists<OpinionMarket>(market_addr), E_MARKET_NOT_FOUND);
         let mkt = borrow_global_mut<OpinionMarket>(market_addr);
+
+        // M2 FIX: defense-in-depth pool-active check. Pool is always active post-create
+        // (initial_mc symmetric seed > 0), but assert here catches any future regression.
+        assert!(
+            fungible_asset::balance(mkt.pool_yay) > 0 && fungible_asset::balance(mkt.pool_nay) > 0,
+            E_POOL_NOT_ACTIVE,
+        );
 
         let user_addr = signer::address_of(user);
 
@@ -496,6 +532,10 @@ module desnet::opinion {
 
     /// Swap `amount_in` of YAY to receive NAY from pool. No swap fee in YAY/NAY
     /// (pool stays clean); separate $creator_token tax burn.
+    ///
+    /// UX REQUIREMENT (M4): user must hold `amount_in` YAY in primary store AND
+    /// `ceil(amount_in × tax_bps / 10000)` $creator_token for the tax burn — both
+    /// checked atomically; abort if either insufficient.
     public entry fun swap_yay_for_nay(
         user: &signer,
         author_pid: address,
@@ -530,6 +570,10 @@ module desnet::opinion {
         // Tax burn (proportional to amount_in — YAY is 1:1 with creator_token redemption)
         let tax_burned = burn_tax(user, mkt.creator_token, mkt.author_pid, amount_in, mkt.tax_bps);
 
+        // M1 FIX: defense-in-depth conservation check. Swap shouldn't change vault
+        // or total supplies, but assert here catches any future regression.
+        assert_conservation(mkt);
+
         let now_secs = timestamp::now_seconds();
         let new_pool_yay = fungible_asset::balance(mkt.pool_yay);
         let new_pool_nay = fungible_asset::balance(mkt.pool_nay);
@@ -548,6 +592,7 @@ module desnet::opinion {
     }
 
     /// Swap `amount_in` of NAY to receive YAY from pool.
+    /// UX (M4): user needs `amount_in` NAY + `ceil(amount_in × tax_bps / 10000)` $creator_token.
     public entry fun swap_nay_for_yay(
         user: &signer,
         author_pid: address,
@@ -579,6 +624,9 @@ module desnet::opinion {
 
         let tax_burned = burn_tax(user, mkt.creator_token, mkt.author_pid, amount_in, mkt.tax_bps);
 
+        // M1 FIX: defense-in-depth conservation check (same rationale as swap_yay_for_nay).
+        assert_conservation(mkt);
+
         let now_secs = timestamp::now_seconds();
         let new_pool_yay = fungible_asset::balance(mkt.pool_yay);
         let new_pool_nay = fungible_asset::balance(mkt.pool_nay);
@@ -599,10 +647,13 @@ module desnet::opinion {
     // ============ REDEEM COMPLETE SET ============
 
     /// Burn `amount` YAY + `amount` NAY from user, return `amount` $creator_token from vault.
-    /// Tax: amount × tax_bps / 10000 $creator_token additional burn.
+    /// Tax: ceil(amount × tax_bps / 10000) $creator_token additional burn.
     /// Conservation invariant maintained.
     /// Note: creator typically has 0 YAY / 0 NAY (post-create), so they can't redeem
     /// unless they accumulate balanced pair via deposits/swaps as a regular trader.
+    ///
+    /// UX REQUIREMENT (M4): user must hold `amount` YAY + `amount` NAY + `ceil(amount × tax_bps / 10000)`
+    /// $creator_token in primary stores. Atomic abort if any insufficient.
     public entry fun redeem_complete_set(
         user: &signer,
         author_pid: address,
@@ -659,6 +710,8 @@ module desnet::opinion {
 
     /// CPMM constant-product: pure quote (no LP fee — opinion pool has no LP role).
     /// Mirrors amm::compute_amount_out shape (darbitex-shape signature kept).
+    /// L1 FIX: #[view] annotation for off-chain SDK / indexer call.
+    #[view]
     public fun compute_amount_out(
         reserve_in: u64,
         reserve_out: u64,
@@ -671,6 +724,17 @@ module desnet::opinion {
         ((numerator / denominator) as u64)
     }
 
+    /// M3 FIX: ceiling tax computation. Prevents zero-tax sub-dust trades.
+    /// Returns ceil(amount × tax_bps / BPS_DENOM). Pure function for testability.
+    /// If tax_bps = 0 returns 0 (free market). If amount = 0 returns 0.
+    /// For amount > 0 and tax_bps > 0, always returns >= 1 (anti-dust floor).
+    #[view]
+    public fun compute_tax(amount: u64, tax_bps: u64): u64 {
+        if (tax_bps == 0 || amount == 0) return 0;
+        let numerator = (amount as u128) * (tax_bps as u128) + (BPS_DENOM as u128) - 1;
+        (numerator / (BPS_DENOM as u128)) as u64
+    }
+
     /// Conservation invariant: vault == total_yay_supply == total_nay_supply.
     /// Held by atomic pair-mint (deposit/create) and pair-burn (redeem) semantics.
     fun assert_conservation(mkt: &OpinionMarket) {
@@ -679,9 +743,9 @@ module desnet::opinion {
         assert!(vault_amt == mkt.total_yay_supply, E_CONSERVATION_BROKEN);
     }
 
-    /// Pull `amount × tax_bps / BPS_DENOM` $creator_token from user and burn it via
+    /// Pull `compute_tax(amount, tax_bps)` $creator_token from user and burn it via
     /// apt_vault::burn_via_vault. Returns the actual amount burned (for event payload).
-    /// Returns 0 if tax_bps == 0 (skip primary store touch).
+    /// M3: uses ceiling rounding via compute_tax — prevents zero-tax dust trades.
     fun burn_tax(
         user: &signer,
         creator_token_addr: address,
@@ -689,8 +753,7 @@ module desnet::opinion {
         amount: u64,
         tax_bps: u64,
     ): u64 {
-        if (tax_bps == 0) return 0;
-        let tax_amount = ((amount as u128) * (tax_bps as u128) / (BPS_DENOM as u128)) as u64;
+        let tax_amount = compute_tax(amount, tax_bps);
         if (tax_amount == 0) return 0;
         let creator_token_obj = object::address_to_object<Metadata>(creator_token_addr);
         let tax_fa = primary_fungible_store::withdraw(user, creator_token_obj, tax_amount);
@@ -1011,5 +1074,63 @@ module desnet::opinion {
         // Sanity: default tax on 1M token deposit = 1000 raw (10/10000 = 0.1%)
         let tax = ((MIN_INITIAL_MC as u128) * (DEFAULT_TAX_BPS as u128) / (BPS_DENOM as u128)) as u64;
         assert!(tax == 100_000_000_000, 4);          // 0.1% of 1M token
+    }
+
+    // ============ M3 FIX TESTS — compute_tax ceiling rounding ============
+
+    #[test]
+    fun test_compute_tax_zero_inputs() {
+        // tax_bps = 0 → 0 (free market)
+        assert!(compute_tax(1_000_000_000, 0) == 0, 1);
+        // amount = 0 → 0 (no op to tax)
+        assert!(compute_tax(0, 30) == 0, 2);
+        // both zero → 0
+        assert!(compute_tax(0, 0) == 0, 3);
+    }
+
+    #[test]
+    fun test_compute_tax_ceiling_dust_protection() {
+        // M3 anti-dust: any nonzero (amount, tax_bps) yields >= 1 raw tax.
+        // Without ceiling: 99 × 10 / 10000 = 0 (truncated to 0 = free trade).
+        // With ceiling: ceil(99 × 10 / 10000) = ceil(0.099) = 1.
+        assert!(compute_tax(99, 10) == 1, 1);
+        assert!(compute_tax(1, 1) == 1, 2);          // ceil(1/10000) = 1
+        assert!(compute_tax(500, 10) == 1, 3);       // ceil(0.5) = 1
+        assert!(compute_tax(999, 10) == 1, 4);       // ceil(0.999) = 1
+        assert!(compute_tax(1000, 10) == 1, 5);      // exact 1.0 → 1
+        assert!(compute_tax(1001, 10) == 2, 6);      // ceil(1.001) = 2
+    }
+
+    #[test]
+    fun test_compute_tax_normal_amounts() {
+        // 1M token (1e14 raw) at 10 bps = 1e14 × 10 / 10000 = 1e11 = 100_000_000_000
+        assert!(compute_tax(100_000_000_000_000, 10) == 100_000_000_000, 1);
+        // 100M token (1e16 raw) at 30 bps = 1e16 × 30 / 10000 = 3e13 = 30_000_000_000_000
+        assert!(compute_tax(10_000_000_000_000_000, 30) == 30_000_000_000_000, 2);
+        // 1 token (1e8 raw) at max 10% (1000 bps) = 1e8 × 1000 / 10000 = 1e7 = 10_000_000
+        assert!(compute_tax(100_000_000, 1000) == 10_000_000, 3);
+    }
+
+    #[test]
+    fun test_compute_tax_max_bounds_no_overflow() {
+        // amount = u64 max (~1.8e19), tax_bps = MAX (1000)
+        // numerator = 1.8e19 × 1000 + 9999 ≈ 1.8e22, well under u128 (3.4e38)
+        // result = 1.8e22 / 10000 = 1.8e18, fits in u64
+        let max_amt = 18_446_744_073_709_551_615u64;     // u64::MAX
+        let tax = compute_tax(max_amt, MAX_TAX_BPS);
+        // Sanity: tax should be ~10% of max_amt
+        assert!(tax > max_amt / 10 - 1, 1);
+        assert!(tax <= max_amt / 10 + 1, 2);
+    }
+
+    // ============ M5 FIX TEST — opinion limit constant ============
+
+    #[test]
+    fun test_max_opinions_per_pid_constant() {
+        assert!(MAX_OPINIONS_PER_PID == 10_000, 1);
+        // Sanity: at MIN_INITIAL_MC per opinion (1M token), max 10k opinions
+        // would lock 10k × 1M = 10B token, which exceeds 1B factory supply ×10.
+        // So limit is bound by token supply long before the count cap kicks in.
+        // The cap is defense against state-rent grief, not capital griefing.
     }
 }
