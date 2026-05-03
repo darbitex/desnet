@@ -44,6 +44,7 @@ module desnet::profile {
     friend desnet::press;
     friend desnet::giveaway;
     friend desnet::history;
+    friend desnet::opinion;
 
     // ============ CONSTANTS ============
 

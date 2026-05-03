@@ -25,6 +25,7 @@ module desnet::apt_vault {
 
     friend desnet::factory;
     friend desnet::handle_fee_vault;
+    friend desnet::opinion;
 
     // ============ CONSTANTS ============
 

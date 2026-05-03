@@ -37,6 +37,7 @@ module desnet::mint {
     use desnet::history;
     use desnet::assets;
     use desnet::factory;
+    use desnet::opinion;
 
     friend desnet::pulse;
     friend desnet::press;
@@ -161,6 +162,11 @@ module desnet::mint {
         tags: vector<vector<u8>>,                   // ≤5, lowercase a-z/0-9/-
         tickers: vector<address>,                   // ≤5 factory-spawned FA addrs
         tips: vector<Tip>,                          // ≤10 atomic transfers
+        // rc3 Pattern B (2026-05-03): is_opinion is NOT a field on MintEvent
+        // (compat-safe — preserves v0.3.x BCS layout). Opinion-mints are detected
+        // via `opinion::market_exists(author_pid, seq)` view (returns true iff
+        // OpinionMarket resource exists at deterministic addr from (pid, seq)).
+        // Created via separate entry: mint::create_opinion_mint.
     }
 
     /// Atomic tip executed during mint creation (paired with MintEvent).
@@ -197,6 +203,11 @@ module desnet::mint {
     ///
     /// Tips (if any): each tip transfers from author's primary store to recipient
     /// in same tx. Tx aborts if any tip lacks balance — atomic all-or-nothing.
+    ///
+    /// rc3 Pattern B (2026-05-03): signature UNCHANGED from v0.3.x for compat-safe
+    /// upgrade. For opinion-mints, use the separate `create_opinion_mint` entry —
+    /// it shares this exact mint creation logic via internal helper, then bootstraps
+    /// an OpinionMarket atomically.
     public entry fun create_mint(
         author: &signer,
         content_kind: u8,
@@ -229,6 +240,94 @@ module desnet::mint {
         asset_master_addr: address,
         asset_master_set: bool,
     ) acquires PidMintMeta {
+        let _ = do_create_mint(
+            author, content_kind, content_text,
+            media_kind, media_mime, media_inline_data,
+            media_ref_backend, media_ref_blob_id, media_ref_hash,
+            parent_author, parent_seq, parent_set,
+            quote_author, quote_seq, quote_set,
+            mentions, tags, tickers,
+            tip_recipients, tip_tokens, tip_amounts,
+            asset_master_addr, asset_master_set,
+        );
+    }
+
+    /// rc3 Pattern B: atomic create_mint + bootstrap OpinionMarket.
+    /// Single entry, single tx, single user click. Validates initial_mc bounds +
+    /// creator factory token presence inside opinion::bootstrap_market_for_mint.
+    /// tax_bps hardcoded at DEFAULT_TAX_BPS (10 bps) inside opinion module.
+    /// Opinion-mints detected via `opinion::market_exists(author_pid, seq)`.
+    /// Allowed on all 3 mint modes (Mint/Voice/Remix).
+    public entry fun create_opinion_mint(
+        author: &signer,
+        content_kind: u8,
+        content_text: vector<u8>,
+        media_kind: u8,
+        media_mime: u8,
+        media_inline_data: vector<u8>,
+        media_ref_backend: u8,
+        media_ref_blob_id: vector<u8>,
+        media_ref_hash: vector<u8>,
+        parent_author: address,
+        parent_seq: u64,
+        parent_set: bool,
+        quote_author: address,
+        quote_seq: u64,
+        quote_set: bool,
+        mentions: vector<address>,
+        tags: vector<vector<u8>>,
+        tickers: vector<address>,
+        tip_recipients: vector<address>,
+        tip_tokens: vector<address>,
+        tip_amounts: vector<u64>,
+        asset_master_addr: address,
+        asset_master_set: bool,
+        // Pool seed amount in $creator_token raw units. Validated [1M, 100M] whole
+        // token at 8 decimals = [10^14, 10^16] raw inside opinion module.
+        opinion_initial_mc: u64,
+    ) acquires PidMintMeta {
+        let seq = do_create_mint(
+            author, content_kind, content_text,
+            media_kind, media_mime, media_inline_data,
+            media_ref_backend, media_ref_blob_id, media_ref_hash,
+            parent_author, parent_seq, parent_set,
+            quote_author, quote_seq, quote_set,
+            mentions, tags, tickers,
+            tip_recipients, tip_tokens, tip_amounts,
+            asset_master_addr, asset_master_set,
+        );
+        let author_pid = profile::derive_pid_address(signer::address_of(author));
+        opinion::bootstrap_market_for_mint(author, author_pid, seq, opinion_initial_mc);
+    }
+
+    /// Internal mint helper — shared by create_mint + create_opinion_mint.
+    /// Returns the allocated seq for caller convenience (used by create_opinion_mint
+    /// to derive the OpinionMarket addr at (author_pid, seq)).
+    fun do_create_mint(
+        author: &signer,
+        content_kind: u8,
+        content_text: vector<u8>,
+        media_kind: u8,
+        media_mime: u8,
+        media_inline_data: vector<u8>,
+        media_ref_backend: u8,
+        media_ref_blob_id: vector<u8>,
+        media_ref_hash: vector<u8>,
+        parent_author: address,
+        parent_seq: u64,
+        parent_set: bool,
+        quote_author: address,
+        quote_seq: u64,
+        quote_set: bool,
+        mentions: vector<address>,
+        tags: vector<vector<u8>>,
+        tickers: vector<address>,
+        tip_recipients: vector<address>,
+        tip_tokens: vector<address>,
+        tip_amounts: vector<u64>,
+        asset_master_addr: address,
+        asset_master_set: bool,
+    ): u64 acquires PidMintMeta {
         let author_addr = signer::address_of(author);
         let author_pid = profile::derive_pid_address(author_addr);
         profile::assert_pid_exists(author_pid);
@@ -339,6 +438,8 @@ module desnet::mint {
             tags,
             tickers,
             tips: tips_vec,
+            // rc3 Pattern B: no is_opinion field (compat-safe). Detect via
+            // opinion::market_exists(author_pid, seq) view.
         };
 
         // Verb dispatch: Mint=0 (no parent/quote), Voice=2 (parent_set), Remix=4 (quote_set).
@@ -370,6 +471,8 @@ module desnet::mint {
             author_pid,
             history::new_entry(verb, now_secs, target, payload, asset_ref),
         );
+
+        seq
     }
 
     // ============ INTERNAL — tip execution ============
