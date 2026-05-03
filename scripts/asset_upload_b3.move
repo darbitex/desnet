@@ -27,6 +27,7 @@ script {
         node_chunk_counts: vector<u64>,
         depth: u8,
     ) {
+        assert!(depth <= 2, 99);
         let master_addr = assets::start_upload_v2(
             uploader, mime, total_size, creator_pid, master_nonce
         );

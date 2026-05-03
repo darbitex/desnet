@@ -31,6 +31,11 @@ script {
         node_chunk_counts: vector<u64>,
         depth: u8,
     ) {
+        // Depth is bounded by assets.move semantics (single chunk, single
+        // node, or root-over-leaves). Higher depths aren't reachable through
+        // the existing tree shape, so reject up-front rather than failing
+        // mid-script with confusing assertion codes.
+        assert!(depth <= 2, 99);
         let master_addr = assets::start_upload_pub(uploader, mime, total_size, creator_pid);
 
         // ============ Deploy all chunks (pop-from-back + reverse) ============
