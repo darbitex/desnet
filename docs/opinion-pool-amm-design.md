@@ -1,9 +1,9 @@
 # DeSNet Opinion Pool — AMM Design Lock
 
-**Date:** 2026-05-03
-**Status:** Design locked (curve only); implementation pending
+**Date:** 2026-05-03 (rev 2)
+**Status:** Design FULLY locked (curve + collateral + tax + creator-position); implementation pending refactor of v1 scaffold
 **Author:** Locked-in via design conversation
-**Supersedes:** none (greenfield substrate)
+**Supersedes:** none (greenfield substrate); v1 scaffold (commit `63f9d88`) used APT collateral and is being superseded by this rev — see §10
 
 ## 0. Premise
 
@@ -27,7 +27,9 @@ DeSNet's "prediction-market substrate" is **NOT** a Polymarket/Azuro-style marke
 
 **Single rule (applies to every deposit, from block 0):**
 
-> Deposit `c` APT → atomically mint `c` Y + `c` N. User keeps `c` of chosen side. The other `c` auto-deposits into the pool.
+> Deposit `c` $creator_token → atomically mint `c` Y + `c` N. User keeps `c` of chosen side. The other `c` auto-deposits into the pool.
+
+**Collateral lock**: vault denominated in **creator's $token** (looked up via `factory::token_metadata_of_owner(author_pid)` at create time, immutable thereafter). NOT APT, NOT DESNET. See §4 for economic-loop justification.
 
 The pool maintains pure constant product `Y_reserve × N_reserve = k` (UniV2-style). It bootstraps itself from `(0,0)` without creator seed.
 
@@ -131,7 +133,64 @@ Pure CPMM constraint preserved.
 |---|---|---|
 | 1 | Token count | **2-token YES/NO pair** (required by Mirror-Mint design) |
 | 2 | Curve type | **Pure x*y=k with Mirror-Mint Bootstrap** |
-| 3 | Initial liquidity source | **Zero-seed; first 2 traders bootstrap automatically** |
+| 3 | Initial liquidity source | **Zero-seed; first 2 traders bootstrap (or creator pre-positions via §4.7 BOTH default)** |
+| 4 | **Vault collateral** | **Creator's $token** via `factory::token_metadata_of_owner(author_pid)` — NOT APT, NOT DESNET |
+| 5 | **Tax token** | **Same $creator_token, BURNED** via `apt_vault::burn_via_vault(factory::vault_addr_of_pid(author_pid), fa)` |
+| 6 | **Tax behavior** | **On top** of deposit (user pays c + tax, gets c Y or c N) — NOT skimmed |
+| 7 | **Creator position** | **3-option** (NONE / Y / N / BOTH); default **BOTH** (pool active immediately) |
+| 8 | **tax_bps scope** | **Per-opinion**, creator-set at create, immutable post-create. Default 30 bps, max 1000 bps (10%) |
+| 9 | **Swap tax** | **Proportional** to `amount_in` converted to $token via factory AMM quote, with flat floor (anti-dust) |
+| 10 | Guest restriction | **Only registered handles can create opinions** (required because vault denomination needs $token to exist) |
+| 11 | DESNET coupling | **Decoupled** — opinion module independent from DESNET (DESNET keeps utility via handle fees + governance + AMM) |
+
+### 4.7 Three-option creator position (locked)
+
+| Option | Cost ($creator_token) | Tax | Pool state | Use case |
+|---|---|---|---|---|
+| **NONE** (0) | 0 | 0 | (0, 0) — empty | Curator/moderator just opens topic; no skin in game |
+| **Y** (1) or **N** (2) | c | c × tax_bps / 10000 | one-sided (c on opposite side in pool) | Creator expresses strong opinion publicly; accepts phase 1 lockup |
+| **BOTH** (3, **DEFAULT**) | 2c | 2c × tax_bps / 10000 | (c, c) — active immediately | Bootstrap full market without outcome exposure; recommended default |
+
+BOTH = "pricing of certainty" — pay 2× to make pool active from block 0. Creator keeps balanced (c Y + c N), pool keeps balanced (c Y + c N). Creator immediate-redeemable for c $token if pool stays balanced; faces impermanent-loss-like exposure if pool drifts.
+
+### 4.8 Closed economic loop (justification for §4 locks)
+
+```
+factory v1.2 spawns 1B $creator_token at handle register
+  → 50M to AMM pool seed (immediate liquidity)
+  → 50M to reaction_emission reserve
+  → 900M to lp_emission reserve (slow drip to creator's locked Position)
+
+Creator earns $creator_token passively via:
+  - lp_emission drip (locked Position at PID NFT)
+  - LP fees from factory AMM swaps
+  - press emission via factory::emit_press_to_presser
+
+Creator USES accumulated $creator_token to:
+  - Open opinion markets (BOTH option costs 2c, locks 2c in vault — uses own stash, NO market dump)
+
+Engagers acquire $creator_token via factory AMM:
+  - Demand pressure on $creator_token price
+  - LP fees back to creator's locked Position
+  - Engagement burns $creator_token (deflationary)
+
+Result: emission flow has functional sink. Creator does NOT need to dump
+$creator_token to bootstrap their own opinion markets. Reputation
+self-regulates via $creator_token price.
+```
+
+If collateral were DESNET or APT instead, creator would need to swap $creator_token → DESNET/APT to bootstrap their own opinions, creating perverse SELL pressure on their own token. With $creator_token collateral, the loop is closed and self-reinforcing.
+
+### 4.9 Volatility = reputation signal (not bug)
+
+| Scenario | Effect |
+|---|---|
+| $creator_token pump | Engagement expensive → high-conviction filter → high signal-to-noise |
+| $creator_token dump | Engagement cheap → spam permitted but low value → market self-segregates |
+| Pump-and-dump attempt | Pump kills opinion engagement → utility lost → token dumps back → self-punishing |
+| Bot spam | Bot must hold/burn $creator_token → spam pumps creator → spam becomes expensive |
+
+Pasar self-segregates. Tidak butuh moderator manusia.
 
 ---
 
@@ -139,10 +198,9 @@ Pure CPMM constraint preserved.
 
 | # | Knob | Notes |
 |---|---|---|
-| 4 | "Graduation" mechanic | Mirror-Mint already always-on-main-AMM from day-1 (no separate launchpad → main-DEX phase). Likely N/A. Confirm. |
-| 5 | Press / echo / emission interplay | Should `press` trigger auto-deposit? At what amount? Funded by whom (presser, PID owner, protocol)? Could compose with existing `reaction_emission`. |
-| 6 | Fee structure | Bps on swap? Routed to LPs only? Or split with `apt_vault` for DESNET buyback-burn (mirror existing handle-fee mechanic)? |
-| 7 | Multi-outcome (>2 sides) | Mirror-Mint extends naturally: `c` APT mints `c` of each of N tokens, user keeps c of chosen, rest (n−1) sides auto-deposit. Pool invariant becomes `prod(reserves) = k`. Defer to v2. |
+| A | "Graduation" mechanic | Mirror-Mint already always-on-main-AMM from day-1 (no separate launchpad → main-DEX phase). Likely N/A. Confirm. |
+| B | Press / echo / emission interplay | Should `press` trigger auto-deposit? At what amount? Likely keep separate (press = reaction, vote = explicit deposit). Defer pending UX testing. |
+| C | Multi-outcome (>2 sides) | Mirror-Mint extends naturally: `c` $creator_token mints `c` of each of N tokens, user keeps c of chosen, rest (n−1) sides auto-deposit. Pool invariant becomes `prod(reserves) = k`. **Defer to v2 as sibling module `desnet::opinion_multi`** (do NOT refactor v1). |
 
 ---
 
@@ -172,6 +230,26 @@ Pure CPMM constraint preserved.
 | Pump.fun virtual reserves | Bonding-curve-disguised (user explicitly rejected bonding) |
 | Paradigm pm-AMM | Gaussian curve, not x*y=k; has time-decay (rejected on no-settle grounds) |
 | Single-token bonding (Bodhi-style) | User prefers x*y=k structure; also no native shorting |
+
+## 10. v1 → v2 refactor (after this rev's lock-in)
+
+The v1 scaffold (commit `63f9d88`) used **APT as collateral** and had `fee_bps` as a hardcoded 0 hook. This was placeholder before the §4 locks landed. Refactor checklist:
+
+- [ ] Replace `APT_FA_ADDR` constant usage with dynamic `factory::token_metadata_of_owner(author_pid)` lookup at create_opinion
+- [ ] Add `creator_token: address` field to OpinionMarket struct (cached at create for fast access)
+- [ ] Add `tax_bps: u64` arg to `create_opinion` (validate ≤ 1000)
+- [ ] Add `creator_position: u8` arg (NONE=0, Y=1, N=2, BOTH=3); default BOTH if unset
+- [ ] Implement BOTH atomically as 2× single-side deposit (pay 2c, mint 2c Y + 2c N, keep c each, pool gets c each)
+- [ ] Add tax burn flow: pull extra $creator_token from user, call `apt_vault::burn_via_vault(factory::vault_addr_of_pid(author_pid), fa)`
+- [ ] Swap tax: convert `amount_in` to $creator_token equivalent via `amm::compute_amount_out` quote, apply `swap_tax_bps`, with flat floor (e.g. 1000 raw units)
+- [ ] Add `friend desnet::opinion;` to `apt_vault.move`
+- [ ] Update conservation invariant assertion: `vault_$creator_token == total_y_supply == total_n_supply`
+- [ ] Tests: setup factory token in test env (or unit-test helpers in isolation, defer integration tests)
+- [ ] Update views: `vault_balance` returns $creator_token amount (not APT)
+
+Estimated +250 LOC net.
+
+---
 
 ## 9. Cross-references
 
