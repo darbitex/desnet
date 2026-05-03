@@ -1,33 +1,43 @@
-/// Opinion Pool — perpetual no-settle prediction substrate (SCAFFOLD 2026-05-03).
+/// Opinion Pool — perpetual no-settle prediction substrate (rev4 2026-05-03).
 ///
-/// Each "opinion" = a tokenized claim posted by a PID author. Y (yes-belief)
-/// and N (no-belief) FA tokens trade on a CPMM pool that bootstraps from (0,0)
-/// without any creator-supplied seed liquidity.
+/// Each "opinion" = a tokenized claim posted by a PID author with a registered
+/// factory token. YAY (yes-belief) and NAY (no-belief) FA tokens trade on a
+/// CPMM pool denominated in the creator's $token. Pool seeded symmetrically at
+/// create — active from block 0.
 ///
-/// Curve: "Mirror-Mint Bootstrap" — pure x*y=k.
-/// Single rule (every deposit, from block 0):
-///   deposit c APT → mint c Y + c N atomically.
-///   user keeps c of chosen side. opposite c auto-deposits to pool.
+/// Curve: pure x*y=k.
+/// Vault collateral: creator's $token (factory::token_metadata_of_owner).
+/// Tax: same $creator_token, BURNED via apt_vault::burn_via_vault.
 ///
-/// Phase transitions automatic:
-///   (0,0)         empty            no trading
-///   (c,0) | (0,c) one-sided        no trading (k undefined)
-///   (>0, >0)      two-sided        CPMM live, k = pool_y * pool_n
+/// CREATE — single mechanic, creator pays initial_mc:
+///   pull initial_mc $creator_token → vault store
+///   mint initial_mc YAY + initial_mc NAY → both to pool stores
+///   creator wallet: 0 YAY, 0 NAY
+///   pool: (initial_mc, initial_mc), k = initial_mc² — TRADABLE day 1
+///   vault: initial_mc (LOCKED forever for creator — alias di-burn dari POV creator)
+///
+/// SUBSEQUENT TRADER OPS (anyone, including creator post-create):
+///   deposit_pick_side(side, c)  : pay c + tax c×tax_bps; mint c YAY + c NAY;
+///                                  user keeps c of chosen side; opposite c → pool
+///   swap_yay_for_nay / swap_nay_for_yay : pure CPMM + tax burn
+///   redeem_complete_set(amt)    : burn amt YAY + amt NAY; receive amt $token
+///                                  + tax amt×tax_bps burned
 ///
 /// Conservation invariant (always):
-///   vault_apt_balance == total_y_supply == total_n_supply
-///   (each c APT mints exactly c Y + c N; redeem burns equal pair)
+///   vault_$creator_token == total_yay_supply == total_nay_supply
+///   (every mint adds equally to vault & both supplies; redeem subtracts equally;
+///    swaps don't touch vault or total supplies)
 ///
-/// NO oracle. NO settle. NO expiry. NO redemption against ground truth.
-/// Exit path: user swaps to balanced (Y, N) pair on pool, then `redeem_complete_set`
-/// burns the pair to release c APT from vault.
+/// NO oracle. NO settle. NO expiry. NO LP shares. NO LP fee.
+/// NO press↔opinion coupling (orthogonal verbs by design).
+/// Pool is coordination state, not ownable claim.
+/// Creator's initial_mc is permanently locked in vault (no redeem path for creator).
 ///
-/// Social-feed integration: each action (create / deposit / swap / redeem)
-/// appends to actor's history with VERB_OPINION + BCS-encoded payload, so the
-/// post and all engagement appear in the standard feed alongside mint/voice/etc.
-/// Payload structs carry `is_opinion: bool = true` sentinel per user-spec.
+/// Social-feed integration: each action (create/deposit/swap/redeem) appends
+/// to actor's history with VERB_OPINION + BCS payload + #[event].
+/// Payload structs carry `is_opinion: bool = true` sentinel.
 ///
-/// See: docs/opinion-pool-amm-design.md for full design lock + math reference.
+/// See: docs/opinion-pool-amm-design.md (rev4) for full design lock + math.
 module desnet::opinion {
     use std::bcs;
     use std::option;
@@ -41,40 +51,48 @@ module desnet::opinion {
     use aptos_framework::timestamp;
     use aptos_std::smart_table::{Self, SmartTable};
 
-    use desnet::profile;
+    use desnet::apt_vault;
+    use desnet::factory;
     use desnet::history;
+    use desnet::profile;
 
     // ============ CONSTANTS ============
-
-    /// APT FA Metadata address (Aptos framework constant).
-    const APT_FA_ADDR: address = @0xa;
 
     /// Content text cap mirrors mint::CONTENT_TEXT_MAX_BYTES for feed consistency.
     const CONTENT_TEXT_MAX_BYTES: u64 = 333;
 
     /// Side discriminator for deposit / event encoding.
-    const SIDE_NONE: u8 = 0;
-    const SIDE_Y: u8 = 1;
-    const SIDE_N: u8 = 2;
+    const SIDE_NONE: u8 = 0;             // event-payload only (swap/redeem have no side)
+    const SIDE_YAY: u8 = 1;
+    const SIDE_NAY: u8 = 2;
 
     /// Event-kind discriminator inside OpinionFeedEntry payload.
     const KIND_CREATE: u8 = 0;
     const KIND_DEPOSIT: u8 = 1;
-    const KIND_SWAP_Y_FOR_N: u8 = 2;
-    const KIND_SWAP_N_FOR_Y: u8 = 3;
+    const KIND_SWAP_YAY_FOR_NAY: u8 = 2;
+    const KIND_SWAP_NAY_FOR_YAY: u8 = 3;
     const KIND_REDEEM: u8 = 4;
 
-    /// FA decimals for opinion tokens (mirror APT for clean 1:1 collateral math).
+    /// FA decimals for opinion tokens. Matches factory token decimals (8) so
+    /// 1 YAY redeems 1:1 with 1 $creator_token (with 1 NAY) via complete-set burn.
     const OPN_DECIMALS: u8 = 8;
 
-    /// Default fee = 0 bps. Open knob #6 (TBD); friend-settable hook reserved for v2.
-    const DEFAULT_FEE_BPS: u64 = 0;
-    const FEE_DENOM: u64 = 10000;
+    /// initial_mc bounds: [1M, 100M] WHOLE $creator_token.
+    /// Factory tokens have 8 decimals + 1B total supply, so:
+    ///   MIN = 1M  whole token = 0.1% of 1B supply per opinion (anti-dust)
+    ///   MAX = 100M whole token = 10%  of 1B supply per opinion (anti-monopoly)
+    const MIN_INITIAL_MC: u64 = 100_000_000_000_000;       //   1M token at 8 decimals = 1e14 raw
+    const MAX_INITIAL_MC: u64 = 10_000_000_000_000_000;    // 100M token at 8 decimals = 1e16 raw
+
+    /// Tax bps (creator-set per-opinion, immutable post-create).
+    const DEFAULT_TAX_BPS: u64 = 10;     // 0.1% — applied to deposit/swap/redeem amounts
+    const MAX_TAX_BPS: u64 = 1000;       // 10% cap (anti-trap)
+    const BPS_DENOM: u64 = 10000;
 
     /// Object seed prefixes (deterministic addrs).
     const SEED_MARKET_PREFIX: vector<u8> = b"opinion_market::";
-    const SEED_Y: vector<u8> = b"Y";
-    const SEED_N: vector<u8> = b"N";
+    const SEED_YAY: vector<u8> = b"YAY";
+    const SEED_NAY: vector<u8> = b"NAY";
 
     // ============ ERROR CODES ============
 
@@ -86,9 +104,10 @@ module desnet::opinion {
     const E_POOL_NOT_ACTIVE: u64 = 6;
     const E_SLIPPAGE_EXCEEDED: u64 = 7;
     const E_CONSERVATION_BROKEN: u64 = 8;
-    const E_INITIAL_PICK_INVALID: u64 = 9;
-    const E_INSUFFICIENT_VAULT: u64 = 10;
-    const E_INVALID_FEE: u64 = 11;
+    const E_INSUFFICIENT_VAULT: u64 = 9;
+    const E_NO_FACTORY_TOKEN: u64 = 10;
+    const E_INITIAL_MC_OUT_OF_RANGE: u64 = 11;
+    const E_TAX_BPS_TOO_HIGH: u64 = 12;
 
     // ============ TYPES ============
 
@@ -104,32 +123,35 @@ module desnet::opinion {
     }
 
     /// THE opinion-market resource. Lives at deterministic market_addr derived
-    /// from (author_pid, seq). Holds Y/N mint+burn refs and pool reserves.
+    /// from (author_pid, seq). Holds YAY/NAY mint+burn refs and pool reserves.
     struct OpinionMarket has key {
         author_pid: address,
         seq: u64,
         creator_wallet: address,
-        content_text: vector<u8>,           // ≤333B, immutable
-        // FA token addrs (deterministic children of market_addr)
-        y_metadata: address,
-        n_metadata: address,
+        content_text: vector<u8>,                  // ≤333B, immutable
+        // Creator's $token denomination (cached at create — immutable lookup)
+        creator_token: address,                    // factory::token_metadata_of_owner(author_pid)
+        creator_initial_mc: u64,                   // visible commitment signal (immutable)
+        // Tax (creator-set at create, immutable, applies to subsequent trader ops)
+        tax_bps: u64,
+        // YAY / NAY FA addrs (deterministic children of market_addr)
+        yay_metadata: address,
+        nay_metadata: address,
         // Capabilities (sealed inside resource — only this module can mint/burn)
-        y_mint_ref: MintRef,
-        y_burn_ref: BurnRef,
-        n_mint_ref: MintRef,
-        n_burn_ref: BurnRef,
-        // Pool reserves: FungibleStore objects owned by market_addr.
-        pool_y: Object<FungibleStore>,
-        pool_n: Object<FungibleStore>,
-        // Collateral vault (APT FungibleStore owned by market_addr)
-        vault_apt: Object<FungibleStore>,
+        yay_mint_ref: MintRef,
+        yay_burn_ref: BurnRef,
+        nay_mint_ref: MintRef,
+        nay_burn_ref: BurnRef,
+        // Pool reserves (FungibleStore objects owned by market_addr)
+        pool_yay: Object<FungibleStore>,
+        pool_nay: Object<FungibleStore>,
+        // Collateral vault ($creator_token FungibleStore owned by market_addr)
+        vault_token: Object<FungibleStore>,
         // Conservation accounting (sanity-checked on every mutating op)
-        total_y_supply: u64,
-        total_n_supply: u64,
-        // Fee hook (currently 0; reserved for v2)
-        fee_bps: u64,
+        total_yay_supply: u64,
+        total_nay_supply: u64,
         created_at_secs: u64,
-        // Market signer derivation (rarely needed post-create; kept for future ops)
+        // Market signer derivation for FungibleStore withdraws
         market_extend_ref: ExtendRef,
     }
 
@@ -139,12 +161,15 @@ module desnet::opinion {
     /// Frontend MUST check this flag to distinguish from regular mint events.
     #[event]
     struct OpinionMintCreated has drop, store {
-        is_opinion: bool,                   // = true (sentinel)
+        is_opinion: bool,                          // = true (sentinel)
         author_pid: address,
         seq: u64,
         market_addr: address,
-        y_metadata: address,
-        n_metadata: address,
+        creator_token: address,
+        creator_initial_mc: u64,
+        tax_bps: u64,
+        yay_metadata: address,
+        nay_metadata: address,
         content_text: vector<u8>,
         creator_wallet: address,
         timestamp_secs: u64,
@@ -153,34 +178,37 @@ module desnet::opinion {
     /// Vote-like action (deposit / swap / redeem). Aggregator-friendly.
     #[event]
     struct OpinionAction has drop, store {
-        is_opinion: bool,                   // = true (sentinel)
-        kind: u8,                           // KIND_DEPOSIT | KIND_SWAP_* | KIND_REDEEM
+        is_opinion: bool,                          // = true (sentinel)
+        kind: u8,                                  // KIND_DEPOSIT | KIND_SWAP_* | KIND_REDEEM
         actor_wallet: address,
         author_pid: address,
         seq: u64,
         market_addr: address,
-        side: u8,                           // SIDE_Y/N for deposit, SIDE_NONE for swap/redeem
+        side: u8,                                  // SIDE_YAY/NAY for deposit, SIDE_NONE for swap/redeem
         amount_in: u64,
         amount_out: u64,
-        new_pool_y: u64,
-        new_pool_n: u64,
-        new_total_y_supply: u64,
-        new_total_n_supply: u64,
+        tax_burned: u64,                           // $creator_token burned in this op
+        new_pool_yay: u64,
+        new_pool_nay: u64,
+        new_total_yay_supply: u64,
+        new_total_nay_supply: u64,
         timestamp_secs: u64,
     }
 
     // ============ HISTORY-PAYLOAD STRUCTS (BCS-encoded into Entry.payload) ============
 
     /// Payload for VERB_OPINION entries with kind=KIND_CREATE.
-    /// Frontend BCS-decodes Entry.payload into this when verb=7 and kind byte = 0.
     struct OpinionFeedCreate has copy, drop, store {
-        is_opinion: bool,                   // = true (sentinel; user-spec)
-        kind: u8,                           // = KIND_CREATE
+        is_opinion: bool,                          // = true (sentinel)
+        kind: u8,                                  // = KIND_CREATE
         author_pid: address,
         seq: u64,
         market_addr: address,
-        y_metadata: address,
-        n_metadata: address,
+        creator_token: address,
+        creator_initial_mc: u64,
+        tax_bps: u64,
+        yay_metadata: address,
+        nay_metadata: address,
         content_text: vector<u8>,
         creator_wallet: address,
         timestamp_secs: u64,
@@ -188,7 +216,7 @@ module desnet::opinion {
 
     /// Payload for VERB_OPINION entries with kind in {DEPOSIT, SWAP_*, REDEEM}.
     struct OpinionFeedAction has copy, drop, store {
-        is_opinion: bool,                   // = true (sentinel; user-spec)
+        is_opinion: bool,                          // = true (sentinel)
         kind: u8,
         actor_wallet: address,
         author_pid: address,
@@ -197,10 +225,11 @@ module desnet::opinion {
         side: u8,
         amount_in: u64,
         amount_out: u64,
-        new_pool_y: u64,
-        new_pool_n: u64,
-        new_total_y_supply: u64,
-        new_total_n_supply: u64,
+        tax_burned: u64,
+        new_pool_yay: u64,
+        new_pool_nay: u64,
+        new_total_yay_supply: u64,
+        new_total_nay_supply: u64,
         timestamp_secs: u64,
     }
 
@@ -219,27 +248,41 @@ module desnet::opinion {
 
     // ============ CREATE OPINION — main entry ============
 
-    /// Create an opinion market with content. Optionally pick a side and seed
-    /// initial deposit in the same tx (if `initial_pick_apt > 0`).
+    /// Create an opinion market with symmetric pool seed.
+    /// Creator pays `initial_mc` $creator_token; mints initial_mc YAY + initial_mc NAY,
+    /// BOTH go to pool. Creator wallet receives nothing (0 YAY, 0 NAY).
+    /// Pool active from block 0 (k = initial_mc²). Vault locks initial_mc forever.
     ///
-    /// `initial_pick_side`:
-    ///   - SIDE_NONE (0): no auto-deposit; pool stays empty (0,0)
-    ///   - SIDE_Y (1) or SIDE_N (2): atomically deposits `initial_pick_apt` APT
-    ///     and runs phase-1 accumulation on chosen side.
+    /// Restrictions:
+    /// - Author MUST have a Profile (mint::E_GUEST_CANNOT_MINT analog)
+    /// - Author's wallet MUST have a registered factory token (E_NO_FACTORY_TOKEN)
+    /// - initial_mc ∈ [1M, 100M] WHOLE $token (raw [1e14, 1e16] at 8 decimals)
+    /// - tax_bps ≤ MAX_TAX_BPS (1000 = 10%)
     public entry fun create_opinion(
         author: &signer,
         content_text: vector<u8>,
-        initial_pick_side: u8,
-        initial_pick_apt: u64,
+        initial_mc: u64,
+        tax_bps: u64,
     ) acquires PidOpinionMeta, PidOpinionIndex, OpinionMarket {
         let author_addr = signer::address_of(author);
         let author_pid = profile::derive_pid_address(author_addr);
         profile::assert_pid_exists(author_pid);
 
+        // Validate content + bounds
         assert!(
             vector::length(&content_text) <= CONTENT_TEXT_MAX_BYTES,
             E_CONTENT_TOO_LONG,
         );
+        assert!(
+            initial_mc >= MIN_INITIAL_MC && initial_mc <= MAX_INITIAL_MC,
+            E_INITIAL_MC_OUT_OF_RANGE,
+        );
+        assert!(tax_bps <= MAX_TAX_BPS, E_TAX_BPS_TOO_HIGH);
+
+        // Guest restriction: author must have a registered factory token (the
+        // opinion's denomination). If not, abort.
+        assert!(factory::owner_has_token(author_addr), E_NO_FACTORY_TOKEN);
+        let creator_token = factory::token_metadata_of_owner(author_addr);
 
         ensure_opinion_storage(author_pid);
 
@@ -260,43 +303,56 @@ module desnet::opinion {
         let mkt_transfer = object::generate_transfer_ref(&market_constructor);
         object::disable_ungated_transfer(&mkt_transfer);
 
-        // Mint Y FA as named child of market → deterministic addr
-        let y_constructor = object::create_named_object(&market_signer, SEED_Y);
-        let y_metadata = object::address_from_constructor_ref(&y_constructor);
+        // Mint YAY FA as named child of market → deterministic addr
+        let yay_constructor = object::create_named_object(&market_signer, SEED_YAY);
+        let yay_metadata = object::address_from_constructor_ref(&yay_constructor);
         primary_fungible_store::create_primary_store_enabled_fungible_asset(
-            &y_constructor,
-            option::none<u128>(),                       // unlimited supply (bounded by APT inflow)
-            string::utf8(b"Opinion YES Share"),
-            string::utf8(b"OPN-Y"),
+            &yay_constructor,
+            option::none<u128>(),                  // unlimited supply (bounded by collateral inflow)
+            string::utf8(b"Opinion YAY Share"),
+            string::utf8(b"OPN-YAY"),
             OPN_DECIMALS,
             string::utf8(b""),
             string::utf8(b""),
         );
-        let y_mint_ref = fungible_asset::generate_mint_ref(&y_constructor);
-        let y_burn_ref = fungible_asset::generate_burn_ref(&y_constructor);
+        let yay_mint_ref = fungible_asset::generate_mint_ref(&yay_constructor);
+        let yay_burn_ref = fungible_asset::generate_burn_ref(&yay_constructor);
 
-        // Mint N FA
-        let n_constructor = object::create_named_object(&market_signer, SEED_N);
-        let n_metadata = object::address_from_constructor_ref(&n_constructor);
+        // Mint NAY FA as named child of market
+        let nay_constructor = object::create_named_object(&market_signer, SEED_NAY);
+        let nay_metadata = object::address_from_constructor_ref(&nay_constructor);
         primary_fungible_store::create_primary_store_enabled_fungible_asset(
-            &n_constructor,
+            &nay_constructor,
             option::none<u128>(),
-            string::utf8(b"Opinion NO Share"),
-            string::utf8(b"OPN-N"),
+            string::utf8(b"Opinion NAY Share"),
+            string::utf8(b"OPN-NAY"),
             OPN_DECIMALS,
             string::utf8(b""),
             string::utf8(b""),
         );
-        let n_mint_ref = fungible_asset::generate_mint_ref(&n_constructor);
-        let n_burn_ref = fungible_asset::generate_burn_ref(&n_constructor);
+        let nay_mint_ref = fungible_asset::generate_mint_ref(&nay_constructor);
+        let nay_burn_ref = fungible_asset::generate_burn_ref(&nay_constructor);
 
-        // Create empty FungibleStores at market_addr for pool reserves + vault.
-        let y_metadata_obj = object::address_to_object<Metadata>(y_metadata);
-        let n_metadata_obj = object::address_to_object<Metadata>(n_metadata);
-        let apt_metadata_obj = object::address_to_object<Metadata>(APT_FA_ADDR);
-        let pool_y_store = create_store_at_market(market_addr, y_metadata_obj);
-        let pool_n_store = create_store_at_market(market_addr, n_metadata_obj);
-        let vault_apt_store = create_store_at_market(market_addr, apt_metadata_obj);
+        // Create FungibleStores at market_addr for pool reserves + vault.
+        let yay_metadata_obj = object::address_to_object<Metadata>(yay_metadata);
+        let nay_metadata_obj = object::address_to_object<Metadata>(nay_metadata);
+        let creator_token_obj = object::address_to_object<Metadata>(creator_token);
+        let pool_yay_store = create_store_at_market(market_addr, yay_metadata_obj);
+        let pool_nay_store = create_store_at_market(market_addr, nay_metadata_obj);
+        let vault_token_store = create_store_at_market(market_addr, creator_token_obj);
+
+        // ============ Symmetric pool seed ============
+        // Pull initial_mc $creator_token from author → vault (locked forever for creator)
+        let collateral_in = primary_fungible_store::withdraw(
+            author, creator_token_obj, initial_mc,
+        );
+        fungible_asset::deposit(vault_token_store, collateral_in);
+
+        // Mint initial_mc YAY + initial_mc NAY → BOTH go to pool (creator gets 0)
+        let yay_seed = fungible_asset::mint(&yay_mint_ref, initial_mc);
+        let nay_seed = fungible_asset::mint(&nay_mint_ref, initial_mc);
+        fungible_asset::deposit(pool_yay_store, yay_seed);
+        fungible_asset::deposit(pool_nay_store, nay_seed);
 
         let now_secs = timestamp::now_seconds();
         move_to(&market_signer, OpinionMarket {
@@ -304,38 +360,45 @@ module desnet::opinion {
             seq,
             creator_wallet: author_addr,
             content_text,
-            y_metadata,
-            n_metadata,
-            y_mint_ref,
-            y_burn_ref,
-            n_mint_ref,
-            n_burn_ref,
-            pool_y: pool_y_store,
-            pool_n: pool_n_store,
-            vault_apt: vault_apt_store,
-            total_y_supply: 0,
-            total_n_supply: 0,
-            fee_bps: DEFAULT_FEE_BPS,
+            creator_token,
+            creator_initial_mc: initial_mc,
+            tax_bps,
+            yay_metadata,
+            nay_metadata,
+            yay_mint_ref,
+            yay_burn_ref,
+            nay_mint_ref,
+            nay_burn_ref,
+            pool_yay: pool_yay_store,
+            pool_nay: pool_nay_store,
+            vault_token: vault_token_store,
+            total_yay_supply: initial_mc,
+            total_nay_supply: initial_mc,
             created_at_secs: now_secs,
             market_extend_ref,
         });
+
+        // Conservation post-create: vault == total_yay == total_nay == initial_mc ✓
+        let mkt_ref = borrow_global<OpinionMarket>(market_addr);
+        assert_conservation(mkt_ref);
 
         // Register in PID's opinion index
         let idx = borrow_global_mut<PidOpinionIndex>(author_pid);
         smart_table::add(&mut idx.markets, seq, market_addr);
 
-        // Append to history (verb=OPINION, payload=BCS(OpinionFeedCreate), asset=market_addr)
-        // Re-borrow content for payload (move-semantics: we already consumed it into resource)
-        let market_ref = borrow_global<OpinionMarket>(market_addr);
+        // Append to history
         let feed_payload = OpinionFeedCreate {
-            is_opinion: true,                           // SENTINEL (user-spec)
+            is_opinion: true,
             kind: KIND_CREATE,
             author_pid,
             seq,
             market_addr,
-            y_metadata,
-            n_metadata,
-            content_text: market_ref.content_text,
+            creator_token,
+            creator_initial_mc: initial_mc,
+            tax_bps,
+            yay_metadata,
+            nay_metadata,
+            content_text: mkt_ref.content_text,
             creator_wallet: author_addr,
             timestamp_secs: now_secs,
         };
@@ -354,40 +417,32 @@ module desnet::opinion {
             author_pid,
             seq,
             market_addr,
-            y_metadata,
-            n_metadata,
+            creator_token,
+            creator_initial_mc: initial_mc,
+            tax_bps,
+            yay_metadata,
+            nay_metadata,
             content_text: feed_payload.content_text,
             creator_wallet: author_addr,
             timestamp_secs: now_secs,
         });
-
-        // Optional initial deposit in same tx
-        if (initial_pick_apt > 0) {
-            assert!(
-                initial_pick_side == SIDE_Y || initial_pick_side == SIDE_N,
-                E_INITIAL_PICK_INVALID,
-            );
-            deposit_pick_side(author, author_pid, seq, initial_pick_side, initial_pick_apt);
-        } else {
-            // If apt=0 then side must also be NONE (no half-spec)
-            assert!(initial_pick_side == SIDE_NONE, E_INITIAL_PICK_INVALID);
-        };
     }
 
-    // ============ DEPOSIT (Mirror-Mint) ============
+    // ============ DEPOSIT (Mirror-Mint pair-mint, anyone) ============
 
-    /// Deposit `amount_apt` APT, mint `amount_apt` Y + `amount_apt` N, keep
-    /// chosen side, opposite side auto-deposits to pool. Activates phase 2
-    /// trading on the first opposite-side deposit.
+    /// Deposit `amount_token` $creator_token, mint amount_token YAY + amount_token NAY,
+    /// keep chosen side, opposite side auto-deposits to pool.
+    /// Tax: amount_token × tax_bps / 10000 $creator_token, BURNED on top of deposit.
+    /// Creator NOT banned — boleh participate as normal trader.
     public entry fun deposit_pick_side(
         user: &signer,
         author_pid: address,
         seq: u64,
         side: u8,
-        amount_apt: u64,
+        amount_token: u64,
     ) acquires OpinionMarket {
-        assert!(amount_apt > 0, E_AMOUNT_ZERO);
-        assert!(side == SIDE_Y || side == SIDE_N, E_INVALID_SIDE);
+        assert!(amount_token > 0, E_AMOUNT_ZERO);
+        assert!(side == SIDE_YAY || side == SIDE_NAY, E_INVALID_SIDE);
 
         let market_addr = market_addr_of(author_pid, seq);
         assert!(exists<OpinionMarket>(market_addr), E_MARKET_NOT_FOUND);
@@ -395,48 +450,53 @@ module desnet::opinion {
 
         let user_addr = signer::address_of(user);
 
-        // Pull APT collateral
-        let apt_metadata_obj = object::address_to_object<Metadata>(APT_FA_ADDR);
-        let apt_in = primary_fungible_store::withdraw(user, apt_metadata_obj, amount_apt);
-        fungible_asset::deposit(mkt.vault_apt,apt_in);
+        // Pull collateral
+        let creator_token_obj = object::address_to_object<Metadata>(mkt.creator_token);
+        let token_in = primary_fungible_store::withdraw(user, creator_token_obj, amount_token);
+        fungible_asset::deposit(mkt.vault_token, token_in);
 
         // Mint complete pair
-        let y_minted = fungible_asset::mint(&mkt.y_mint_ref, amount_apt);
-        let n_minted = fungible_asset::mint(&mkt.n_mint_ref, amount_apt);
-        mkt.total_y_supply = mkt.total_y_supply + amount_apt;
-        mkt.total_n_supply = mkt.total_n_supply + amount_apt;
+        let yay_minted = fungible_asset::mint(&mkt.yay_mint_ref, amount_token);
+        let nay_minted = fungible_asset::mint(&mkt.nay_mint_ref, amount_token);
+        mkt.total_yay_supply = mkt.total_yay_supply + amount_token;
+        mkt.total_nay_supply = mkt.total_nay_supply + amount_token;
 
         // User keeps chosen side; opposite goes to pool
-        if (side == SIDE_Y) {
-            primary_fungible_store::deposit(user_addr, y_minted);
-            fungible_asset::deposit(mkt.pool_n,n_minted);
+        if (side == SIDE_YAY) {
+            primary_fungible_store::deposit(user_addr, yay_minted);
+            fungible_asset::deposit(mkt.pool_nay, nay_minted);
         } else {
-            primary_fungible_store::deposit(user_addr, n_minted);
-            fungible_asset::deposit(mkt.pool_y,y_minted);
+            primary_fungible_store::deposit(user_addr, nay_minted);
+            fungible_asset::deposit(mkt.pool_yay, yay_minted);
         };
+
+        // Tax burn: extra creator_token from user, burned via apt_vault delegate
+        let tax_burned = burn_tax(user, mkt.creator_token, mkt.author_pid, amount_token, mkt.tax_bps);
 
         assert_conservation(mkt);
 
         let now_secs = timestamp::now_seconds();
-        let new_pool_y = fungible_asset::balance(mkt.pool_y);
-        let new_pool_n = fungible_asset::balance(mkt.pool_n);
+        let new_pool_yay = fungible_asset::balance(mkt.pool_yay);
+        let new_pool_nay = fungible_asset::balance(mkt.pool_nay);
         emit_action(
             mkt,
             user_addr,
             KIND_DEPOSIT,
             side,
-            amount_apt,
-            amount_apt,
-            new_pool_y,
-            new_pool_n,
+            amount_token,
+            amount_token,
+            tax_burned,
+            new_pool_yay,
+            new_pool_nay,
             now_secs,
         );
     }
 
     // ============ SWAP (CPMM, x*y=k) ============
 
-    /// Swap `amount_in` of Y to receive N from pool. Phase-2 only.
-    public entry fun swap_y_for_n(
+    /// Swap `amount_in` of YAY to receive NAY from pool. No swap fee in YAY/NAY
+    /// (pool stays clean); separate $creator_token tax burn.
+    public entry fun swap_yay_for_nay(
         user: &signer,
         author_pid: address,
         seq: u64,
@@ -448,43 +508,47 @@ module desnet::opinion {
         assert!(exists<OpinionMarket>(market_addr), E_MARKET_NOT_FOUND);
         let mkt = borrow_global_mut<OpinionMarket>(market_addr);
 
-        let pool_y_r = fungible_asset::balance(mkt.pool_y);
-        let pool_n_r = fungible_asset::balance(mkt.pool_n);
-        assert!(pool_y_r > 0 && pool_n_r > 0, E_POOL_NOT_ACTIVE);
+        let pool_yay_r = fungible_asset::balance(mkt.pool_yay);
+        let pool_nay_r = fungible_asset::balance(mkt.pool_nay);
+        assert!(pool_yay_r > 0 && pool_nay_r > 0, E_POOL_NOT_ACTIVE);
 
-        let amount_out = compute_amount_out(pool_y_r, pool_n_r, amount_in, mkt.fee_bps);
+        let amount_out = compute_amount_out(pool_yay_r, pool_nay_r, amount_in);
         assert!(amount_out >= min_out, E_SLIPPAGE_EXCEEDED);
 
         let user_addr = signer::address_of(user);
 
-        // Pull Y from user → pool
-        let y_metadata_obj = object::address_to_object<Metadata>(mkt.y_metadata);
-        let y_in = primary_fungible_store::withdraw(user, y_metadata_obj, amount_in);
-        fungible_asset::deposit(mkt.pool_y, y_in);
+        // Pull YAY from user → pool
+        let yay_obj = object::address_to_object<Metadata>(mkt.yay_metadata);
+        let yay_in = primary_fungible_store::withdraw(user, yay_obj, amount_in);
+        fungible_asset::deposit(mkt.pool_yay, yay_in);
 
-        // Send N to user (derive market signer to authorize FungibleStore withdraw)
+        // Send NAY to user (derive market signer to authorize FungibleStore withdraw)
         let market_signer = object::generate_signer_for_extending(&mkt.market_extend_ref);
-        let n_out = fungible_asset::withdraw(&market_signer, mkt.pool_n, amount_out);
-        primary_fungible_store::deposit(user_addr, n_out);
+        let nay_out = fungible_asset::withdraw(&market_signer, mkt.pool_nay, amount_out);
+        primary_fungible_store::deposit(user_addr, nay_out);
+
+        // Tax burn (proportional to amount_in — YAY is 1:1 with creator_token redemption)
+        let tax_burned = burn_tax(user, mkt.creator_token, mkt.author_pid, amount_in, mkt.tax_bps);
 
         let now_secs = timestamp::now_seconds();
-        let new_pool_y = fungible_asset::balance(mkt.pool_y);
-        let new_pool_n = fungible_asset::balance(mkt.pool_n);
+        let new_pool_yay = fungible_asset::balance(mkt.pool_yay);
+        let new_pool_nay = fungible_asset::balance(mkt.pool_nay);
         emit_action(
             mkt,
             user_addr,
-            KIND_SWAP_Y_FOR_N,
+            KIND_SWAP_YAY_FOR_NAY,
             SIDE_NONE,
             amount_in,
             amount_out,
-            new_pool_y,
-            new_pool_n,
+            tax_burned,
+            new_pool_yay,
+            new_pool_nay,
             now_secs,
         );
     }
 
-    /// Swap `amount_in` of N to receive Y from pool. Phase-2 only.
-    public entry fun swap_n_for_y(
+    /// Swap `amount_in` of NAY to receive YAY from pool.
+    public entry fun swap_nay_for_yay(
         user: &signer,
         author_pid: address,
         seq: u64,
@@ -496,43 +560,49 @@ module desnet::opinion {
         assert!(exists<OpinionMarket>(market_addr), E_MARKET_NOT_FOUND);
         let mkt = borrow_global_mut<OpinionMarket>(market_addr);
 
-        let pool_y_r = fungible_asset::balance(mkt.pool_y);
-        let pool_n_r = fungible_asset::balance(mkt.pool_n);
-        assert!(pool_y_r > 0 && pool_n_r > 0, E_POOL_NOT_ACTIVE);
+        let pool_yay_r = fungible_asset::balance(mkt.pool_yay);
+        let pool_nay_r = fungible_asset::balance(mkt.pool_nay);
+        assert!(pool_yay_r > 0 && pool_nay_r > 0, E_POOL_NOT_ACTIVE);
 
-        let amount_out = compute_amount_out(pool_n_r, pool_y_r, amount_in, mkt.fee_bps);
+        let amount_out = compute_amount_out(pool_nay_r, pool_yay_r, amount_in);
         assert!(amount_out >= min_out, E_SLIPPAGE_EXCEEDED);
 
         let user_addr = signer::address_of(user);
 
-        let n_metadata_obj = object::address_to_object<Metadata>(mkt.n_metadata);
-        let n_in = primary_fungible_store::withdraw(user, n_metadata_obj, amount_in);
-        fungible_asset::deposit(mkt.pool_n, n_in);
+        let nay_obj = object::address_to_object<Metadata>(mkt.nay_metadata);
+        let nay_in = primary_fungible_store::withdraw(user, nay_obj, amount_in);
+        fungible_asset::deposit(mkt.pool_nay, nay_in);
 
         let market_signer = object::generate_signer_for_extending(&mkt.market_extend_ref);
-        let y_out = fungible_asset::withdraw(&market_signer, mkt.pool_y, amount_out);
-        primary_fungible_store::deposit(user_addr, y_out);
+        let yay_out = fungible_asset::withdraw(&market_signer, mkt.pool_yay, amount_out);
+        primary_fungible_store::deposit(user_addr, yay_out);
+
+        let tax_burned = burn_tax(user, mkt.creator_token, mkt.author_pid, amount_in, mkt.tax_bps);
 
         let now_secs = timestamp::now_seconds();
-        let new_pool_y = fungible_asset::balance(mkt.pool_y);
-        let new_pool_n = fungible_asset::balance(mkt.pool_n);
+        let new_pool_yay = fungible_asset::balance(mkt.pool_yay);
+        let new_pool_nay = fungible_asset::balance(mkt.pool_nay);
         emit_action(
             mkt,
             user_addr,
-            KIND_SWAP_N_FOR_Y,
+            KIND_SWAP_NAY_FOR_YAY,
             SIDE_NONE,
             amount_in,
             amount_out,
-            new_pool_y,
-            new_pool_n,
+            tax_burned,
+            new_pool_yay,
+            new_pool_nay,
             now_secs,
         );
     }
 
     // ============ REDEEM COMPLETE SET ============
 
-    /// Burn `amount` Y + `amount` N from user, return `amount` APT from vault.
+    /// Burn `amount` YAY + `amount` NAY from user, return `amount` $creator_token from vault.
+    /// Tax: amount × tax_bps / 10000 $creator_token additional burn.
     /// Conservation invariant maintained.
+    /// Note: creator typically has 0 YAY / 0 NAY (post-create), so they can't redeem
+    /// unless they accumulate balanced pair via deposits/swaps as a regular trader.
     public entry fun redeem_complete_set(
         user: &signer,
         author_pid: address,
@@ -544,30 +614,33 @@ module desnet::opinion {
         assert!(exists<OpinionMarket>(market_addr), E_MARKET_NOT_FOUND);
         let mkt = borrow_global_mut<OpinionMarket>(market_addr);
 
-        assert!(fungible_asset::balance(mkt.vault_apt) >= amount, E_INSUFFICIENT_VAULT);
+        assert!(fungible_asset::balance(mkt.vault_token) >= amount, E_INSUFFICIENT_VAULT);
 
         let user_addr = signer::address_of(user);
 
-        // Pull Y and N from user, burn both
-        let y_metadata_obj = object::address_to_object<Metadata>(mkt.y_metadata);
-        let n_metadata_obj = object::address_to_object<Metadata>(mkt.n_metadata);
-        let y_in = primary_fungible_store::withdraw(user, y_metadata_obj, amount);
-        let n_in = primary_fungible_store::withdraw(user, n_metadata_obj, amount);
-        fungible_asset::burn(&mkt.y_burn_ref, y_in);
-        fungible_asset::burn(&mkt.n_burn_ref, n_in);
-        mkt.total_y_supply = mkt.total_y_supply - amount;
-        mkt.total_n_supply = mkt.total_n_supply - amount;
+        // Pull YAY and NAY from user, burn both
+        let yay_obj = object::address_to_object<Metadata>(mkt.yay_metadata);
+        let nay_obj = object::address_to_object<Metadata>(mkt.nay_metadata);
+        let yay_in = primary_fungible_store::withdraw(user, yay_obj, amount);
+        let nay_in = primary_fungible_store::withdraw(user, nay_obj, amount);
+        fungible_asset::burn(&mkt.yay_burn_ref, yay_in);
+        fungible_asset::burn(&mkt.nay_burn_ref, nay_in);
+        mkt.total_yay_supply = mkt.total_yay_supply - amount;
+        mkt.total_nay_supply = mkt.total_nay_supply - amount;
 
-        // Release APT from vault (derive market signer to authorize withdraw)
+        // Release collateral from vault
         let market_signer = object::generate_signer_for_extending(&mkt.market_extend_ref);
-        let apt_out = fungible_asset::withdraw(&market_signer, mkt.vault_apt, amount);
-        primary_fungible_store::deposit(user_addr, apt_out);
+        let token_out = fungible_asset::withdraw(&market_signer, mkt.vault_token, amount);
+        primary_fungible_store::deposit(user_addr, token_out);
+
+        // Tax burn (proportional to redeem amount)
+        let tax_burned = burn_tax(user, mkt.creator_token, mkt.author_pid, amount, mkt.tax_bps);
 
         assert_conservation(mkt);
 
         let now_secs = timestamp::now_seconds();
-        let new_pool_y = fungible_asset::balance(mkt.pool_y);
-        let new_pool_n = fungible_asset::balance(mkt.pool_n);
+        let new_pool_yay = fungible_asset::balance(mkt.pool_yay);
+        let new_pool_nay = fungible_asset::balance(mkt.pool_nay);
         emit_action(
             mkt,
             user_addr,
@@ -575,35 +648,55 @@ module desnet::opinion {
             SIDE_NONE,
             amount,
             amount,
-            new_pool_y,
-            new_pool_n,
+            tax_burned,
+            new_pool_yay,
+            new_pool_nay,
             now_secs,
         );
     }
 
-    // ============ INTERNAL — math + invariants + emit helpers ============
+    // ============ INTERNAL — math + invariants + helpers ============
 
-    /// CPMM constant-product: pure quote with optional bps fee.
+    /// CPMM constant-product: pure quote (no LP fee — opinion pool has no LP role).
     /// Mirrors amm::compute_amount_out shape (darbitex-shape signature kept).
     public fun compute_amount_out(
         reserve_in: u64,
         reserve_out: u64,
         amount_in: u64,
-        fee_bps: u64,
     ): u64 {
-        assert!(fee_bps < FEE_DENOM, E_INVALID_FEE);
-        let amount_in_after_fee = (amount_in as u128) * ((FEE_DENOM - fee_bps) as u128);
-        let numerator = amount_in_after_fee * (reserve_out as u128);
-        let denominator = (reserve_in as u128) * (FEE_DENOM as u128) + amount_in_after_fee;
+        // No fee: amount_in_after_fee = amount_in
+        let amount_in_u128 = amount_in as u128;
+        let numerator = amount_in_u128 * (reserve_out as u128);
+        let denominator = (reserve_in as u128) + amount_in_u128;
         ((numerator / denominator) as u64)
     }
 
-    /// Conservation invariant: vault_apt == total_y_supply == total_n_supply.
-    /// Held by atomic mint-pair / burn-pair semantics. Sanity-checked on every mutating op.
+    /// Conservation invariant: vault == total_yay_supply == total_nay_supply.
+    /// Held by atomic pair-mint (deposit/create) and pair-burn (redeem) semantics.
     fun assert_conservation(mkt: &OpinionMarket) {
-        let vault_amt = fungible_asset::balance(mkt.vault_apt);
-        assert!(mkt.total_y_supply == mkt.total_n_supply, E_CONSERVATION_BROKEN);
-        assert!(vault_amt == mkt.total_y_supply, E_CONSERVATION_BROKEN);
+        let vault_amt = fungible_asset::balance(mkt.vault_token);
+        assert!(mkt.total_yay_supply == mkt.total_nay_supply, E_CONSERVATION_BROKEN);
+        assert!(vault_amt == mkt.total_yay_supply, E_CONSERVATION_BROKEN);
+    }
+
+    /// Pull `amount × tax_bps / BPS_DENOM` $creator_token from user and burn it via
+    /// apt_vault::burn_via_vault. Returns the actual amount burned (for event payload).
+    /// Returns 0 if tax_bps == 0 (skip primary store touch).
+    fun burn_tax(
+        user: &signer,
+        creator_token_addr: address,
+        author_pid: address,
+        amount: u64,
+        tax_bps: u64,
+    ): u64 {
+        if (tax_bps == 0) return 0;
+        let tax_amount = ((amount as u128) * (tax_bps as u128) / (BPS_DENOM as u128)) as u64;
+        if (tax_amount == 0) return 0;
+        let creator_token_obj = object::address_to_object<Metadata>(creator_token_addr);
+        let tax_fa = primary_fungible_store::withdraw(user, creator_token_obj, tax_amount);
+        let vault_addr = factory::vault_addr_of_pid(author_pid);
+        apt_vault::burn_via_vault(vault_addr, tax_fa);
+        tax_amount
     }
 
     fun emit_action(
@@ -613,11 +706,12 @@ module desnet::opinion {
         side: u8,
         amount_in: u64,
         amount_out: u64,
-        new_pool_y: u64,
-        new_pool_n: u64,
+        tax_burned: u64,
+        new_pool_yay: u64,
+        new_pool_nay: u64,
         now_secs: u64,
     ) {
-        // History append (under actor's PID for "who did what" social-feed semantics)
+        let market_addr = market_addr_of(mkt.author_pid, mkt.seq);
         let actor_pid = profile::derive_pid_address(actor_wallet);
         // If actor has no profile, skip history append (events still emit)
         if (profile::profile_exists(actor_pid)) {
@@ -627,14 +721,15 @@ module desnet::opinion {
                 actor_wallet,
                 author_pid: mkt.author_pid,
                 seq: mkt.seq,
-                market_addr: market_addr_of(mkt.author_pid, mkt.seq),
+                market_addr,
                 side,
                 amount_in,
                 amount_out,
-                new_pool_y,
-                new_pool_n,
-                new_total_y_supply: mkt.total_y_supply,
-                new_total_n_supply: mkt.total_n_supply,
+                tax_burned,
+                new_pool_yay,
+                new_pool_nay,
+                new_total_yay_supply: mkt.total_yay_supply,
+                new_total_nay_supply: mkt.total_nay_supply,
                 timestamp_secs: now_secs,
             };
             history::append(
@@ -644,7 +739,7 @@ module desnet::opinion {
                     now_secs,
                     option::some(mkt.author_pid),
                     bcs::to_bytes(&feed_payload),
-                    option::some(market_addr_of(mkt.author_pid, mkt.seq)),
+                    option::some(market_addr),
                 ),
             );
         };
@@ -655,14 +750,15 @@ module desnet::opinion {
             actor_wallet,
             author_pid: mkt.author_pid,
             seq: mkt.seq,
-            market_addr: market_addr_of(mkt.author_pid, mkt.seq),
+            market_addr,
             side,
             amount_in,
             amount_out,
-            new_pool_y,
-            new_pool_n,
-            new_total_y_supply: mkt.total_y_supply,
-            new_total_n_supply: mkt.total_n_supply,
+            tax_burned,
+            new_pool_yay,
+            new_pool_nay,
+            new_total_yay_supply: mkt.total_yay_supply,
+            new_total_nay_supply: mkt.total_nay_supply,
             timestamp_secs: now_secs,
         });
     }
@@ -711,7 +807,7 @@ module desnet::opinion {
         let market_addr = market_addr_of(author_pid, seq);
         assert!(exists<OpinionMarket>(market_addr), E_MARKET_NOT_FOUND);
         let mkt = borrow_global<OpinionMarket>(market_addr);
-        (fungible_asset::balance(mkt.pool_y), fungible_asset::balance(mkt.pool_n))
+        (fungible_asset::balance(mkt.pool_yay), fungible_asset::balance(mkt.pool_nay))
     }
 
     #[view]
@@ -721,7 +817,7 @@ module desnet::opinion {
         let market_addr = market_addr_of(author_pid, seq);
         assert!(exists<OpinionMarket>(market_addr), E_MARKET_NOT_FOUND);
         let mkt = borrow_global<OpinionMarket>(market_addr);
-        (mkt.total_y_supply, mkt.total_n_supply)
+        (mkt.total_yay_supply, mkt.total_nay_supply)
     }
 
     #[view]
@@ -731,7 +827,7 @@ module desnet::opinion {
         let market_addr = market_addr_of(author_pid, seq);
         assert!(exists<OpinionMarket>(market_addr), E_MARKET_NOT_FOUND);
         let mkt = borrow_global<OpinionMarket>(market_addr);
-        fungible_asset::balance(mkt.vault_apt)
+        fungible_asset::balance(mkt.vault_token)
     }
 
     #[view]
@@ -741,7 +837,37 @@ module desnet::opinion {
         let market_addr = market_addr_of(author_pid, seq);
         assert!(exists<OpinionMarket>(market_addr), E_MARKET_NOT_FOUND);
         let mkt = borrow_global<OpinionMarket>(market_addr);
-        (mkt.y_metadata, mkt.n_metadata)
+        (mkt.yay_metadata, mkt.nay_metadata)
+    }
+
+    #[view]
+    public fun creator_token_of(author_pid: address, seq: u64): address
+        acquires OpinionMarket
+    {
+        let market_addr = market_addr_of(author_pid, seq);
+        assert!(exists<OpinionMarket>(market_addr), E_MARKET_NOT_FOUND);
+        let mkt = borrow_global<OpinionMarket>(market_addr);
+        mkt.creator_token
+    }
+
+    #[view]
+    public fun creator_initial_mc(author_pid: address, seq: u64): u64
+        acquires OpinionMarket
+    {
+        let market_addr = market_addr_of(author_pid, seq);
+        assert!(exists<OpinionMarket>(market_addr), E_MARKET_NOT_FOUND);
+        let mkt = borrow_global<OpinionMarket>(market_addr);
+        mkt.creator_initial_mc
+    }
+
+    #[view]
+    public fun tax_bps_of(author_pid: address, seq: u64): u64
+        acquires OpinionMarket
+    {
+        let market_addr = market_addr_of(author_pid, seq);
+        assert!(exists<OpinionMarket>(market_addr), E_MARKET_NOT_FOUND);
+        let mkt = borrow_global<OpinionMarket>(market_addr);
+        mkt.tax_bps
     }
 
     #[view]
@@ -754,7 +880,6 @@ module desnet::opinion {
         mkt.content_text
     }
 
-    /// Returns true once both reserves > 0 (CPMM phase 2 active, trading enabled).
     #[view]
     public fun is_pool_active(author_pid: address, seq: u64): bool
         acquires OpinionMarket
@@ -762,37 +887,35 @@ module desnet::opinion {
         let market_addr = market_addr_of(author_pid, seq);
         if (!exists<OpinionMarket>(market_addr)) return false;
         let mkt = borrow_global<OpinionMarket>(market_addr);
-        fungible_asset::balance(mkt.pool_y) > 0 && fungible_asset::balance(mkt.pool_n) > 0
+        fungible_asset::balance(mkt.pool_yay) > 0 && fungible_asset::balance(mkt.pool_nay) > 0
     }
 
-    /// Marginal Y price in APT (basis: total = 1 APT per complete set).
-    /// Returned as u64 in 1e8 fixed-point ("APT raw"). 1.0 APT = 100_000_000.
-    /// Aborts if pool inactive.
+    /// Marginal YAY price in $creator_token (basis: 1 YAY + 1 NAY = 1 $token via redeem).
+    /// Returned as u64 in 1e8 fixed-point ("token raw"). 1.0 token = 100_000_000.
     #[view]
-    public fun y_price_apt_1e8(author_pid: address, seq: u64): u64
+    public fun yay_price_token_1e8(author_pid: address, seq: u64): u64
         acquires OpinionMarket
     {
-        let (y_r, n_r) = pool_reserves(author_pid, seq);
-        assert!(y_r > 0 && n_r > 0, E_POOL_NOT_ACTIVE);
-        // Y_price = N_r / (Y_r + N_r), expressed in 1e8
-        (((n_r as u128) * 100_000_000u128) / ((y_r as u128) + (n_r as u128)) as u64)
+        let (yay_r, nay_r) = pool_reserves(author_pid, seq);
+        assert!(yay_r > 0 && nay_r > 0, E_POOL_NOT_ACTIVE);
+        (((nay_r as u128) * 100_000_000u128) / ((yay_r as u128) + (nay_r as u128)) as u64)
     }
 
     #[view]
-    public fun n_price_apt_1e8(author_pid: address, seq: u64): u64
+    public fun nay_price_token_1e8(author_pid: address, seq: u64): u64
         acquires OpinionMarket
     {
-        let (y_r, n_r) = pool_reserves(author_pid, seq);
-        assert!(y_r > 0 && n_r > 0, E_POOL_NOT_ACTIVE);
-        (((y_r as u128) * 100_000_000u128) / ((y_r as u128) + (n_r as u128)) as u64)
+        let (yay_r, nay_r) = pool_reserves(author_pid, seq);
+        assert!(yay_r > 0 && nay_r > 0, E_POOL_NOT_ACTIVE);
+        (((yay_r as u128) * 100_000_000u128) / ((yay_r as u128) + (nay_r as u128)) as u64)
     }
 
     // Side / kind constant getters
 
     #[view]
-    public fun side_y(): u8 { SIDE_Y }
+    public fun side_yay(): u8 { SIDE_YAY }
     #[view]
-    public fun side_n(): u8 { SIDE_N }
+    public fun side_nay(): u8 { SIDE_NAY }
     #[view]
     public fun side_none(): u8 { SIDE_NONE }
     #[view]
@@ -800,35 +923,43 @@ module desnet::opinion {
     #[view]
     public fun kind_deposit(): u8 { KIND_DEPOSIT }
     #[view]
-    public fun kind_swap_y_for_n(): u8 { KIND_SWAP_Y_FOR_N }
+    public fun kind_swap_yay_for_nay(): u8 { KIND_SWAP_YAY_FOR_NAY }
     #[view]
-    public fun kind_swap_n_for_y(): u8 { KIND_SWAP_N_FOR_Y }
+    public fun kind_swap_nay_for_yay(): u8 { KIND_SWAP_NAY_FOR_YAY }
     #[view]
     public fun kind_redeem(): u8 { KIND_REDEEM }
     #[view]
     public fun content_text_max_bytes(): u64 { CONTENT_TEXT_MAX_BYTES }
+    #[view]
+    public fun min_initial_mc(): u64 { MIN_INITIAL_MC }
+    #[view]
+    public fun max_initial_mc(): u64 { MAX_INITIAL_MC }
+    #[view]
+    public fun default_tax_bps(): u64 { DEFAULT_TAX_BPS }
+    #[view]
+    public fun max_tax_bps(): u64 { MAX_TAX_BPS }
 
     // ============ TESTS ============
 
     #[test]
     fun test_compute_amount_out_no_fee() {
-        // Pool (10, 100), buy Y by sending N. Fee=0.
-        // out = 10 * 1 / (100 + 1) = 0 (rounded down) for amount_in=1
+        // Pool (100, 10), buy YAY by sending NAY. Fee=0 (Mirror-Mint has no LP fee).
         // out = 10 * 100 / (100 + 100) = 5 for amount_in=100
-        let out = compute_amount_out(100, 10, 100, 0);
+        let out = compute_amount_out(100, 10, 100);
         assert!(out == 5, 1);
     }
 
     #[test]
     fun test_compute_amount_out_zero_in() {
-        let out = compute_amount_out(100, 10, 0, 0);
+        let out = compute_amount_out(100, 10, 0);
         assert!(out == 0, 1);
     }
 
     #[test]
-    #[expected_failure(abort_code = E_INVALID_FEE, location = Self)]
-    fun test_compute_amount_out_invalid_fee() {
-        let _ = compute_amount_out(100, 100, 50, 10000);    // fee == DENOM rejected
+    fun test_compute_amount_out_symmetric_pool() {
+        // (100, 100), swap 10 → expected close to 10*100/(100+10) ≈ 9
+        let out = compute_amount_out(100, 100, 10);
+        assert!(out == 9, 1);    // 1000/110 = 9.09 → 9
     }
 
     #[test]
@@ -853,12 +984,32 @@ module desnet::opinion {
 
     #[test]
     fun test_constants_distinct() {
-        assert!(SIDE_Y != SIDE_N, 1);
-        assert!(SIDE_Y != SIDE_NONE, 2);
-        assert!(SIDE_N != SIDE_NONE, 3);
+        assert!(SIDE_YAY != SIDE_NAY, 1);
+        assert!(SIDE_YAY != SIDE_NONE, 2);
+        assert!(SIDE_NAY != SIDE_NONE, 3);
         assert!(KIND_CREATE != KIND_DEPOSIT, 4);
-        assert!(KIND_DEPOSIT != KIND_SWAP_Y_FOR_N, 5);
-        assert!(KIND_SWAP_Y_FOR_N != KIND_SWAP_N_FOR_Y, 6);
-        assert!(KIND_SWAP_N_FOR_Y != KIND_REDEEM, 7);
+        assert!(KIND_DEPOSIT != KIND_SWAP_YAY_FOR_NAY, 5);
+        assert!(KIND_SWAP_YAY_FOR_NAY != KIND_SWAP_NAY_FOR_YAY, 6);
+        assert!(KIND_SWAP_NAY_FOR_YAY != KIND_REDEEM, 7);
+    }
+
+    #[test]
+    fun test_initial_mc_bounds() {
+        // 1M whole token at 8 decimals = 1e14 raw
+        assert!(MIN_INITIAL_MC == 100_000_000_000_000, 1);
+        // 100M whole token at 8 decimals = 1e16 raw
+        assert!(MAX_INITIAL_MC == 10_000_000_000_000_000, 2);
+        // 1B (factory total supply) = 1e17 raw, so MAX = 10% of supply
+        assert!(MAX_INITIAL_MC * 10 == 100_000_000_000_000_000, 3);
+    }
+
+    #[test]
+    fun test_tax_bps_constants() {
+        assert!(DEFAULT_TAX_BPS == 10, 1);          // 0.1%
+        assert!(MAX_TAX_BPS == 1000, 2);            // 10%
+        assert!(BPS_DENOM == 10000, 3);
+        // Sanity: default tax on 1M token deposit = 1000 raw (10/10000 = 0.1%)
+        let tax = ((MIN_INITIAL_MC as u128) * (DEFAULT_TAX_BPS as u128) / (BPS_DENOM as u128)) as u64;
+        assert!(tax == 100_000_000_000, 4);          // 0.1% of 1M token
     }
 }
