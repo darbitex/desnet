@@ -19,14 +19,14 @@
 ///   - Per-actor uniqueness: 1 press per actor per post
 ///   - Self-press: max 1 per author per post
 ///   - Pool-seed gating
-///   - Aptos gas cost baseline friction
+///   - Supra gas cost baseline friction
 module desnet::reaction_emission {
     use std::signer;
     use std::vector;
     use std::option;
-    use aptos_framework::event;
-    use aptos_framework::fungible_asset::{Self, FungibleAsset};
-    use aptos_framework::object::{Self, ExtendRef};
+    use supra_framework::event;
+    use supra_framework::fungible_asset::{Self, FungibleAsset};
+    use supra_framework::object::{Self, ExtendRef};
 
     friend desnet::factory;
 
@@ -116,7 +116,7 @@ module desnet::reaction_emission {
         });
 
         // Deposit initial 5% allocation into reserve's primary store
-        aptos_framework::primary_fungible_store::deposit(reserve_addr, initial_allocation);
+        supra_framework::primary_fungible_store::deposit(reserve_addr, initial_allocation);
 
         reserve_addr
     }
@@ -156,7 +156,7 @@ module desnet::reaction_emission {
         let emission = press_order * REACTION_BASE_VALUE;
 
         // 2. Cap at remaining reserve balance — graceful degradation if depleted
-        let available = aptos_framework::primary_fungible_store::balance(reserve_addr, token_metadata);
+        let available = supra_framework::primary_fungible_store::balance(reserve_addr, token_metadata);
         let to_distribute = if (emission > available) available else emission;
 
         if (to_distribute == 0) {
@@ -173,10 +173,10 @@ module desnet::reaction_emission {
 
         // 3. Extract from reserve via ExtendRef-derived signer, deposit to recipient
         let reserve_signer = object::generate_signer_for_extending(&reserve.extend_ref);
-        let token_out = aptos_framework::primary_fungible_store::withdraw(
+        let token_out = supra_framework::primary_fungible_store::withdraw(
             &reserve_signer, token_metadata, to_distribute
         );
-        aptos_framework::primary_fungible_store::deposit(recipient, token_out);
+        supra_framework::primary_fungible_store::deposit(recipient, token_out);
 
         // 4. Update accumulator
         reserve.total_distributed = reserve.total_distributed + to_distribute;
@@ -204,11 +204,11 @@ module desnet::reaction_emission {
         amount: u64,
     ) acquires ReactionReserve {
         let reserve = borrow_global_mut<ReactionReserve>(reserve_addr);
-        let token_in = aptos_framework::primary_fungible_store::withdraw(depositor, token_metadata, amount);
-        aptos_framework::primary_fungible_store::deposit(reserve_addr, token_in);
+        let token_in = supra_framework::primary_fungible_store::withdraw(depositor, token_metadata, amount);
+        supra_framework::primary_fungible_store::deposit(reserve_addr, token_in);
 
         reserve.topup_count = reserve.topup_count + 1;
-        let new_balance = aptos_framework::primary_fungible_store::balance(reserve_addr, token_metadata);
+        let new_balance = supra_framework::primary_fungible_store::balance(reserve_addr, token_metadata);
 
         event::emit(ReserveToppedUp {
             reserve_addr,
@@ -222,7 +222,7 @@ module desnet::reaction_emission {
 
     #[view]
     public fun reserve_balance(reserve_addr: address, token_metadata: object::Object<fungible_asset::Metadata>): u64 {
-        aptos_framework::primary_fungible_store::balance(reserve_addr, token_metadata)
+        supra_framework::primary_fungible_store::balance(reserve_addr, token_metadata)
     }
 
     #[view]

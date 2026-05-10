@@ -19,11 +19,11 @@ module desnet::giveaway {
     use std::option::{Self, Option};
     use std::signer;
     use std::vector;
-    use aptos_framework::event;
-    use aptos_framework::fungible_asset::Metadata;
-    use aptos_framework::object::{Self, ExtendRef, Object, ObjectCore};
-    use aptos_framework::primary_fungible_store;
-    use aptos_framework::timestamp;
+    use supra_framework::event;
+    use supra_framework::fungible_asset::Metadata;
+    use supra_framework::object::{Self, ExtendRef, Object, ObjectCore};
+    use supra_framework::primary_fungible_store;
+    use supra_framework::timestamp;
     use aptos_std::smart_table::{Self, SmartTable};
 
     use desnet::profile;

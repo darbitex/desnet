@@ -9,7 +9,7 @@
 ///   3. **TimeLockedPosition** — unlock_at_secs > 0 (withdraw after t). Recipient = object::owner(position).
 ///
 /// Universal yield (LOCKED 2026-05-02): ALL positions earn:
-///   - **Swap fees (APT + TOKEN)** — proportional to shares / amm.lp_supply
+///   - **Swap fees (SUPRA + TOKEN)** — proportional to shares / amm.lp_supply
 ///   - **Emission ($TOKEN from 900M reserve)** — C-variant, 10/sec, denominator = amm.lp_supply
 ///
 /// No "raw LP forfeits" mechanic. No staked-vs-unstaked distinction. Free, time-locked,
@@ -20,13 +20,13 @@
 module desnet::lp_staking {
     use std::signer;
     use std::vector;
-    use aptos_framework::aptos_coin::AptosCoin;
-    use aptos_framework::coin;
-    use aptos_framework::event;
-    use aptos_framework::fungible_asset::{Self, Metadata};
-    use aptos_framework::object::{Self, Object, ExtendRef, ObjectCore};
-    use aptos_framework::primary_fungible_store;
-    use aptos_framework::timestamp;
+    use supra_framework::supra_coin::SupraCoin;
+    use supra_framework::coin;
+    use supra_framework::event;
+    use supra_framework::fungible_asset::{Self, Metadata};
+    use supra_framework::object::{Self, Object, ExtendRef, ObjectCore};
+    use supra_framework::primary_fungible_store;
+    use supra_framework::timestamp;
 
     use desnet::amm;
     use desnet::governance;
@@ -82,7 +82,7 @@ module desnet::lp_staking {
         handle: vector<u8>,
         shares: u128,                                 // logical LP units
         last_acc_per_share: u128,                     // emission snapshot
-        last_fee_per_lp_apt: u128,                    // APT fee snapshot
+        last_fee_per_lp_supra: u128,                    // SUPRA fee snapshot
         last_fee_per_lp_token: u128,                  // TOKEN fee snapshot
         unlock_at_secs: u64,                          // 0=free, t=until-t, MAX=forever
         recipient_pid: address,                       // @0x0 → pay object::owner(position); else → object::owner(pid)
@@ -116,7 +116,7 @@ module desnet::lp_staking {
         position_addr: address,
         owner: address,
         shares: u128,
-        apt_returned: u64,
+        supra_returned: u64,
         token_returned: u64,
     }
 
@@ -126,7 +126,7 @@ module desnet::lp_staking {
         position_addr: address,
         recipient: address,
         emission_amount: u64,
-        apt_fee_amount: u64,
+        supra_fee_amount: u64,
         token_fee_amount: u64,
     }
 
@@ -192,14 +192,14 @@ module desnet::lp_staking {
         });
 
         // Snapshot fee accumulators at creation
-        let (fee_per_apt, fee_per_token) = amm::fee_per_lp(handle);
+        let (fee_per_supra, fee_per_token) = amm::fee_per_lp(handle);
 
         move_to(pid_signer, Position {
             pool_addr,
             handle,
             shares: initial_shares,
             last_acc_per_share: 0,
-            last_fee_per_lp_apt: fee_per_apt,
+            last_fee_per_lp_supra: fee_per_supra,
             last_fee_per_lp_token: fee_per_token,
             unlock_at_secs: UNLOCK_FOREVER,
             recipient_pid: creator_pid,
@@ -220,38 +220,38 @@ module desnet::lp_staking {
 
     // ============ ADD LIQUIDITY — public entries ============
 
-    /// Public add liquidity. Withdraws APT + TOKEN from caller, calls amm::add_liquidity_internal,
+    /// Public add liquidity. Withdraws SUPRA + TOKEN from caller, calls amm::add_liquidity_internal,
     /// creates Position (kind = free, unlock_at = 0). Returns nothing — Position is at caller-derived addr.
     /// Frontend reads PositionCreated event for position_addr.
     public entry fun add_liquidity(
         caller: &signer,
         handle: vector<u8>,
-        apt_amount: u64,
+        supra_amount: u64,
         token_amount: u64,
         min_lp_out: u64,
     ) acquires StakingPool {
         let unlock_at_secs = 0u64;
-        add_liquidity_with_lock_internal(caller, handle, apt_amount, token_amount, min_lp_out, unlock_at_secs);
+        add_liquidity_with_lock_internal(caller, handle, supra_amount, token_amount, min_lp_out, unlock_at_secs);
     }
 
     /// Public add liquidity with time-lock. Position cannot be removed until unlock_at_secs.
     public entry fun add_liquidity_with_lock(
         caller: &signer,
         handle: vector<u8>,
-        apt_amount: u64,
+        supra_amount: u64,
         token_amount: u64,
         min_lp_out: u64,
         unlock_at_secs: u64,
     ) acquires StakingPool {
         let now = timestamp::now_seconds();
         assert!(unlock_at_secs > now, E_LOCK_DURATION_INVALID);
-        add_liquidity_with_lock_internal(caller, handle, apt_amount, token_amount, min_lp_out, unlock_at_secs);
+        add_liquidity_with_lock_internal(caller, handle, supra_amount, token_amount, min_lp_out, unlock_at_secs);
     }
 
     fun add_liquidity_with_lock_internal(
         caller: &signer,
         handle: vector<u8>,
-        apt_amount: u64,
+        supra_amount: u64,
         token_amount: u64,
         min_lp_out: u64,
         unlock_at_secs: u64,
@@ -260,9 +260,9 @@ module desnet::lp_staking {
         let pool_addr = staking_pool_address_of_handle(handle);
         assert!(exists<StakingPool>(pool_addr), E_POOL_NOT_FOUND);
 
-        // Withdraw APT (Coin → FA)
-        let apt_coin = coin::withdraw<AptosCoin>(caller, apt_amount);
-        let apt_fa = coin::coin_to_fungible_asset(apt_coin);
+        // Withdraw SUPRA (Coin → FA)
+        let supra_coin = coin::withdraw<SupraCoin>(caller, supra_amount);
+        let supra_fa = coin::coin_to_fungible_asset(supra_coin);
 
         // Withdraw TOKEN (FA from primary store)
         let pool = borrow_global<StakingPool>(pool_addr);
@@ -270,13 +270,13 @@ module desnet::lp_staking {
         let token_fa = primary_fungible_store::withdraw(caller, token_meta, token_amount);
 
         // Mint LP shares via amm. M1 fix (audit R1): refund surplus on ratio mismatch.
-        let (lp_minted, apt_refund, token_refund) =
-            amm::add_liquidity_internal(handle, apt_fa, token_fa, min_lp_out);
+        let (lp_minted, supra_refund, token_refund) =
+            amm::add_liquidity_internal(handle, supra_fa, token_fa, min_lp_out);
         assert!(lp_minted > 0, E_ZERO_SHARES);
-        if (fungible_asset::amount(&apt_refund) > 0) {
-            primary_fungible_store::deposit(caller_addr, apt_refund);
+        if (fungible_asset::amount(&supra_refund) > 0) {
+            primary_fungible_store::deposit(caller_addr, supra_refund);
         } else {
-            fungible_asset::destroy_zero(apt_refund);
+            fungible_asset::destroy_zero(supra_refund);
         };
         if (fungible_asset::amount(&token_refund) > 0) {
             primary_fungible_store::deposit(caller_addr, token_refund);
@@ -290,7 +290,7 @@ module desnet::lp_staking {
         let snapshot_acc = pool.accumulated_per_share;
         let pool_handle = pool.handle;
 
-        let (fee_per_apt, fee_per_token) = amm::fee_per_lp(handle);
+        let (fee_per_supra, fee_per_token) = amm::fee_per_lp(handle);
 
         // Create Position object owned by caller (NFT-style)
         let constructor = object::create_object(caller_addr);
@@ -302,7 +302,7 @@ module desnet::lp_staking {
             handle,
             shares: lp_minted,
             last_acc_per_share: snapshot_acc,
-            last_fee_per_lp_apt: fee_per_apt,
+            last_fee_per_lp_supra: fee_per_supra,
             last_fee_per_lp_token: fee_per_token,
             unlock_at_secs,
             recipient_pid: @0x0,
@@ -327,7 +327,7 @@ module desnet::lp_staking {
     public entry fun remove_liquidity(
         caller: &signer,
         position_addr: address,
-        min_apt_out: u64,
+        min_supra_out: u64,
         min_token_out: u64,
     ) acquires Position, StakingPool {
         assert!(exists<Position>(position_addr), E_POSITION_NOT_FOUND);
@@ -355,17 +355,17 @@ module desnet::lp_staking {
             handle: _,
             shares,
             last_acc_per_share: _,
-            last_fee_per_lp_apt: _,
+            last_fee_per_lp_supra: _,
             last_fee_per_lp_token: _,
             unlock_at_secs: _,
             recipient_pid: _,
         } = move_from<Position>(position_addr);
 
-        let (apt_fa, token_fa) = amm::remove_liquidity_internal(handle, shares, min_apt_out, min_token_out);
-        let apt_returned = fungible_asset::amount(&apt_fa);
+        let (supra_fa, token_fa) = amm::remove_liquidity_internal(handle, shares, min_supra_out, min_token_out);
+        let supra_returned = fungible_asset::amount(&supra_fa);
         let token_returned = fungible_asset::amount(&token_fa);
 
-        primary_fungible_store::deposit(position_owner, apt_fa);
+        primary_fungible_store::deposit(position_owner, supra_fa);
         primary_fungible_store::deposit(position_owner, token_fa);
 
         let pool_handle_dummy = handle;
@@ -374,7 +374,7 @@ module desnet::lp_staking {
             position_addr,
             owner: position_owner,
             shares,
-            apt_returned,
+            supra_returned,
             token_returned,
         });
     }
@@ -406,15 +406,15 @@ module desnet::lp_staking {
         position.last_acc_per_share = acc;
 
         // 2. Read amm fee accumulators
-        let (fee_per_apt, fee_per_token) = amm::fee_per_lp(handle);
+        let (fee_per_supra, fee_per_token) = amm::fee_per_lp(handle);
         let amm_scale = amm::fee_acc_scale();
-        let pending_apt_u128 = ((fee_per_apt - position.last_fee_per_lp_apt) * shares_u128) / amm_scale;
+        let pending_supra_u128 = ((fee_per_supra - position.last_fee_per_lp_supra) * shares_u128) / amm_scale;
         let pending_token_u128 = ((fee_per_token - position.last_fee_per_lp_token) * shares_u128) / amm_scale;
-        position.last_fee_per_lp_apt = fee_per_apt;
+        position.last_fee_per_lp_supra = fee_per_supra;
         position.last_fee_per_lp_token = fee_per_token;
 
         let pending_emission = (pending_emission_u128 as u64);
-        let pending_apt = (pending_apt_u128 as u64);
+        let pending_supra = (pending_supra_u128 as u64);
         let pending_token = (pending_token_u128 as u64);
 
         // 3. Resolve recipient
@@ -451,13 +451,13 @@ module desnet::lp_staking {
             };
         };
 
-        // 5. Pull LP fees (APT + TOKEN)
-        if (pending_apt > 0 || pending_token > 0) {
-            let (apt_fa, token_fa) = amm::extract_fees_for_claim(handle, pending_apt, pending_token);
-            if (fungible_asset::amount(&apt_fa) > 0) {
-                primary_fungible_store::deposit(recipient, apt_fa);
+        // 5. Pull LP fees (SUPRA + TOKEN)
+        if (pending_supra > 0 || pending_token > 0) {
+            let (supra_fa, token_fa) = amm::extract_fees_for_claim(handle, pending_supra, pending_token);
+            if (fungible_asset::amount(&supra_fa) > 0) {
+                primary_fungible_store::deposit(recipient, supra_fa);
             } else {
-                fungible_asset::destroy_zero(apt_fa);
+                fungible_asset::destroy_zero(supra_fa);
             };
             if (fungible_asset::amount(&token_fa) > 0) {
                 primary_fungible_store::deposit(recipient, token_fa);
@@ -466,14 +466,14 @@ module desnet::lp_staking {
             };
         };
 
-        if (pending_emission == 0 && pending_apt == 0 && pending_token == 0) return;
+        if (pending_emission == 0 && pending_supra == 0 && pending_token == 0) return;
 
         event::emit(Claimed {
             handle: pool.handle,
             position_addr,
             recipient,
             emission_amount: pending_emission,
-            apt_fee_amount: pending_apt,
+            supra_fee_amount: pending_supra,
             token_fee_amount: pending_token,
         });
     }
@@ -560,13 +560,13 @@ module desnet::lp_staking {
     }
 
     /// Per-position fee snapshots (last claim point). Matches darbitex `position_fee_debt(pos)`.
-    /// Returns (last_fee_per_lp_apt, last_fee_per_lp_token).
+    /// Returns (last_fee_per_lp_supra, last_fee_per_lp_token).
     #[view]
     public fun position_fee_debt(pos: Object<Position>): (u128, u128) acquires Position {
         let pos_addr = object::object_address(&pos);
         assert!(exists<Position>(pos_addr), E_POSITION_NOT_FOUND);
         let p = borrow_global<Position>(pos_addr);
-        (p.last_fee_per_lp_apt, p.last_fee_per_lp_token)
+        (p.last_fee_per_lp_supra, p.last_fee_per_lp_token)
     }
 
     /// Pending claimable LP fees only (excluding emission). Matches darbitex
@@ -577,11 +577,11 @@ module desnet::lp_staking {
         let pos_addr = object::object_address(&pos);
         if (!exists<Position>(pos_addr)) return (0, 0);
         let p = borrow_global<Position>(pos_addr);
-        let (fee_per_apt, fee_per_token) = amm::fee_per_lp(p.handle);
+        let (fee_per_supra, fee_per_token) = amm::fee_per_lp(p.handle);
         let amm_scale = amm::fee_acc_scale();
-        let pending_apt = (((fee_per_apt - p.last_fee_per_lp_apt) * p.shares) / amm_scale) as u64;
+        let pending_supra = (((fee_per_supra - p.last_fee_per_lp_supra) * p.shares) / amm_scale) as u64;
         let pending_token = (((fee_per_token - p.last_fee_per_lp_token) * p.shares) / amm_scale) as u64;
-        (pending_apt, pending_token)
+        (pending_supra, pending_token)
     }
 
     /// Position shares as Object input (Object-shape for darbitex parity).
@@ -592,7 +592,7 @@ module desnet::lp_staking {
         borrow_global<Position>(pos_addr).shares
     }
 
-    /// Returns (pending_emission, pending_apt_fee, pending_token_fee).
+    /// Returns (pending_emission, pending_supra_fee, pending_token_fee).
     #[view]
     public fun position_pending_all(position_addr: address): (u64, u64, u64)
         acquires Position, StakingPool
@@ -615,12 +615,12 @@ module desnet::lp_staking {
 
         let pending_emission = (((acc - position.last_acc_per_share) * position.shares) / ACC_SCALE) as u64;
 
-        let (fee_per_apt, fee_per_token) = amm::fee_per_lp(position.handle);
+        let (fee_per_supra, fee_per_token) = amm::fee_per_lp(position.handle);
         let amm_scale = amm::fee_acc_scale();
-        let pending_apt = (((fee_per_apt - position.last_fee_per_lp_apt) * position.shares) / amm_scale) as u64;
+        let pending_supra = (((fee_per_supra - position.last_fee_per_lp_supra) * position.shares) / amm_scale) as u64;
         let pending_token = (((fee_per_token - position.last_fee_per_lp_token) * position.shares) / amm_scale) as u64;
 
-        (pending_emission, pending_apt, pending_token)
+        (pending_emission, pending_supra, pending_token)
     }
 
     #[view]

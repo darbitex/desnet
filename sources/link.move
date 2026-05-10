@@ -4,7 +4,7 @@
 /// ENDORSE removed from link_kind enum (= derived view from LP staking position).
 ///
 /// LinkEvent { link_kind: SYNC, state: ADD/REMOVE } — kept ADD/REMOVE pattern
-/// (Aptos events immutable on emit; un-action emits state=REMOVE).
+/// (Supra events immutable on emit; un-action emits state=REMOVE).
 ///
 /// PidSyncSet at syncer's PID (NOT target's). Target has count only — popular
 /// accounts can't afford full follower-list resource. Indexer derives "who syncs
@@ -17,7 +17,7 @@ module desnet::link {
     use std::bcs;
     use std::signer;
     use std::option;
-    use aptos_framework::timestamp;
+    use supra_framework::timestamp;
     use aptos_std::smart_table::{Self, SmartTable};
 
     use desnet::profile;

@@ -4,13 +4,13 @@
 /// Uses in-house `desnet::amm` (pool create) + `desnet::lp_staking` (forever-lock creator's initial LP).
 ///
 /// Caller flow:
-///   profile::register_handle (charges handle_fee + 5 APT) →
-///   factory::create_token_atomic(handle, pid_addr, pool_seed_apt_fa) →
-///     mints 1B $TOKEN → splits 50M/50M/900M → creates AMM pool with 5 APT + 50M $TOKEN →
+///   profile::register_handle (charges handle_fee + 5 SUPRA) →
+///   factory::create_token_atomic(handle, pid_addr, pool_seed_supra_fa) →
+///     mints 1B $TOKEN → splits 50M/50M/900M → creates AMM pool with 5 SUPRA + 50M $TOKEN →
 ///     forever-locks initial LP into PID NFT object via lp_staking → done.
 ///
 /// Allocation:
-///   - 50M (5%) → pool seed (paired with 5 APT in AMM)
+///   - 50M (5%) → pool seed (paired with 5 SUPRA in AMM)
 ///   - 50M (5%) → reaction emission reserve
 ///   - 900M (90%) → LP emission reserve
 ///   Sum = 1B exactly.
@@ -19,21 +19,21 @@ module desnet::factory {
     use std::signer;
     use std::string::{Self, String};
     use std::vector;
-    use aptos_framework::event;
-    use aptos_framework::fungible_asset::{Self, FungibleAsset};
-    use aptos_framework::object::{Self};
-    use aptos_framework::primary_fungible_store;
-    use aptos_framework::timestamp;
+    use supra_framework::event;
+    use supra_framework::fungible_asset::{Self, FungibleAsset};
+    use supra_framework::object::{Self};
+    use supra_framework::primary_fungible_store;
+    use supra_framework::timestamp;
     use aptos_std::smart_table::{Self, SmartTable};
 
     use desnet::amm;
-    use desnet::apt_vault;
+    use desnet::supra_vault;
     use desnet::governance;
     use desnet::lp_emission;
     use desnet::lp_staking;
     use desnet::reaction_emission;
 
-    use aptos_framework::fungible_asset::MutateMetadataRef;
+    use supra_framework::fungible_asset::MutateMetadataRef;
 
     friend desnet::profile;
 
@@ -48,8 +48,8 @@ module desnet::factory {
     const REACTION_RESERVE_AMOUNT: u64 = 5_000_000_000_000_000;       // 50M × 10^8
     const LP_EMISSION_AMOUNT: u64 = 90_000_000_000_000_000;           // 900M × 10^8
 
-    /// Pool seed APT amount (paired with 50M $TOKEN). User pays this in addition to handle_fee.
-    const POOL_SEED_APT_AMOUNT: u64 = 500_000_000;                    // 5 APT × 10^8
+    /// Pool seed SUPRA amount (paired with 50M $TOKEN). User pays this in addition to handle_fee.
+    const POOL_SEED_SUPRA_AMOUNT: u64 = 500_000_000;                    // 5 SUPRA × 10^8
 
     const SPEC_VERSION_V3: u32 = 3;
 
@@ -67,7 +67,7 @@ module desnet::factory {
     const E_HANDLE_INVALID_CHAR: u64 = 6;
     const E_FACTORY_PAUSED: u64 = 8;
     const E_PID_NOT_REGISTERED: u64 = 10;
-    const E_INVALID_POOL_SEED_APT: u64 = 12;
+    const E_INVALID_POOL_SEED_SUPRA: u64 = 12;
     const E_NOT_ADMIN: u64 = 13;
     const E_INVALID_ADDRESS: u64 = 14;
     const E_NAME_TOO_LONG: u64 = 15;
@@ -77,7 +77,7 @@ module desnet::factory {
     const E_TOKEN_NOT_FOUND: u64 = 19;
     const E_PROJECT_URI_TOO_LONG: u64 = 20;
 
-    /// Mirror Aptos `fungible_asset` framework limits — pre-validate so callers
+    /// Mirror Supra `fungible_asset` framework limits — pre-validate so callers
     /// get a clear abort instead of a deep-stack framework error.
     const MAX_NAME_LEN: u64 = 32;
     const MAX_SYMBOL_LEN: u64 = 32;
@@ -101,7 +101,7 @@ module desnet::factory {
         handle: String,
         token_metadata: address,
         owner_addr: address,                          // PID Object addr (transferable)
-        apt_vault: address,
+        supra_vault: address,
         reaction_reserve: address,
         lp_reserve: address,
         lp_staking_pool: address,                     // populated atomically (no longer @0x0)
@@ -140,7 +140,7 @@ module desnet::factory {
         owner_addr: address,
         amm_pool: address,
         lp_staking_pool: address,
-        apt_vault: address,
+        supra_vault: address,
         lp_reserve: address,
         reaction_reserve: address,
         spec_version: u32,
@@ -177,8 +177,8 @@ module desnet::factory {
     ///
     /// Caller MUST:
     /// - Have already minted PID NFT at `pid_addr`
-    /// - Have already collected handle_fee_apt + POOL_SEED_APT_AMOUNT from end-user
-    /// - Pass exactly POOL_SEED_APT_AMOUNT (5 APT) as `pool_seed_apt`
+    /// - Have already collected handle_fee_supra + POOL_SEED_SUPRA_AMOUNT from end-user
+    /// - Pass exactly POOL_SEED_SUPRA_AMOUNT (5 SUPRA) as `pool_seed_supra`
     /// - Pass `name`/`symbol` (≤32 b each, PERMANENT) and `icon_uri`/`project_uri`
     ///   (≤512 b each, mutable post-mint via `update_token_icon` /
     ///   `update_token_project_uri`, both PID-NFT-owner gated).
@@ -186,7 +186,7 @@ module desnet::factory {
         handle: vector<u8>,
         pid_addr: address,
         pid_signer: &signer,
-        pool_seed_apt: FungibleAsset,
+        pool_seed_supra: FungibleAsset,
         name: String,
         symbol: String,
         icon_uri: String,
@@ -203,8 +203,8 @@ module desnet::factory {
 
         // Validate pool seed amount
         assert!(
-            fungible_asset::amount(&pool_seed_apt) == POOL_SEED_APT_AMOUNT,
-            E_INVALID_POOL_SEED_APT
+            fungible_asset::amount(&pool_seed_supra) == POOL_SEED_SUPRA_AMOUNT,
+            E_INVALID_POOL_SEED_SUPRA
         );
 
         let factory_signer = governance::derive_pkg_signer();
@@ -264,8 +264,8 @@ module desnet::factory {
         // Step 5: Compute AMM pool addr (deterministic from handle).
         let amm_pool_addr = amm::pool_address_of_handle(handle);
 
-        // Step 6: Deploy vault (sealed, holds BurnRef + APT balance).
-        let apt_vault_addr = apt_vault::deploy(
+        // Step 6: Deploy vault (sealed, holds BurnRef + SUPRA balance).
+        let supra_vault_addr = supra_vault::deploy(
             &factory_signer,
             handle,
             token_metadata_addr,
@@ -274,10 +274,10 @@ module desnet::factory {
             burn_ref,
         );
 
-        // Step 7: Atomic AMM pool create (5 APT + 50M $TOKEN). Returns shares (u128).
+        // Step 7: Atomic AMM pool create (5 SUPRA + 50M $TOKEN). Returns shares (u128).
         let initial_shares = amm::create_pool_atomic(
             handle,
-            pool_seed_apt,
+            pool_seed_supra,
             pool_seed_token_fa,
             pid_addr,
         );
@@ -301,7 +301,7 @@ module desnet::factory {
             handle: handle_str,
             token_metadata: token_metadata_addr,
             owner_addr: pid_addr,
-            apt_vault: apt_vault_addr,
+            supra_vault: supra_vault_addr,
             reaction_reserve: reaction_reserve_addr,
             lp_reserve: lp_reserve_addr,
             lp_staking_pool: lp_staking_pool_addr,
@@ -324,7 +324,7 @@ module desnet::factory {
             owner_addr: pid_addr,
             amm_pool: amm_pool_addr,
             lp_staking_pool: lp_staking_pool_addr,
-            apt_vault: apt_vault_addr,
+            supra_vault: supra_vault_addr,
             lp_reserve: lp_reserve_addr,
             reaction_reserve: reaction_reserve_addr,
             spec_version: SPEC_VERSION_V3,
@@ -336,7 +336,7 @@ module desnet::factory {
 
     /// Update the FA `icon_uri` for a spawned token. Authority = PID-NFT-owner
     /// (cold wallet, same tier as `withdraw_pid_token`). Name/symbol are NOT
-    /// mutable. New icon_uri must be ≤ 512 bytes (Aptos framework cap).
+    /// mutable. New icon_uri must be ≤ 512 bytes (Supra framework cap).
     public entry fun update_token_icon(
         owner: &signer,
         handle: vector<u8>,
@@ -562,21 +562,21 @@ module desnet::factory {
             E_PID_NOT_REGISTERED
         );
         let handle = *smart_table::borrow(&registry.owner_index, pid_addr);
-        smart_table::borrow(&registry.records, handle).apt_vault
+        smart_table::borrow(&registry.records, handle).supra_vault
     }
 
-    /// v0.3.2 F9: single-hop handle → apt_vault lookup. Used by handle_fee_vault::settle
-    /// to delegate-burn DESNET via desnet's apt_vault BurnRef.
+    /// v0.3.2 F9: single-hop handle → supra_vault lookup. Used by supra_fee_vault::settle
+    /// to delegate-burn DESNET via desnet's supra_vault BurnRef.
     #[view]
     public fun vault_addr_of_handle(handle: vector<u8>): address acquires FactoryRegistry {
         let registry = borrow_global<FactoryRegistry>(@desnet);
         let key = string::utf8(handle);
         assert!(smart_table::contains(&registry.records, key), E_TOKEN_NOT_FOUND);
-        smart_table::borrow(&registry.records, key).apt_vault
+        smart_table::borrow(&registry.records, key).supra_vault
     }
 
     #[view]
-    public fun pool_seed_apt_amount(): u64 { POOL_SEED_APT_AMOUNT }
+    public fun pool_seed_supra_amount(): u64 { POOL_SEED_SUPRA_AMOUNT }
 
     #[view]
     public fun pool_seed_token_amount(): u64 { POOL_SEED_TOKEN_AMOUNT }

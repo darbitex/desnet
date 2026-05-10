@@ -5,7 +5,7 @@
 /// Voice (reply) and Remix (quote) live in mint.move (they create new MintEvents).
 /// Press (NFT collectible) lives in press.move (different scope: NFT mint).
 ///
-/// State pattern: PulseEvent { reaction_kind, state: ADD/REMOVE }. Aptos events
+/// State pattern: PulseEvent { reaction_kind, state: ADD/REMOVE }. Supra events
 /// are append-only on emit — un-action emits state=REMOVE same kind. Asymmetric
 /// "abort" pattern rejected (events immutable).
 ///
@@ -15,7 +15,7 @@ module desnet::pulse {
     use std::bcs;
     use std::signer;
     use std::option;
-    use aptos_framework::timestamp;
+    use supra_framework::timestamp;
     use aptos_std::smart_table::{Self, SmartTable};
 
     use desnet::profile;

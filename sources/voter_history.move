@@ -19,8 +19,8 @@
 module desnet::voter_history {
     use std::signer;
     use std::vector;
-    use aptos_framework::event;
-    use aptos_framework::timestamp;
+    use supra_framework::event;
+    use supra_framework::timestamp;
     use aptos_std::smart_table::{Self, SmartTable};
 
     friend desnet::governance;
