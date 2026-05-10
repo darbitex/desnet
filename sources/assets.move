@@ -19,9 +19,9 @@
 module desnet::assets {
     use std::signer;
     use std::vector;
-    use aptos_framework::event;
-    use aptos_framework::object;
-    use aptos_framework::timestamp;
+    use supra_framework::event;
+    use supra_framework::object;
+    use supra_framework::timestamp;
 
     // ============ CONSTANTS ============
 
@@ -441,10 +441,10 @@ module desnet::assets {
     #[test_only]
     fun setup_test_env(framework: &signer, uploader: &signer) {
         timestamp::set_time_has_started_for_testing(framework);
-        aptos_framework::account::create_account_for_test(signer::address_of(uploader));
+        supra_framework::account::create_account_for_test(signer::address_of(uploader));
     }
 
-    #[test(framework = @aptos_framework, uploader = @0xa11ce)]
+    #[test(framework = @supra_framework, uploader = @0xa11ce)]
     fun test_lifecycle_single_chunk_seal(framework: &signer, uploader: &signer)
         acquires Master, Chunk
     {
@@ -467,7 +467,7 @@ module desnet::assets {
         assert!(depth_of(master_addr) == 0, 6);
     }
 
-    #[test(framework = @aptos_framework, uploader = @0xa11ce, attacker = @0xbad)]
+    #[test(framework = @supra_framework, uploader = @0xa11ce, attacker = @0xbad)]
     #[expected_failure(abort_code = E_NOT_CREATOR, location = Self)]
     fun test_finalize_rejects_non_creator_A2_regression(
         framework: &signer,
@@ -475,14 +475,14 @@ module desnet::assets {
         attacker: &signer,
     ) acquires Master {
         setup_test_env(framework, uploader);
-        aptos_framework::account::create_account_for_test(signer::address_of(attacker));
+        supra_framework::account::create_account_for_test(signer::address_of(attacker));
 
         let master_addr = start_upload_for_test(uploader, MIME_JPEG, 100, @0xfeed);
         // Attacker tries to finalize with bogus root — must fail per A2 fix.
         finalize(attacker, master_addr, @0xdeadbeef, 0);
     }
 
-    #[test(framework = @aptos_framework, uploader = @0xa11ce, attacker = @0xbad)]
+    #[test(framework = @supra_framework, uploader = @0xa11ce, attacker = @0xbad)]
     #[expected_failure(abort_code = E_NOT_CREATOR, location = Self)]
     fun test_deploy_chunk_rejects_non_creator_A3_regression(
         framework: &signer,
@@ -490,7 +490,7 @@ module desnet::assets {
         attacker: &signer,
     ) acquires Master {
         setup_test_env(framework, uploader);
-        aptos_framework::account::create_account_for_test(signer::address_of(attacker));
+        supra_framework::account::create_account_for_test(signer::address_of(attacker));
 
         let master_addr = start_upload_for_test(uploader, MIME_GIF, 100, @0xfeed);
         let data = vector::empty<u8>();
@@ -499,7 +499,7 @@ module desnet::assets {
         deploy_chunk_for_test(attacker, master_addr, data);
     }
 
-    #[test(framework = @aptos_framework, uploader = @0xa11ce)]
+    #[test(framework = @supra_framework, uploader = @0xa11ce)]
     #[expected_failure(abort_code = E_MASTER_SEALED, location = Self)]
     fun test_deploy_chunk_after_seal_aborts(framework: &signer, uploader: &signer)
         acquires Master

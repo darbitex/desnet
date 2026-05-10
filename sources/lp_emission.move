@@ -10,11 +10,11 @@
 module desnet::lp_emission {
     use std::signer;
     use std::vector;
-    use aptos_framework::event;
-    use aptos_framework::fungible_asset::{Self, FungibleAsset, Metadata};
-    use aptos_framework::object::{Self, ExtendRef, Object};
-    use aptos_framework::primary_fungible_store;
-    use aptos_framework::timestamp;
+    use supra_framework::event;
+    use supra_framework::fungible_asset::{Self, FungibleAsset, Metadata};
+    use supra_framework::object::{Self, ExtendRef, Object};
+    use supra_framework::primary_fungible_store;
+    use supra_framework::timestamp;
 
     friend desnet::factory;
     friend desnet::lp_staking;

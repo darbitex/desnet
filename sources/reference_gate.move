@@ -19,9 +19,9 @@
 /// Naming consistency: ReferenceGate + MintGate + sync_gate = unified gate-family.
 module desnet::reference_gate {
     use std::option::{Self, Option};
-    use aptos_framework::fungible_asset::Metadata;
-    use aptos_framework::object::{Self, ObjectCore};
-    use aptos_framework::primary_fungible_store;
+    use supra_framework::fungible_asset::Metadata;
+    use supra_framework::object::{Self, ObjectCore};
+    use supra_framework::primary_fungible_store;
 
     use desnet::factory;
     use desnet::lp_staking;

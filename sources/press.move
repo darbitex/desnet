@@ -13,7 +13,7 @@
 /// Per-actor uniqueness: each wallet can press a given mint ONLY once.
 /// Author may self-press own mint, max 1 (same one-per-actor rule).
 ///
-/// Royalty: 5% Aptos NFT v2 native, payee = PID Object addr (current owner).
+/// Royalty: 5% Supra NFT v2 native, payee = PID Object addr (current owner).
 /// Marketplace patuh otomatis. Future Press royalty 10% routed to vault (v2 spec).
 ///
 /// First press = FREE (gas only). v1 tidak ada paid press; monetization = secondary market.
@@ -22,9 +22,9 @@ module desnet::press {
     use std::option;
     use std::signer;
     use std::string::{Self, String};
-    use aptos_framework::event;
-    use aptos_framework::object::{Self, ExtendRef};
-    use aptos_framework::timestamp;
+    use supra_framework::event;
+    use supra_framework::object::{Self, ExtendRef};
+    use supra_framework::timestamp;
     use aptos_std::smart_table::{Self, SmartTable};
     use aptos_token_objects::collection;
     use aptos_token_objects::royalty;
@@ -43,7 +43,7 @@ module desnet::press {
     const SUPPLY_CAP_MAX: u16 = 1000;
     const WINDOW_DAYS_MIN: u8 = 1;
     const WINDOW_DAYS_MAX: u8 = 7;
-    const ROYALTY_BPS: u64 = 500;            // 5% Aptos NFT v2 native
+    const ROYALTY_BPS: u64 = 500;            // 5% Supra NFT v2 native
 
     // ============ ERROR CODES ============
 
@@ -211,7 +211,7 @@ module desnet::press {
         string::utf8(b"")
     }
 
-    /// Simple u64 → decimal String. Aptos stdlib doesn't have utoa, hand-roll.
+    /// Simple u64 → decimal String. Supra stdlib doesn't have utoa, hand-roll.
     fun u64_to_string(n: u64): String {
         if (n == 0) return string::utf8(b"0");
         let buf = std::vector::empty<u8>();
@@ -278,7 +278,7 @@ module desnet::press {
 
     // ============ PRESS — anyone can press, gates checked ============
 
-    /// Press a mint. Mints Aptos NFT v2 collectible to presser's wallet.
+    /// Press a mint. Mints Supra NFT v2 collectible to presser's wallet.
     /// Atomic: register press → mint NFT → emit event → emission bonus (if pool seeded).
     ///
     /// Validation chain:

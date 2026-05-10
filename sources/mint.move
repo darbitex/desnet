@@ -11,7 +11,7 @@
 /// - author MUST have Profile (Named tier; guests can't mint)
 /// - content_text ≤ 333 bytes
 /// - media: if Inline, data ≤ 8KB hard cap
-/// - mentions ≤ 10 (any Aptos addr — flexible: PID/hex/ANS-resolved)
+/// - mentions ≤ 10 (any Supra addr — flexible: PID/hex/ANS-resolved)
 /// - tags ≤ 5, each 1-32 bytes lowercase a-z/0-9/-
 /// - tickers ≤ 5, each MUST be factory-spawned FA (factory::is_factory_token assert)
 /// - tips ≤ 10, each token MUST be FA-standard (no legacy coin)
@@ -25,11 +25,11 @@ module desnet::mint {
     use std::signer;
     use std::option::{Self, Option};
     use std::vector;
-    use aptos_framework::event;
-    use aptos_framework::fungible_asset::{Self, Metadata};
-    use aptos_framework::object::{Self, Object};
-    use aptos_framework::primary_fungible_store;
-    use aptos_framework::timestamp;
+    use supra_framework::event;
+    use supra_framework::fungible_asset::{Self, Metadata};
+    use supra_framework::object::{Self, Object};
+    use supra_framework::primary_fungible_store;
+    use supra_framework::timestamp;
     use aptos_std::smart_table::{Self, SmartTable};
 
     use desnet::profile;
@@ -472,7 +472,7 @@ module desnet::mint {
 
     /// Attach ReferenceGate to a specific mint. Gates Voice/Spark/Echo/Remix/Press
     /// of this mint. Immutable post-attach.
-    /// Args flattened to primitives — Aptos entry fns can't take struct params.
+    /// Args flattened to primitives — Supra entry fns can't take struct params.
     public entry fun attach_mint_gate(
         author: &signer,
         seq: u64,
@@ -581,7 +581,7 @@ module desnet::mint {
     fun test_validate_tags_accept_valid() {
         let tags = vector::empty<vector<u8>>();
         vector::push_back(&mut tags, b"defi");
-        vector::push_back(&mut tags, b"aptos-move");
+        vector::push_back(&mut tags, b"supra-move");
         vector::push_back(&mut tags, b"web3-2026");
         validate_tags(&tags);
     }
