@@ -25,6 +25,7 @@ module desnet::supra_vault {
 
     friend desnet::factory;
     friend desnet::supra_fee_vault;
+    friend desnet::opinion;
 
     // ============ CONSTANTS ============
 

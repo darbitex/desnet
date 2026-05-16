@@ -1,244 +1,251 @@
-/// Reaction Emission Reserve — distributes TOKEN to Press actors via linear curve.
+/// Reaction Rewards Gauge — multi-FA permissionless rewards pool for pressers.
 ///
-/// One reserve per spawned token. Sealed by allocation (5% of supply at mint).
-/// Permissionless top-up allowed (anyone can deposit more TOKEN).
+/// One pool per handle. Anyone can `notify_reward` with any FA. On every press,
+/// the presser withdraws `BPS_PER_PRESS × current_balance / 10000` from every
+/// registered reward token. Pool is asymptotic — multiplicative decay never
+/// drives the balance to zero, so the gauge degrades gracefully and the
+/// "early presser farms entire reserve" failure mode of the v0.3 sealed-
+/// reserve design is gone.
 ///
-/// Distribution rule (LOCKED):
-///   emission(n) = n × REACTION_BASE_VALUE
-///   where n = press order on a post (1 to author-set supply_cap)
-///
-/// INCREASING per press (anti-FOMO design):
-///   - Press #1: minimal reward (1 × BASE)
-///   - Press #N: max reward (cap × BASE)
-///   - Last presser gets MAX, rewards patience + judgment
-///
-/// Total per post = sum(1..cap) = cap × (cap+1) / 2 × BASE.
-///   At cap=1000: 500,500 × BASE per post.
-///
-/// Anti-manipulation (enforced upstream by DeSNet protocol):
-///   - Per-actor uniqueness: 1 press per actor per post
-///   - Self-press: max 1 per author per post
-///   - Pool-seed gating
-///   - Supra gas cost baseline friction
+/// Replaces the v0.3 sealed-reserve emission (5% of supply at mint, linear-
+/// increasing payout × press_order). Supra mode mints 100% supply into the
+/// IPO pool, so no reserve is funded at registration. The pool starts empty
+/// and is funded entirely by external topups.
 module desnet::reaction_emission {
     use std::signer;
     use std::vector;
-    use std::option;
+    use aptos_std::smart_table::{Self, SmartTable};
     use supra_framework::event;
-    use supra_framework::fungible_asset::{Self, FungibleAsset};
-    use supra_framework::object::{Self, ExtendRef};
+    use supra_framework::fungible_asset::{Self, Metadata};
+    use supra_framework::object::{Self, ExtendRef, Object};
+    use supra_framework::primary_fungible_store;
 
-    friend desnet::factory;
+    use desnet::governance;
+
+    friend desnet::press;
 
     // ============ CONSTANTS ============
 
-    /// Base unit for emission curve. emission(n) = n × BASE.
-    /// With 8 decimals: 1 × 10^8 = 1 token per "n" unit.
-    /// At cap=1000, total per post = 500,500 tokens.
-    const REACTION_BASE_VALUE: u64 = 100_000_000;
+    /// Per-press withdrawal rate against the current pool balance for each
+    /// registered reward token. 25 bps = 0.25%. Pool decays multiplicatively
+    /// across presses and never hits zero.
+    const BPS_PER_PRESS: u64 = 25;
+    const BPS_DENOM: u64 = 10_000;
 
-    /// Press supply_cap range (LOCKED 1-1000).
-    const MIN_SUPPLY_CAP: u64 = 1;
-    const MAX_SUPPLY_CAP: u64 = 1000;
+    const MAX_REWARD_TOKENS: u64 = 32;
 
-    /// Press window range (LOCKED 1-7 days).
-    const MIN_WINDOW_SECS: u64 = 86_400;
-    const MAX_WINDOW_SECS: u64 = 604_800;
-
-    const SPEC_VERSION: u32 = 1;
-
-    const SEED_REACTION_RESERVE: vector<u8> = b"reaction_reserve::";
+    const SEED_REACTION_REWARDS: vector<u8> = b"reaction_rewards::";
 
     // ============ ERROR CODES ============
 
-    const E_RESERVE_EMPTY: u64 = 1;
-    const E_INVALID_PRESS_ORDER: u64 = 2;
-    const E_INVALID_SUPPLY_CAP: u64 = 3;
-    const E_INVALID_WINDOW: u64 = 4;
-    const E_RESERVE_NOT_FOUND: u64 = 5;
+    const E_POOL_NOT_FOUND: u64 = 1;
+    const E_ZERO_AMOUNT: u64 = 2;
+    const E_TOO_MANY_REWARD_TOKENS: u64 = 3;
 
     // ============ TYPES ============
 
-    /// Per-token reaction emission reserve. Token balance lives in primary
-    /// fungible store at this Object's addr (queried via primary_fungible_store).
-    struct ReactionReserve has key {
-        token_metadata_addr: address,
-        spec_version: u32,
+    struct ReactionRewardsPool has key {
+        handle: vector<u8>,
         extend_ref: ExtendRef,
-        total_distributed: u64,
-        topup_count: u64,
+        reward_tokens: SmartTable<address, ReactionAccumulator>,
+        reward_token_list: vector<address>,
+    }
+
+    struct ReactionAccumulator has store, drop {
+        total_topped_up: u128,
+        total_distributed: u128,
     }
 
     // ============ EVENTS ============
 
     #[event]
-    struct ReactionEmitted has drop, store {
-        reserve_addr: address,
-        recipient: address,
-        post_id: vector<u8>,
-        press_order: u64,
-        emission_amount: u64,
+    struct PoolInitialized has drop, store {
+        pool_addr: address,
+        handle: vector<u8>,
     }
 
     #[event]
-    struct ReserveToppedUp has drop, store {
-        reserve_addr: address,
+    struct RewardTokenRegistered has drop, store {
+        pool_addr: address,
+        reward_token: address,
+        slot_index: u64,
+    }
+
+    #[event]
+    struct RewardNotified has drop, store {
+        pool_addr: address,
         depositor: address,
+        reward_token: address,
         amount: u64,
         new_balance: u64,
     }
 
-    // ============ INIT — called by factory at token spawn ============
+    #[event]
+    struct PressDistributed has drop, store {
+        pool_addr: address,
+        presser: address,
+        reward_token: address,
+        amount: u64,
+        pool_balance_before: u64,
+    }
 
-    /// Initialize reaction reserve with 5% allocation. Called only by factory.
-    public(friend) fun deploy(
-        factory_signer: &signer,
-        token_handle: vector<u8>,
-        token_metadata_addr: address,
-        initial_allocation: FungibleAsset,
-    ): address {
-        let seed = make_seed(&token_handle);
-        let constructor_ref = object::create_named_object(factory_signer, seed);
-        let reserve_addr = object::address_from_constructor_ref(&constructor_ref);
-        let extend_ref = object::generate_extend_ref(&constructor_ref);
-        let reserve_signer = object::generate_signer(&constructor_ref);
+    // ============ ADDRESS DERIVATION ============
 
-        // Seal reserve Object: lock ownership, no transfer possible forever.
-        let transfer_ref = object::generate_transfer_ref(&constructor_ref);
-        object::disable_ungated_transfer(&transfer_ref);
-
-        move_to(&reserve_signer, ReactionReserve {
-            token_metadata_addr,
-            spec_version: SPEC_VERSION,
-            extend_ref,
-            total_distributed: 0,
-            topup_count: 0,
-        });
-
-        // Deposit initial 5% allocation into reserve's primary store
-        supra_framework::primary_fungible_store::deposit(reserve_addr, initial_allocation);
-
-        reserve_addr
+    public fun pool_address_of_handle(handle: vector<u8>): address {
+        object::create_object_address(&@desnet, make_seed(&handle))
     }
 
     fun make_seed(handle: &vector<u8>): vector<u8> {
-        let seed = vector::empty<u8>();
-        vector::append(&mut seed, SEED_REACTION_RESERVE);
+        let seed = SEED_REACTION_REWARDS;
         vector::append(&mut seed, *handle);
         seed
     }
 
-    // ============ DISTRIBUTION — called by DeSNet Press handler ============
+    // ============ INIT — lazy on first notify ============
 
-    /// Compute and distribute emission to presser. Caller (DeSNet protocol via
-    /// factory wrapper) validates upstream (uniqueness, self-press, gate).
-    /// Returns actual amount distributed (may be less if reserve depleted).
-    public(friend) fun emit_to_presser(
-        reserve_addr: address,
-        recipient: address,
-        post_id: vector<u8>,
-        press_order: u64,
-        supply_cap: u64,
-    ): u64 acquires ReactionReserve {
-        // Validate inputs
-        assert!(press_order > 0 && press_order <= supply_cap, E_INVALID_PRESS_ORDER);
-        assert!(
-            supply_cap >= MIN_SUPPLY_CAP && supply_cap <= MAX_SUPPLY_CAP,
-            E_INVALID_SUPPLY_CAP
-        );
-
-        let reserve = borrow_global_mut<ReactionReserve>(reserve_addr);
-        let token_metadata = object::address_to_object<fungible_asset::Metadata>(
-            reserve.token_metadata_addr
-        );
-
-        // 1. Compute emission curve value
-        let emission = press_order * REACTION_BASE_VALUE;
-
-        // 2. Cap at remaining reserve balance — graceful degradation if depleted
-        let available = supra_framework::primary_fungible_store::balance(reserve_addr, token_metadata);
-        let to_distribute = if (emission > available) available else emission;
-
-        if (to_distribute == 0) {
-            // Reserve depleted — emit zero-distributed event for indexer visibility
-            event::emit(ReactionEmitted {
-                reserve_addr,
-                recipient,
-                post_id,
-                press_order,
-                emission_amount: 0,
+    fun ensure_pool(handle: vector<u8>): address {
+        let pool_addr = pool_address_of_handle(handle);
+        if (!exists<ReactionRewardsPool>(pool_addr)) {
+            let pkg_signer = governance::derive_pkg_signer();
+            let constructor_ref = object::create_named_object(&pkg_signer, make_seed(&handle));
+            let extend_ref = object::generate_extend_ref(&constructor_ref);
+            let transfer_ref = object::generate_transfer_ref(&constructor_ref);
+            object::disable_ungated_transfer(&transfer_ref);
+            let pool_signer = object::generate_signer(&constructor_ref);
+            move_to(&pool_signer, ReactionRewardsPool {
+                handle,
+                extend_ref,
+                reward_tokens: smart_table::new(),
+                reward_token_list: vector::empty(),
             });
-            return 0
+            event::emit(PoolInitialized { pool_addr, handle });
         };
-
-        // 3. Extract from reserve via ExtendRef-derived signer, deposit to recipient
-        let reserve_signer = object::generate_signer_for_extending(&reserve.extend_ref);
-        let token_out = supra_framework::primary_fungible_store::withdraw(
-            &reserve_signer, token_metadata, to_distribute
-        );
-        supra_framework::primary_fungible_store::deposit(recipient, token_out);
-
-        // 4. Update accumulator
-        reserve.total_distributed = reserve.total_distributed + to_distribute;
-
-        // 5. Emit event + return distributed amount
-        event::emit(ReactionEmitted {
-            reserve_addr,
-            recipient,
-            post_id,
-            press_order,
-            emission_amount: to_distribute,
-        });
-
-        to_distribute
+        pool_addr
     }
 
-    // ============ TOP-UP — permissionless ============
+    // ============ NOTIFY — permissionless topup ============
 
-    /// Anyone can deposit TOKEN to extend reaction reserve life.
-    /// Same-token only.
-    public entry fun topup_reserve(
+    public entry fun notify_reward(
         depositor: &signer,
-        reserve_addr: address,
-        token_metadata: object::Object<fungible_asset::Metadata>,
+        handle: vector<u8>,
+        reward_token_meta: Object<Metadata>,
         amount: u64,
-    ) acquires ReactionReserve {
-        let reserve = borrow_global_mut<ReactionReserve>(reserve_addr);
-        let token_in = supra_framework::primary_fungible_store::withdraw(depositor, token_metadata, amount);
-        supra_framework::primary_fungible_store::deposit(reserve_addr, token_in);
+    ) acquires ReactionRewardsPool {
+        assert!(amount > 0, E_ZERO_AMOUNT);
+        let pool_addr = ensure_pool(handle);
+        let pool = borrow_global_mut<ReactionRewardsPool>(pool_addr);
+        let token_addr = object::object_address(&reward_token_meta);
 
-        reserve.topup_count = reserve.topup_count + 1;
-        let new_balance = supra_framework::primary_fungible_store::balance(reserve_addr, token_metadata);
+        if (!smart_table::contains(&pool.reward_tokens, token_addr)) {
+            assert!(
+                vector::length(&pool.reward_token_list) < MAX_REWARD_TOKENS,
+                E_TOO_MANY_REWARD_TOKENS,
+            );
+            let slot = vector::length(&pool.reward_token_list);
+            vector::push_back(&mut pool.reward_token_list, token_addr);
+            smart_table::add(&mut pool.reward_tokens, token_addr, ReactionAccumulator {
+                total_topped_up: 0,
+                total_distributed: 0,
+            });
+            event::emit(RewardTokenRegistered { pool_addr, reward_token: token_addr, slot_index: slot });
+        };
 
-        event::emit(ReserveToppedUp {
-            reserve_addr,
+        let fa = primary_fungible_store::withdraw(depositor, reward_token_meta, amount);
+        primary_fungible_store::deposit(pool_addr, fa);
+
+        let acc = smart_table::borrow_mut(&mut pool.reward_tokens, token_addr);
+        acc.total_topped_up = acc.total_topped_up + (amount as u128);
+
+        let new_balance = primary_fungible_store::balance(pool_addr, reward_token_meta);
+        event::emit(RewardNotified {
+            pool_addr,
             depositor: signer::address_of(depositor),
+            reward_token: token_addr,
             amount,
             new_balance,
         });
     }
 
-    // ============ VIEW ============
+    // ============ FRIEND: distribute per press ============
+
+    /// Withdraw `BPS_PER_PRESS × balance / 10_000` from each registered reward
+    /// token's pool balance and deposit to the presser. Returns the total
+    /// amount distributed across all tokens. Tokens with zero balance or
+    /// zero-quantized payout are skipped.
+    ///
+    /// Safe to call when pool doesn't exist — returns 0 and is a no-op so
+    /// press still succeeds before anyone has funded the gauge.
+    public(friend) fun distribute_to_presser(
+        handle: vector<u8>,
+        presser: address,
+    ): u64 acquires ReactionRewardsPool {
+        let pool_addr = pool_address_of_handle(handle);
+        if (!exists<ReactionRewardsPool>(pool_addr)) return 0;
+
+        let pool = borrow_global_mut<ReactionRewardsPool>(pool_addr);
+        let tokens = pool.reward_token_list;
+        let n = vector::length(&tokens);
+        let total_distributed = 0u64;
+        let pool_signer = object::generate_signer_for_extending(&pool.extend_ref);
+
+        let i = 0;
+        while (i < n) {
+            let token_addr = *vector::borrow(&tokens, i);
+            let token_meta = object::address_to_object<Metadata>(token_addr);
+            let balance_before = primary_fungible_store::balance(pool_addr, token_meta);
+            if (balance_before > 0) {
+                let payout = (((balance_before as u128) * (BPS_PER_PRESS as u128))
+                    / (BPS_DENOM as u128)) as u64;
+                if (payout > 0) {
+                    let fa = primary_fungible_store::withdraw(&pool_signer, token_meta, payout);
+                    primary_fungible_store::deposit(presser, fa);
+                    let acc = smart_table::borrow_mut(&mut pool.reward_tokens, token_addr);
+                    acc.total_distributed = acc.total_distributed + (payout as u128);
+                    total_distributed = total_distributed + payout;
+                    event::emit(PressDistributed {
+                        pool_addr,
+                        presser,
+                        reward_token: token_addr,
+                        amount: payout,
+                        pool_balance_before: balance_before,
+                    });
+                };
+            };
+            i = i + 1;
+        };
+
+        total_distributed
+    }
+
+    // ============ VIEWS ============
 
     #[view]
-    public fun reserve_balance(reserve_addr: address, token_metadata: object::Object<fungible_asset::Metadata>): u64 {
-        supra_framework::primary_fungible_store::balance(reserve_addr, token_metadata)
+    public fun pool_exists(handle: vector<u8>): bool {
+        exists<ReactionRewardsPool>(pool_address_of_handle(handle))
     }
 
     #[view]
-    public fun total_distributed(reserve_addr: address): u64 acquires ReactionReserve {
-        borrow_global<ReactionReserve>(reserve_addr).total_distributed
+    public fun reward_tokens_of(handle: vector<u8>): vector<address> acquires ReactionRewardsPool {
+        let pool_addr = pool_address_of_handle(handle);
+        if (!exists<ReactionRewardsPool>(pool_addr)) return vector::empty();
+        borrow_global<ReactionRewardsPool>(pool_addr).reward_token_list
     }
 
     #[view]
-    public fun compute_emission(press_order: u64, supply_cap: u64): u64 {
-        if (press_order == 0 || press_order > supply_cap) return 0;
-        press_order * REACTION_BASE_VALUE
+    public fun reward_balance(
+        handle: vector<u8>,
+        reward_token_meta: Object<Metadata>,
+    ): u64 {
+        let pool_addr = pool_address_of_handle(handle);
+        primary_fungible_store::balance(pool_addr, reward_token_meta)
     }
 
     #[view]
-    public fun total_post_emission(supply_cap: u64): u64 {
-        // sum(1..cap) × BASE = cap × (cap+1) / 2 × BASE
-        (supply_cap * (supply_cap + 1) / 2) * REACTION_BASE_VALUE
-    }
+    public fun bps_per_press(): u64 { BPS_PER_PRESS }
+
+    #[view]
+    public fun bps_denom(): u64 { BPS_DENOM }
+
+    #[view]
+    public fun max_reward_tokens(): u64 { MAX_REWARD_TOKENS }
 }

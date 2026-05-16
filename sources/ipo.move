@@ -22,7 +22,7 @@ module desnet::ipo {
     use aptos_std::smart_table::{Self, SmartTable};
     use supra_framework::event;
     use supra_framework::fungible_asset::{Self, FungibleAsset, FungibleStore, Metadata};
-    use supra_framework::object::{Self, Object, ExtendRef, DeleteRef};
+    use supra_framework::object::{Self, Object, ExtendRef};
     use supra_framework::primary_fungible_store;
     use supra_framework::timestamp;
 
@@ -30,8 +30,10 @@ module desnet::ipo {
     use desnet::governance;
     use desnet::voter_history;
     use desnet::profile;
+    use desnet::lp_emission;
 
     friend desnet::factory;
+    friend desnet::registration;
 
     const SEED_IPO: vector<u8> = b"desnet::ipo::pool::";
     const SEED_SUBDOMAIN: vector<u8> = b"desnet::subdomain::";
@@ -54,8 +56,11 @@ module desnet::ipo {
     const E_EXCEEDS_MAX_ALLOCATION: u64 = 16;
     const E_TARGET_TOO_LOW: u64 = 17;
 
-    /// Max cumulative deposit per address = 1% of target TVL.
+    /// Max cumulative deposit per address = 1% of target TVL (normal participant).
     const MAX_PER_ADDRESS_BPS: u64 = 100;
+    /// Creator's elevated cap = 10% of target TVL. Caller is creator iff
+    /// caller_addr == ipo.creator_wallet (set once at create_ipo).
+    const MAX_CREATOR_BPS: u64 = 1000;
     const MIN_TARGET_TVL: u64 = 100_000_000_000_000;
 
     /// ───── Types ─────
@@ -75,8 +80,16 @@ module desnet::ipo {
         pool_addr: address,
         total_lp: u128,
         depositor_totals: SmartTable<address, u64>,
+        // Frozen at create_ipo time. Defines who gets the 10% cap (vs 1% for
+        // everyone else). Does NOT change if the main-handle PID is later
+        // transferred — creator privilege is a registrant property.
+        creator_wallet: address,
     }
 
+    /// IPO Position. Stored as a resource at the participant's subdomain PID
+    /// addr — NOT a separate Object. Transferring the subdomain Profile NFT
+    /// implicitly carries the LP shares + reward debts with it (creator-style
+    /// locked LP — sell the identity, sell the position).
     struct Position has key {
         ipo_addr: address,
         depositor: address,
@@ -84,7 +97,11 @@ module desnet::ipo {
         shares: u128,
         fee_debt_supra: u128,
         fee_debt_token: u128,
-        delete_ref: DeleteRef,
+        // MasterChef per-reward-token debt. Keyed by reward FA addr. Missing
+        // entry == debt 0 (joined before this token was registered in the
+        // gauge — gives full historical earn, correct because at notify-time
+        // the gauge's total_share already included this position).
+        reward_debts: SmartTable<address, u128>,
         subdomain: String,
     }
 
@@ -152,6 +169,15 @@ module desnet::ipo {
         owner: address,
     }
 
+    #[event]
+    struct LpRewardsClaimed has drop, store {
+        handle: vector<u8>,
+        position_addr: address,
+        recipient: address,
+        reward_token: address,
+        amount: u64,
+    }
+
     /// ───── Address derivation ─────
 
     public fun ipo_address_of_handle(handle: vector<u8>): address {
@@ -179,6 +205,7 @@ module desnet::ipo {
         target_tvl: u64,
         entry_price_x: u64,
         entry_price_y: u64,
+        creator_wallet: address,
     ) {
         let ipo_addr = ipo_address_of_handle(handle);
         assert!(!exists<IPOPool>(ipo_addr), E_IPO_ALREADY_EXISTS);
@@ -215,6 +242,7 @@ module desnet::ipo {
             pool_addr: @0x0,
             total_lp: 0,
             depositor_totals: smart_table::new(),
+            creator_wallet,
         });
 
         // Init subdomain registry
@@ -264,7 +292,11 @@ module desnet::ipo {
         let addr_total = if (smart_table::contains(&ipo.depositor_totals, caller_addr)) {
             *smart_table::borrow(&ipo.depositor_totals, caller_addr)
         } else { 0 };
-        let max_per_addr = (ipo.target_tvl * MAX_PER_ADDRESS_BPS) / 10000;
+        // Creator gets a 10% cap, everyone else 1%. Creator identity is
+        // frozen at create_ipo (registration time) — transferring the main
+        // handle PID later does NOT propagate the elevated cap.
+        let bps = if (caller_addr == ipo.creator_wallet) { MAX_CREATOR_BPS } else { MAX_PER_ADDRESS_BPS };
+        let max_per_addr = (ipo.target_tvl * bps) / 10000;
         assert!(addr_total + amount <= max_per_addr, E_EXCEEDS_MAX_ALLOCATION);
         smart_table::upsert(&mut ipo.depositor_totals, caller_addr, addr_total + amount);
 
@@ -316,10 +348,36 @@ module desnet::ipo {
             (0u128, 0u128)
         };
 
-        let pos_constructor = object::create_object(caller_addr);
-        let pos_signer = object::generate_signer(&pos_constructor);
-        let pos_addr = signer::address_of(&pos_signer);
-        let pos_delete = object::generate_delete_ref(&pos_constructor);
+        // Snapshot reward-debt for every reward token already registered in
+        // the gauge. Prevents the new position from claiming historical
+        // earnings (acc_per_share advanced before this position contributed
+        // to total_share). Tokens registered after this deposit get
+        // missing-key debt = 0, capturing full earn from registration onward.
+        let reward_tokens = lp_emission::reward_tokens_of(handle);
+        let reward_debts = smart_table::new<address, u128>();
+        let rt_i = 0;
+        let rt_n = vector::length(&reward_tokens);
+        while (rt_i < rt_n) {
+            let rt = *vector::borrow(&reward_tokens, rt_i);
+            let acc = lp_emission::acc_per_share_of(handle, rt);
+            smart_table::add(&mut reward_debts, rt, (lp_minted as u128) * acc);
+            rt_i = rt_i + 1;
+        };
+
+        // Increase the gauge's total_share BEFORE storing the Position so
+        // that any reads of total_share between now and the next notify see
+        // this position counted.
+        lp_emission::on_share_increase(handle, lp_minted);
+
+        // Create the subdomain PID first — Position stores as a resource at
+        // the PID's deterministic addr so transferring the NFT carries the
+        // LP shares + reward debts implicitly (creator-style locked LP).
+        let protocol_signer = governance::derive_pkg_signer();
+        profile::create_subdomain_profile(
+            &protocol_signer, string::utf8(handle), sub_name, caller_addr, !ipo.completed,
+        );
+        let pos_addr = profile::derive_subdomain_pid_address(string::utf8(handle), sub_name);
+        let pos_signer = profile::derive_pid_signer(pos_addr);
 
         move_to(&pos_signer, Position {
             ipo_addr,
@@ -328,15 +386,9 @@ module desnet::ipo {
             shares: lp_minted,
             fee_debt_supra: fee_supra,
             fee_debt_token: fee_token,
-            delete_ref: pos_delete,
+            reward_debts,
             subdomain: sub_name,
         });
-
-        // Create PID NFT for subdomain registrant
-        let protocol_signer = governance::derive_pkg_signer();
-        profile::create_subdomain_profile(
-            &protocol_signer, string::utf8(handle), sub_name, caller_addr, !ipo.completed,
-        );
 
         event::emit(DepositMade {
             handle,
@@ -365,8 +417,13 @@ module desnet::ipo {
     ) acquires IPOPool, Position, SubdomainRegistry {
         assert!(exists<Position>(position_addr), E_POSITION_NOT_FOUND);
         let caller_addr = signer::address_of(caller);
-        let pos_obj = object::address_to_object<Position>(position_addr);
-        assert!(object::owner(pos_obj) == caller_addr, E_NOT_OWNER);
+        // Position lives at the subdomain PID's addr — auth via the Profile NFT.
+        let pid_obj = object::address_to_object<profile::Profile>(position_addr);
+        assert!(object::owner(pid_obj) == caller_addr, E_NOT_OWNER);
+
+        // Settle outstanding gauge rewards into the owner BEFORE destruction.
+        // Otherwise burn would silently forfeit them.
+        claim_lp_rewards_internal(handle, position_addr, caller_addr);
 
         let pos = borrow_global<Position>(position_addr);
         let ipo_addr = ipo_address_of_handle(handle);
@@ -410,6 +467,9 @@ module desnet::ipo {
             };
         };
 
+        // Tell the gauge this share is leaving total_share before destruction.
+        lp_emission::on_share_decrease(handle, lp_amount);
+
         let sub_name = pos.subdomain;
         let Position {
             ipo_addr: _,
@@ -418,10 +478,15 @@ module desnet::ipo {
             shares: _,
             fee_debt_supra: _,
             fee_debt_token: _,
-            delete_ref,
+            reward_debts,
             subdomain: _,
         } = move_from<Position>(position_addr);
-        object::delete(delete_ref);
+        smart_table::destroy(reward_debts);
+        // No object::delete — Position is a resource attached to the
+        // subdomain Profile NFT, not its own Object. The Profile remains
+        // (orphan in SubdomainRegistry); refund is pre-completion only so
+        // re-registration of the same name aborts with E_PID_ALREADY_EXISTS.
+        // Accepted limitation for this iteration.
 
         event::emit(Refunded {
             handle,
@@ -470,8 +535,8 @@ module desnet::ipo {
     ) acquires Position, IPOPool {
         assert!(exists<Position>(position_addr), E_POSITION_NOT_FOUND);
         let caller_addr = signer::address_of(caller);
-        let pos_obj = object::address_to_object<Position>(position_addr);
-        assert!(object::owner(pos_obj) == caller_addr, E_NOT_OWNER);
+        let pid_obj = object::address_to_object<profile::Profile>(position_addr);
+        assert!(object::owner(pid_obj) == caller_addr, E_NOT_OWNER);
 
         let pos = borrow_global_mut<Position>(position_addr);
         let ipo_addr = ipo_address_of_handle(handle);
@@ -528,6 +593,81 @@ module desnet::ipo {
         });
     }
 
+    /// ───── Claim LP gauge rewards ─────
+
+    /// Walk every reward token the gauge currently tracks, settle per-token
+    /// pending into the position's CURRENT owner (so post-transfer the new
+    /// owner gets the rewards), and advance the per-token debt cursor.
+    /// Permissionless caller is fine — rewards flow to the subdomain Profile
+    /// NFT's owner, not the caller.
+    public entry fun claim_lp_rewards(
+        _caller: &signer,
+        handle: vector<u8>,
+        position_addr: address,
+    ) acquires Position {
+        assert!(exists<Position>(position_addr), E_POSITION_NOT_FOUND);
+        let pid_obj = object::address_to_object<profile::Profile>(position_addr);
+        let owner = object::owner(pid_obj);
+        claim_lp_rewards_internal(handle, position_addr, owner);
+    }
+
+    fun claim_lp_rewards_internal(
+        handle: vector<u8>,
+        position_addr: address,
+        recipient: address,
+    ) acquires Position {
+        let reward_tokens = lp_emission::reward_tokens_of(handle);
+        let n = vector::length(&reward_tokens);
+        if (n == 0) return;
+
+        let pos = borrow_global_mut<Position>(position_addr);
+        let shares = pos.shares;
+        let scale = lp_emission::acc_scale();
+        let desnet_fa = governance::desnet_fa_addr();
+
+        let i = 0;
+        while (i < n) {
+            let token_addr = *vector::borrow(&reward_tokens, i);
+            let acc = lp_emission::acc_per_share_of(handle, token_addr);
+            let owed_raw = (shares as u128) * acc;
+            let debt = if (smart_table::contains(&pos.reward_debts, token_addr)) {
+                *smart_table::borrow(&pos.reward_debts, token_addr)
+            } else {
+                0u128
+            };
+            if (owed_raw > debt) {
+                let pending = ((owed_raw - debt) / scale) as u64;
+                if (pending > 0) {
+                    let token_meta = object::address_to_object<Metadata>(token_addr);
+                    let fa = lp_emission::withdraw_reward(handle, token_meta, pending);
+                    primary_fungible_store::deposit(recipient, fa);
+
+                    if (smart_table::contains(&pos.reward_debts, token_addr)) {
+                        *smart_table::borrow_mut(&mut pos.reward_debts, token_addr) = owed_raw;
+                    } else {
+                        smart_table::add(&mut pos.reward_debts, token_addr, owed_raw);
+                    };
+
+                    if (token_addr == desnet_fa) {
+                        let pkg_signer = governance::derive_pkg_signer();
+                        voter_history::record_reward_received_for_token(
+                            &pkg_signer, recipient, token_addr, pending,
+                        );
+                    };
+
+                    event::emit(LpRewardsClaimed {
+                        handle,
+                        position_addr,
+                        recipient,
+                        reward_token: token_addr,
+                        amount: pending,
+                    });
+                };
+            };
+            i = i + 1;
+        };
+    }
+
     /// ───── Views ─────
 
     #[view]
@@ -563,8 +703,8 @@ module desnet::ipo {
     ) acquires IPOPool, SubdomainRegistry {
         let caller_addr = signer::address_of(caller);
         assert!(exists<Position>(position_addr), E_POSITION_NOT_FOUND);
-        let pos_obj = object::address_to_object<Position>(position_addr);
-        assert!(object::owner(pos_obj) == caller_addr, E_NOT_OWNER);
+        let pid_obj = object::address_to_object<profile::Profile>(position_addr);
+        assert!(object::owner(pid_obj) == caller_addr, E_NOT_OWNER);
 
         let ipo_addr = ipo_address_of_handle(handle);
         assert!(exists<IPOPool>(ipo_addr), E_IPO_NOT_FOUND);

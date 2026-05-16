@@ -24,6 +24,7 @@ module desnet::history {
     friend desnet::pulse;
     friend desnet::link;
     friend desnet::press;
+    friend desnet::opinion;
 
     // ============ CONSTANTS ============
 
@@ -35,6 +36,7 @@ module desnet::history {
     const VERB_REMIX: u8 = 4;
     const VERB_PRESS: u8 = 5;
     const VERB_SYNC: u8 = 6;
+    const VERB_OPINION: u8 = 7;
 
     /// Chunk rotation threshold: when current chunk's tracked size exceeds this,
     /// seal it and allocate a new one. ~30KB ≈ 375 small entries.
@@ -108,7 +110,7 @@ module desnet::history {
         payload: vector<u8>,
         asset: Option<address>,
     ): Entry {
-        assert!(verb <= VERB_SYNC, E_INVALID_VERB);
+        assert!(verb <= VERB_OPINION, E_INVALID_VERB);
         assert!(vector::length(&payload) <= MAX_PAYLOAD_BYTES, E_PAYLOAD_TOO_LARGE);
         Entry { verb, timestamp_secs, target, payload, asset }
     }
@@ -309,6 +311,9 @@ module desnet::history {
 
     #[view]
     public fun verb_sync(): u8 { VERB_SYNC }
+
+    #[view]
+    public fun verb_opinion(): u8 { VERB_OPINION }
 
     #[view]
     public fun max_payload_bytes(): u64 { MAX_PAYLOAD_BYTES }

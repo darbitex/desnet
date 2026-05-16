@@ -160,6 +160,7 @@ module desnet::factory {
     public(friend) fun create_token_atomic(
         handle: vector<u8>,
         pid_addr: address,
+        creator_wallet: address,
         name: String,
         symbol: String,
         icon_uri: String,
@@ -227,6 +228,7 @@ module desnet::factory {
             target_tvl,
             entry_price_x,
             entry_price_y,
+            creator_wallet,
         );
         let ipo_addr = ipo::ipo_address_of_handle(handle);
 

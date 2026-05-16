@@ -36,6 +36,7 @@ module desnet::press {
     use desnet::reference_gate;
     use desnet::history;
     use desnet::factory;
+    use desnet::reaction_emission;
 
     // ============ CONSTANTS ============
 
@@ -382,16 +383,24 @@ module desnet::press {
         object::transfer(&pid_signer, token_object, presser_addr);
 
         // ============ Emission bonus ============
-        // Call factory wrapper which proxies to reaction_emission::emit_to_presser.
-        // Returns actual amount distributed (≤ press_order × REACTION_BASE_VALUE; capped
-        // at remaining reserve balance). Reserve depletion = emission 0 but press still
-        // succeeds (graceful degradation).
+        // Reaction gauge is keyed by the author's handle (profile::handle_of).
+        // For main-handle authors this is the canonical handle that owns the
+        // economy. For subdomain authors the gauge for their bare subdomain
+        // name starts empty; if nobody notifies it, distribute returns 0 and
+        // press still succeeds (graceful degradation).
         //
-        // BLOCK self-press emission. NFT mint allowed (author can collect own work) but
-        // emission to author's own wallet is denied — would let author drain their own
-        // reaction reserve via single self-press. Per-actor uniqueness prevents multi-press
-        // by same wallet; mint_seq validation above prevents bogus-seq farming.
-        let emission_amount = 0u64;
+        // Self-press is blocked: the per-actor uniqueness check above
+        // (presser_pid != author_pid path) doesn't apply when author presses
+        // own mint, but the gauge payout would let an author drain their own
+        // reaction pool with a single self-press. Suppress emission entirely
+        // in that case — NFT still mints to the author's wallet.
+        let emission_amount = if (presser_pid == author_pid) {
+            0u64
+        } else {
+            let author_handle_str = profile::handle_of(author_pid);
+            let author_handle_bytes = *string::bytes(&author_handle_str);
+            reaction_emission::distribute_to_presser(author_handle_bytes, presser_addr)
+        };
 
         let now_secs = timestamp::now_seconds();
         let record = PressMinted {

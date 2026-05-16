@@ -38,6 +38,7 @@ module desnet::mint {
     use desnet::history;
     use desnet::assets;
     use desnet::factory;
+    use desnet::opinion;
 
     friend desnet::pulse;
     friend desnet::press;
@@ -206,34 +207,112 @@ module desnet::mint {
         author_pid: address,
         content_kind: u8,
         content_text: vector<u8>,
-        // Media (optional, packed as 4 args; caller passes empty vec for unused)
-        media_kind: u8,                             // 0 = no media, else MEDIA_KIND_*
+        media_kind: u8,
         media_mime: u8,
         media_inline_data: vector<u8>,
         media_ref_backend: u8,
         media_ref_blob_id: vector<u8>,
         media_ref_hash: vector<u8>,
-        // Threading (caller passes 0/empty for None)
         parent_author: address,
         parent_seq: u64,
         parent_set: bool,
         quote_author: address,
         quote_seq: u64,
         quote_set: bool,
-        // Engagement vectors
         mentions: vector<address>,
         tags: vector<vector<u8>>,
         tickers: vector<address>,
-        // Tips (parallel arrays for Move 1.x compat — vector<Tip> at frontend builds)
         tip_recipients: vector<address>,
         tip_tokens: vector<address>,
         tip_amounts: vector<u64>,
-        // desnet::assets attached media (>8KB). When asset_master_set=true, overrides
-        // media_* args: media auto-built with kind=Ref, backend=BACKEND_DESNET_ASSETS,
-        // mime=assets::mime_of(asset_master_addr), ref_blob_id=bcs(asset_master_addr).
         asset_master_addr: address,
         asset_master_set: bool,
     ) acquires PidMintMeta {
+        let _ = do_create_mint(
+            author, author_pid, content_kind, content_text,
+            media_kind, media_mime, media_inline_data,
+            media_ref_backend, media_ref_blob_id, media_ref_hash,
+            parent_author, parent_seq, parent_set,
+            quote_author, quote_seq, quote_set,
+            mentions, tags, tickers,
+            tip_recipients, tip_tokens, tip_amounts,
+            asset_master_addr, asset_master_set,
+        );
+    }
+
+    /// Atomic create_mint + bootstrap an OpinionMarket on the new mint.
+    /// Single entry, single tx — frontend issues one click. opinion module
+    /// validates `initial_mc` bounds and creator-token presence internally.
+    public entry fun create_opinion_mint(
+        author: &signer,
+        author_pid: address,
+        content_kind: u8,
+        content_text: vector<u8>,
+        media_kind: u8,
+        media_mime: u8,
+        media_inline_data: vector<u8>,
+        media_ref_backend: u8,
+        media_ref_blob_id: vector<u8>,
+        media_ref_hash: vector<u8>,
+        parent_author: address,
+        parent_seq: u64,
+        parent_set: bool,
+        quote_author: address,
+        quote_seq: u64,
+        quote_set: bool,
+        mentions: vector<address>,
+        tags: vector<vector<u8>>,
+        tickers: vector<address>,
+        tip_recipients: vector<address>,
+        tip_tokens: vector<address>,
+        tip_amounts: vector<u64>,
+        asset_master_addr: address,
+        asset_master_set: bool,
+        // Pool seed for the opinion market in $creator_token raw units.
+        // Validated [1e13, 1e16] = [100K, 100M] whole token inside opinion module.
+        opinion_initial_mc: u64,
+    ) acquires PidMintMeta {
+        let seq = do_create_mint(
+            author, author_pid, content_kind, content_text,
+            media_kind, media_mime, media_inline_data,
+            media_ref_backend, media_ref_blob_id, media_ref_hash,
+            parent_author, parent_seq, parent_set,
+            quote_author, quote_seq, quote_set,
+            mentions, tags, tickers,
+            tip_recipients, tip_tokens, tip_amounts,
+            asset_master_addr, asset_master_set,
+        );
+        opinion::bootstrap_market_for_mint(author, author_pid, seq, opinion_initial_mc);
+    }
+
+    /// Shared mint body — returns allocated seq so create_opinion_mint can pin
+    /// the OpinionMarket at (author_pid, seq).
+    fun do_create_mint(
+        author: &signer,
+        author_pid: address,
+        content_kind: u8,
+        content_text: vector<u8>,
+        media_kind: u8,
+        media_mime: u8,
+        media_inline_data: vector<u8>,
+        media_ref_backend: u8,
+        media_ref_blob_id: vector<u8>,
+        media_ref_hash: vector<u8>,
+        parent_author: address,
+        parent_seq: u64,
+        parent_set: bool,
+        quote_author: address,
+        quote_seq: u64,
+        quote_set: bool,
+        mentions: vector<address>,
+        tags: vector<vector<u8>>,
+        tickers: vector<address>,
+        tip_recipients: vector<address>,
+        tip_tokens: vector<address>,
+        tip_amounts: vector<u64>,
+        asset_master_addr: address,
+        asset_master_set: bool,
+    ): u64 acquires PidMintMeta {
         profile::assert_authorized(author, author_pid);
         ensure_mint_storage(author_pid);
 
@@ -373,6 +452,8 @@ module desnet::mint {
             author_pid,
             history::new_entry(verb, now_secs, target, payload, asset_ref),
         );
+
+        seq
     }
 
     // ============ INTERNAL — tip execution ============

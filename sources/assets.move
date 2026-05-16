@@ -17,6 +17,7 @@
 /// can attach any sealed Master regardless of creator). Defamation/illegal-content
 /// moderation = frontend responsibility, not protocol.
 module desnet::assets {
+    use std::bcs;
     use std::signer;
     use std::vector;
     use supra_framework::event;
@@ -27,6 +28,14 @@ module desnet::assets {
 
     const CHUNK_SIZE_MAX: u64 = 30000;
     const MAX_TOTAL_SIZE: u64 = 5_000_000;     // 5MB
+
+    // v0.3.4 Tier-3 deterministic-addr seeds. Seeds are domain-separated by
+    // a constant prefix so master/chunk/node namespaces never collide. Two
+    // uploaders cannot collide either — `create_named_object` mixes the
+    // uploader's address into the hash before the seed bytes.
+    const SEED_PREFIX_MASTER: vector<u8> = b"desnet/asset/master/";
+    const SEED_PREFIX_CHUNK: vector<u8>  = b"desnet/asset/chunk/";
+    const SEED_PREFIX_NODE: vector<u8>   = b"desnet/asset/node/";
 
     /// MIME enum (aligned with mint.move).
     const MIME_PNG: u8 = 1;
@@ -48,6 +57,12 @@ module desnet::assets {
     const E_NODE_NOT_FOUND: u64 = 9;
     const E_NODE_EMPTY: u64 = 10;
     const E_NOT_CREATOR: u64 = 11;
+    /// v0.3.4 Tier-3: caller's chosen nonce/index already used. Pick a fresh value.
+    const E_SEED_TAKEN: u64 = 12;
+    /// v0.3.4 Tier-3 finalize_v2: the depth/root pair caller passed doesn't match
+    /// what the deterministic addresses prove. Fail-fast — callers should use the
+    /// `derive_*_addr_v2` views to build a consistent root.
+    const E_ROOT_MISMATCH: u64 = 13;
 
     // ============ TYPES ============
 
@@ -117,12 +132,37 @@ module desnet::assets {
 
     /// Allocate a new Master Object. Returns master_addr via emitted event
     /// (entry fns can't return values; frontend reads AssetMasterCreated).
+    /// v0.3.4: body delegates to `start_upload_internal`; `start_upload_pub`
+    /// is the address-returning sibling for Move-script bundling (Tier-2
+    /// orchestrator). Existing ABI is unchanged.
     public entry fun start_upload(
         uploader: &signer,
         mime: u8,
         total_size: u64,
         creator_pid: address,
     ) {
+        let _master_addr = start_upload_internal(uploader, mime, total_size, creator_pid);
+    }
+
+    /// v0.3.4 (Tier-2 orchestrator support): same as the entry above, but
+    /// returns master_addr so a Move script can chain it directly into
+    /// `deploy_chunk_pub` / `finalize` without round-tripping the address
+    /// through an event. ABI is purely additive.
+    public fun start_upload_pub(
+        uploader: &signer,
+        mime: u8,
+        total_size: u64,
+        creator_pid: address,
+    ): address {
+        start_upload_internal(uploader, mime, total_size, creator_pid)
+    }
+
+    fun start_upload_internal(
+        uploader: &signer,
+        mime: u8,
+        total_size: u64,
+        creator_pid: address,
+    ): address {
         assert_valid_mime(mime);
         assert!(total_size > 0, E_TOTAL_SIZE_ZERO);
         assert!(total_size <= MAX_TOTAL_SIZE, E_TOTAL_SIZE_EXCEEDED);
@@ -151,17 +191,37 @@ module desnet::assets {
             total_size,
             timestamp_secs: now_secs,
         });
+
+        master_addr
     }
 
     // ============ ENTRY: deploy_chunk ============
 
     /// Deploy a leaf chunk (≤30KB). Master must exist and not be sealed.
-    /// Returns chunk_addr via emitted event.
+    /// Returns chunk_addr via emitted event. v0.3.4 delegates body to
+    /// `deploy_chunk_internal`.
     public entry fun deploy_chunk(
         uploader: &signer,
         master_addr: address,
         data: vector<u8>,
     ) acquires Master {
+        let _chunk_addr = deploy_chunk_internal(uploader, master_addr, data);
+    }
+
+    /// v0.3.4 (Tier-2): same body but returns chunk_addr.
+    public fun deploy_chunk_pub(
+        uploader: &signer,
+        master_addr: address,
+        data: vector<u8>,
+    ): address acquires Master {
+        deploy_chunk_internal(uploader, master_addr, data)
+    }
+
+    fun deploy_chunk_internal(
+        uploader: &signer,
+        master_addr: address,
+        data: vector<u8>,
+    ): address acquires Master {
         assert!(exists<Master>(master_addr), E_MASTER_NOT_FOUND);
         let master = borrow_global<Master>(master_addr);
         assert!(!master.sealed, E_MASTER_SEALED);
@@ -184,18 +244,38 @@ module desnet::assets {
             data_len: len,
             timestamp_secs: timestamp::now_seconds(),
         });
+
+        chunk_addr
     }
 
     // ============ ENTRY: deploy_node ============
 
     /// Deploy an internal Node pointing to children (chunk addrs or sub-node addrs).
     /// Used for tree depth ≥1. Master must not be sealed.
-    /// Returns node_addr via emitted event.
+    /// Returns node_addr via emitted event. v0.3.4 delegates to
+    /// `deploy_node_internal`.
     public entry fun deploy_node(
         uploader: &signer,
         master_addr: address,
         children: vector<address>,
     ) acquires Master {
+        let _node_addr = deploy_node_internal(uploader, master_addr, children);
+    }
+
+    /// v0.3.4 (Tier-2): same body but returns node_addr.
+    public fun deploy_node_pub(
+        uploader: &signer,
+        master_addr: address,
+        children: vector<address>,
+    ): address acquires Master {
+        deploy_node_internal(uploader, master_addr, children)
+    }
+
+    fun deploy_node_internal(
+        uploader: &signer,
+        master_addr: address,
+        children: vector<address>,
+    ): address acquires Master {
         assert!(exists<Master>(master_addr), E_MASTER_NOT_FOUND);
         let master = borrow_global<Master>(master_addr);
         assert!(!master.sealed, E_MASTER_SEALED);
@@ -217,6 +297,8 @@ module desnet::assets {
             children_count: n,
             timestamp_secs: timestamp::now_seconds(),
         });
+
+        node_addr
     }
 
     // ============ ENTRY: finalize ============
@@ -224,7 +306,30 @@ module desnet::assets {
     /// Finalize Master: set root + depth, mark sealed=true. After this, the asset
     /// is permanently immutable from this module's perspective.
     /// Caller is responsible for having deployed root chunk/node beforehand.
+    /// v0.3.4 delegates body to `finalize_internal`.
     public entry fun finalize(
+        uploader: &signer,
+        master_addr: address,
+        root: address,
+        depth: u8,
+    ) acquires Master {
+        finalize_internal(uploader, master_addr, root, depth);
+    }
+
+    /// v0.3.4 (Tier-2): script-callable finalize. Returns nothing because
+    /// finalize is purely state-mutation; scripts can call it as the last
+    /// step of a bundled upload after `start_upload_pub` + `deploy_chunk_pub`
+    /// chain.
+    public fun finalize_pub(
+        uploader: &signer,
+        master_addr: address,
+        root: address,
+        depth: u8,
+    ) acquires Master {
+        finalize_internal(uploader, master_addr, root, depth);
+    }
+
+    fun finalize_internal(
         uploader: &signer,
         master_addr: address,
         root: address,
@@ -255,6 +360,230 @@ module desnet::assets {
             depth,
             timestamp_secs: timestamp::now_seconds(),
         });
+    }
+
+    // ============ v0.3.4 TIER-3 — deterministic-address `*_v2` entries ============
+    //
+    // These mirror the v1 entries but use `object::create_named_object` with
+    // caller-supplied indices, so the resulting addresses are predictable
+    // off-chain via `derive_*_addr_v2` views. JS can pre-compute every chunk
+    // address before submitting any tx — the entire upload + the final
+    // `create_mint` collapse into one Move script transaction.
+    //
+    // Compat: v1 entries are untouched. Existing uploads via the v1 path keep
+    // working bit-for-bit. v2 entries are ABI-additive.
+    //
+    // Seed scope: `create_named_object(creator, seed)` mixes `signer::address_of(creator)`
+    // into the SHA3-256, so the per-creator seed namespace is isolated. Two
+    // different uploaders cannot collide even with the same nonce.
+
+    /// v0.3.4 (Tier-3): deterministic-addr Master allocation. Caller picks
+    /// any u64 nonce — addr = sha3(uploader || SEED_PREFIX_MASTER || bcs(nonce) || 0xFE).
+    /// Aborts E_SEED_TAKEN if (uploader, nonce) was used before. Common pattern:
+    /// nonce = `timestamp::now_microseconds()` to make collisions impossible
+    /// in practice; or a per-uploader counter the frontend tracks locally.
+    public fun start_upload_v2(
+        uploader: &signer,
+        mime: u8,
+        total_size: u64,
+        creator_pid: address,
+        nonce: u64,
+    ): address {
+        assert_valid_mime(mime);
+        assert!(total_size > 0, E_TOTAL_SIZE_ZERO);
+        assert!(total_size <= MAX_TOTAL_SIZE, E_TOTAL_SIZE_EXCEEDED);
+
+        // R3 audit L1 — explicit pre-check is BELT + SUSPENDERS. Aptos
+        // `create_named_object` aborts on collision (EOBJECT_EXISTS),
+        // so this exists<Master> assertion is technically redundant.
+        // Kept because: (a) we get a domain-specific error code
+        // (E_SEED_TAKEN) instead of the framework's generic one, which
+        // makes frontend error decoding cleaner; (b) gas overhead is
+        // ~200 units, negligible vs the create_named_object cost; (c)
+        // fails CLOSED on any future framework change to abort behavior.
+        let seed = master_seed(nonce);
+        let uploader_addr = signer::address_of(uploader);
+        let derived = object::create_object_address(&uploader_addr, seed);
+        assert!(!exists<Master>(derived), E_SEED_TAKEN);
+
+        let constructor_ref = object::create_named_object(uploader, master_seed(nonce));
+        let master_signer = object::generate_signer(&constructor_ref);
+        let master_addr = signer::address_of(&master_signer);
+
+        let now_secs = timestamp::now_seconds();
+        move_to(&master_signer, Master {
+            root: @0x0,
+            depth: 0,
+            total_size,
+            mime,
+            creator_pid,
+            creator_addr: uploader_addr,
+            sealed: false,
+            created_at_secs: now_secs,
+        });
+
+        event::emit(AssetMasterCreated {
+            master_addr,
+            creator_pid,
+            mime,
+            total_size,
+            timestamp_secs: now_secs,
+        });
+
+        master_addr
+    }
+
+    /// v0.3.4 (Tier-3): deterministic-addr Chunk allocation. `chunk_index`
+    /// must be unique per (uploader, master). Convention: 0-indexed from the
+    /// frontend's chunking pass.
+    public fun deploy_chunk_v2(
+        uploader: &signer,
+        master_addr: address,
+        data: vector<u8>,
+        chunk_index: u64,
+    ): address acquires Master {
+        assert!(exists<Master>(master_addr), E_MASTER_NOT_FOUND);
+        let master = borrow_global<Master>(master_addr);
+        assert!(!master.sealed, E_MASTER_SEALED);
+        let uploader_addr = signer::address_of(uploader);
+        assert!(master.creator_addr == uploader_addr, E_NOT_CREATOR);
+
+        let len = vector::length(&data);
+        assert!(len > 0, E_CHUNK_EMPTY);
+        assert!(len <= CHUNK_SIZE_MAX, E_CHUNK_TOO_LARGE);
+
+        let seed = chunk_seed(master_addr, chunk_index);
+        let derived = object::create_object_address(&uploader_addr, seed);
+        assert!(!exists<Chunk>(derived), E_SEED_TAKEN);
+
+        let constructor_ref = object::create_named_object(uploader, chunk_seed(master_addr, chunk_index));
+        let chunk_signer = object::generate_signer(&constructor_ref);
+        let chunk_addr = signer::address_of(&chunk_signer);
+
+        move_to(&chunk_signer, Chunk { data });
+
+        event::emit(AssetChunkDeployed {
+            master_addr,
+            chunk_addr,
+            data_len: len,
+            timestamp_secs: timestamp::now_seconds(),
+        });
+
+        chunk_addr
+    }
+
+    /// v0.3.4 (Tier-3): deterministic-addr Node. `node_index` must be unique
+    /// per (uploader, master). Frontend convention: 0..N-1 for leaf-grouping
+    /// nodes, then N for the root in a depth-2 tree.
+    public fun deploy_node_v2(
+        uploader: &signer,
+        master_addr: address,
+        children: vector<address>,
+        node_index: u64,
+    ): address acquires Master {
+        assert!(exists<Master>(master_addr), E_MASTER_NOT_FOUND);
+        let master = borrow_global<Master>(master_addr);
+        assert!(!master.sealed, E_MASTER_SEALED);
+        let uploader_addr = signer::address_of(uploader);
+        assert!(master.creator_addr == uploader_addr, E_NOT_CREATOR);
+
+        let n = vector::length(&children);
+        assert!(n > 0, E_NODE_EMPTY);
+
+        let seed = node_seed(master_addr, node_index);
+        let derived = object::create_object_address(&uploader_addr, seed);
+        assert!(!exists<Node>(derived), E_SEED_TAKEN);
+
+        let constructor_ref = object::create_named_object(uploader, node_seed(master_addr, node_index));
+        let node_signer = object::generate_signer(&constructor_ref);
+        let node_addr = signer::address_of(&node_signer);
+
+        move_to(&node_signer, Node { children });
+
+        event::emit(AssetNodeDeployed {
+            master_addr,
+            node_addr,
+            children_count: n,
+            timestamp_secs: timestamp::now_seconds(),
+        });
+
+        node_addr
+    }
+
+    /// v0.3.4 (Tier-3): finalize variant that double-checks `root` matches a
+    /// derivable seed. Mostly redundant with v1 finalize (which only verifies
+    /// the resource exists), but worth having for callers that derive `root`
+    /// JS-side and want belt-and-suspenders confidence the addr they pass
+    /// matches an `*_v2`-deployed object.
+    ///
+    /// `root_index_opt = none` → caller passes the raw root addr and we just
+    /// verify resource existence (same as v1 finalize, but reachable from
+    /// scripts without `entry`).
+    /// `root_index_opt = some(idx)` → we recompute the seed and assert the
+    /// hash matches `root` before sealing.
+    public fun finalize_v2(
+        uploader: &signer,
+        master_addr: address,
+        root: address,
+        depth: u8,
+        root_index: u64,
+        verify_seed: bool,
+    ) acquires Master {
+        if (verify_seed) {
+            let uploader_addr = signer::address_of(uploader);
+            let seed = if (depth == 0) {
+                chunk_seed(master_addr, root_index)
+            } else {
+                node_seed(master_addr, root_index)
+            };
+            let expected = object::create_object_address(&uploader_addr, seed);
+            assert!(expected == root, E_ROOT_MISMATCH);
+        };
+        finalize_internal(uploader, master_addr, root, depth);
+    }
+
+    // ============ Tier-3 seed helpers + JS-derivation views ============
+
+    fun master_seed(nonce: u64): vector<u8> {
+        let s = vector::empty<u8>();
+        vector::append(&mut s, SEED_PREFIX_MASTER);
+        vector::append(&mut s, bcs::to_bytes(&nonce));
+        s
+    }
+
+    fun chunk_seed(master_addr: address, chunk_index: u64): vector<u8> {
+        let s = vector::empty<u8>();
+        vector::append(&mut s, SEED_PREFIX_CHUNK);
+        vector::append(&mut s, bcs::to_bytes(&master_addr));
+        vector::append(&mut s, bcs::to_bytes(&chunk_index));
+        s
+    }
+
+    fun node_seed(master_addr: address, node_index: u64): vector<u8> {
+        let s = vector::empty<u8>();
+        vector::append(&mut s, SEED_PREFIX_NODE);
+        vector::append(&mut s, bcs::to_bytes(&master_addr));
+        vector::append(&mut s, bcs::to_bytes(&node_index));
+        s
+    }
+
+    /// JS-callable: pre-compute a Tier-3 master addr for (uploader, nonce)
+    /// before any tx is signed. Lets the frontend bundle start_upload_v2 +
+    /// deploy_chunk_v2 × N + finalize_v2 in one Move script with all addrs
+    /// known up front.
+    #[view]
+    public fun derive_master_addr_v2(uploader: address, nonce: u64): address {
+        object::create_object_address(&uploader, master_seed(nonce))
+    }
+
+    #[view]
+    public fun derive_chunk_addr_v2(uploader: address, master_addr: address, chunk_index: u64): address {
+        object::create_object_address(&uploader, chunk_seed(master_addr, chunk_index))
+    }
+
+    #[view]
+    public fun derive_node_addr_v2(uploader: address, master_addr: address, node_index: u64): address {
+        object::create_object_address(&uploader, node_seed(master_addr, node_index))
     }
 
     // ============ INTERNAL ============
@@ -333,6 +662,18 @@ module desnet::assets {
 
     #[view]
     public fun max_total_size(): u64 { MAX_TOTAL_SIZE }
+
+    /// v0.3.4: capability marker for the asset-upload orchestrator tier the
+    /// frontend can use against THIS bytecode version. Returns:
+    ///   1 = only original entries (multi-tx, address from events)
+    ///   2 = `*_pub` mirrors live (Move script bundling possible, fewer txs)
+    ///   3 = deterministic-address `*_v2` entries live (B3 single-tx upload)
+    /// Frontend calls this to auto-enable higher tiers in the picker. v0.3.3
+    /// did NOT have this view, so frontends fall back to tier 1 on the call
+    /// failing — no breakage. v0.3.4 ships BOTH B2 (`*_pub` mirrors) AND B3
+    /// (`*_v2` deterministic-addr entries) so this returns 3.
+    #[view]
+    public fun orchestrator_tier(): u8 { 3 }
 
     #[view]
     public fun mime_png(): u8 { MIME_PNG }
@@ -523,5 +864,139 @@ module desnet::assets {
     fun test_start_upload_total_size_cap(uploader: &signer) {
         // 5MB+1 byte → reject
         start_upload_for_test(uploader, MIME_SVG, 5_000_001, @0xfeed);
+    }
+
+    // ============ v0.3.4 TIER-2 (B2) tests ============
+
+    #[test(framework = @supra_framework, uploader = @0xa11ce)]
+    fun test_b2_pub_returns_addresses(framework: &signer, uploader: &signer)
+        acquires Master
+    {
+        setup_test_env(framework, uploader);
+
+        let master_addr = start_upload_pub(uploader, MIME_PNG, 1024, @0xfeed);
+        assert!(exists<Master>(master_addr), 1);
+        assert!(!is_sealed(master_addr), 2);
+
+        let data = vector::empty<u8>();
+        vector::push_back(&mut data, 0xAA);
+        let chunk_addr = deploy_chunk_pub(uploader, master_addr, data);
+        assert!(exists<Chunk>(chunk_addr), 3);
+
+        finalize_pub(uploader, master_addr, chunk_addr, 0);
+        assert!(is_sealed(master_addr), 4);
+        assert!(root_of(master_addr) == chunk_addr, 5);
+    }
+
+    #[test(framework = @supra_framework, uploader = @0xa11ce)]
+    fun test_orchestrator_tier_is_3_in_v034(framework: &signer, uploader: &signer) {
+        setup_test_env(framework, uploader);
+        assert!(orchestrator_tier() == 3, 1);
+    }
+
+    // ============ v0.3.4 TIER-3 (B3) tests ============
+
+    #[test(framework = @supra_framework, uploader = @0xa11ce)]
+    fun test_b3_lifecycle_single_chunk(framework: &signer, uploader: &signer)
+        acquires Master
+    {
+        setup_test_env(framework, uploader);
+        let uploader_addr = signer::address_of(uploader);
+
+        // Pre-compute master addr off-chain (the JS-equivalent path).
+        // Cross-verified 2026-05-03 against frontend `deriveMasterAddrV2`:
+        // both yield 0x539417401dc65683d7f3d98d30006ce261c172240fa5a45cd94a7dbe0846a1e4.
+        let predicted_master = derive_master_addr_v2(uploader_addr, 42);
+        let master_addr = start_upload_v2(uploader, MIME_PNG, 100, @0xfeed, 42);
+        assert!(predicted_master == master_addr, 1);
+
+        // Pre-compute chunk addr.
+        let predicted_chunk = derive_chunk_addr_v2(uploader_addr, master_addr, 0);
+        let data = vector::empty<u8>();
+        vector::push_back(&mut data, 0x99);
+        let chunk_addr = deploy_chunk_v2(uploader, master_addr, data, 0);
+        assert!(predicted_chunk == chunk_addr, 2);
+
+        // finalize_v2 with verify_seed=true must accept the matching root.
+        finalize_v2(uploader, master_addr, chunk_addr, 0, 0, true);
+        assert!(is_sealed(master_addr), 3);
+        assert!(root_of(master_addr) == chunk_addr, 4);
+    }
+
+    #[test(framework = @supra_framework, uploader = @0xa11ce)]
+    fun test_b3_depth1_node_predictable(framework: &signer, uploader: &signer)
+        acquires Master
+    {
+        setup_test_env(framework, uploader);
+        let uploader_addr = signer::address_of(uploader);
+
+        let master = start_upload_v2(uploader, MIME_PNG, 200, @0xfeed, 1);
+
+        let d1 = vector::empty<u8>(); vector::push_back(&mut d1, 0x01);
+        let d2 = vector::empty<u8>(); vector::push_back(&mut d2, 0x02);
+        let c1 = deploy_chunk_v2(uploader, master, d1, 0);
+        let c2 = deploy_chunk_v2(uploader, master, d2, 1);
+
+        let predicted_node = derive_node_addr_v2(uploader_addr, master, 0);
+        let children = vector::empty<address>();
+        vector::push_back(&mut children, c1);
+        vector::push_back(&mut children, c2);
+        let node = deploy_node_v2(uploader, master, children, 0);
+        assert!(predicted_node == node, 1);
+
+        finalize_v2(uploader, master, node, 1, 0, true);
+        assert!(depth_of(master) == 1, 2);
+    }
+
+    #[test(framework = @supra_framework, uploader = @0xa11ce)]
+    #[expected_failure(abort_code = E_SEED_TAKEN, location = Self)]
+    fun test_b3_master_nonce_collision_aborts(framework: &signer, uploader: &signer) {
+        setup_test_env(framework, uploader);
+        // Same nonce twice from same uploader → collision → abort.
+        start_upload_v2(uploader, MIME_PNG, 100, @0xfeed, 7);
+        start_upload_v2(uploader, MIME_PNG, 100, @0xfeed, 7);
+    }
+
+    #[test(framework = @supra_framework, uploader = @0xa11ce)]
+    #[expected_failure(abort_code = E_SEED_TAKEN, location = Self)]
+    fun test_b3_chunk_index_collision_aborts(framework: &signer, uploader: &signer)
+        acquires Master
+    {
+        setup_test_env(framework, uploader);
+        let master = start_upload_v2(uploader, MIME_PNG, 100, @0xfeed, 8);
+        let d1 = vector::empty<u8>(); vector::push_back(&mut d1, 0x11);
+        let d2 = vector::empty<u8>(); vector::push_back(&mut d2, 0x22);
+        deploy_chunk_v2(uploader, master, d1, 0);
+        // Same chunk_index → collision.
+        deploy_chunk_v2(uploader, master, d2, 0);
+    }
+
+    #[test(framework = @supra_framework, uploader = @0xa11ce)]
+    #[expected_failure(abort_code = E_ROOT_MISMATCH, location = Self)]
+    fun test_b3_finalize_v2_root_mismatch_aborts(framework: &signer, uploader: &signer)
+        acquires Master
+    {
+        setup_test_env(framework, uploader);
+        let master = start_upload_v2(uploader, MIME_PNG, 100, @0xfeed, 9);
+        let d = vector::empty<u8>(); vector::push_back(&mut d, 0x33);
+        let c = deploy_chunk_v2(uploader, master, d, 0);
+        // Pass a bogus root with verify_seed=true → must abort.
+        let _ = c;
+        finalize_v2(uploader, master, @0xdeadbeef, 0, 0, true);
+    }
+
+    #[test(framework = @supra_framework, alice = @0xa11ce, bob = @0xb0b)]
+    fun test_b3_per_uploader_seed_isolation(
+        framework: &signer,
+        alice: &signer,
+        bob: &signer,
+    ) {
+        setup_test_env(framework, alice);
+        supra_framework::account::create_account_for_test(signer::address_of(bob));
+
+        // Same nonce across different uploaders → distinct addresses, both succeed.
+        let master_alice = start_upload_v2(alice, MIME_PNG, 100, @0xfeed, 5);
+        let master_bob = start_upload_v2(bob, MIME_PNG, 100, @0xfeed, 5);
+        assert!(master_alice != master_bob, 1);
     }
 }

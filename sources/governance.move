@@ -53,6 +53,8 @@ module desnet::governance {
     friend desnet::lp_staking;
     friend desnet::supra_fee_vault;
     friend desnet::ipo;
+    friend desnet::lp_emission;
+    friend desnet::reaction_emission;
 
     // ============ CONSTANTS ============
 

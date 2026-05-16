@@ -398,14 +398,16 @@ module desnet::lp_staking {
         let handle = position.handle;
         let shares_u128 = position.shares;
 
-        // 1. Update + read emission accumulator
+        // Supra mode: token emission is sourced exclusively from the new
+        // multi-FA gauge owned by ipo::Position holders. lp_staking::Position
+        // is the legacy path and earns only AMM swap fees here. The pool's
+        // old emission accumulator is still advanced (cheap, keeps the field
+        // alive in case we wire a separate stream later) but no payout flows.
         update_pool(pool_addr);
         let pool = borrow_global<StakingPool>(pool_addr);
         let acc = pool.accumulated_per_share;
-        let pending_emission_u128 = ((acc - position.last_acc_per_share) * shares_u128) / ACC_SCALE;
         position.last_acc_per_share = acc;
 
-        // 2. Read amm fee accumulators
         let (fee_per_supra, fee_per_token) = amm::fee_per_lp(handle);
         let amm_scale = amm::fee_acc_scale();
         let pending_supra_u128 = ((fee_per_supra - position.last_fee_per_lp_supra) * shares_u128) / amm_scale;
@@ -413,45 +415,11 @@ module desnet::lp_staking {
         position.last_fee_per_lp_supra = fee_per_supra;
         position.last_fee_per_lp_token = fee_per_token;
 
-        let pending_emission = (pending_emission_u128 as u64);
         let pending_supra = (pending_supra_u128 as u64);
         let pending_token = (pending_token_u128 as u64);
 
-        // 3. Resolve recipient
         let recipient = resolve_recipient(position.recipient_pid, position_addr);
 
-        // 4. Pull emission ($TOKEN) from lp_emission reserve.
-        //    H2 fix (audit R1): record voting power for ACTUAL paid amount, not requested.
-        //    pull_for_claim caps at reserve balance (graceful depletion); recording
-        //    pending_emission would inflate voting power post-depletion at zero cost.
-        if (pending_emission > 0) {
-            let token_meta = object::address_to_object<Metadata>(pool.token_metadata_addr);
-            let emission_fa = lp_emission::pull_for_claim(
-                pool.emission_reserve_addr,
-                token_meta,
-                pending_emission,
-            );
-            let actual_paid = fungible_asset::amount(&emission_fa);
-            primary_fungible_store::deposit(recipient, emission_fa);
-
-            if (actual_paid > 0) {
-                let pkg_signer = governance::derive_pkg_signer();
-                // v0.3.2 (F7): record per-token (also writes legacy mixed for compat).
-                // Token addr is the pool's emission token = current pool.token_metadata_addr.
-                voter_history::record_reward_received_for_token(
-                    &pkg_signer,
-                    recipient,
-                    pool.token_metadata_addr,
-                    actual_paid,
-                );
-                // v0.3.2 (F6): feed the 30d auto-tracker so DAO threshold/quorum
-                // become driven by actual emission flow (eliminates manipulation
-                // surface of multisig::update_total_30d_emission).
-                governance::record_emission_for_window(actual_paid);
-            };
-        };
-
-        // 5. Pull LP fees (SUPRA + TOKEN)
         if (pending_supra > 0 || pending_token > 0) {
             let (supra_fa, token_fa) = amm::extract_fees_for_claim(handle, pending_supra, pending_token);
             if (fungible_asset::amount(&supra_fa) > 0) {
@@ -466,6 +434,7 @@ module desnet::lp_staking {
             };
         };
 
+        let pending_emission: u64 = 0;
         if (pending_emission == 0 && pending_supra == 0 && pending_token == 0) return;
 
         event::emit(Claimed {
