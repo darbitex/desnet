@@ -1,4 +1,4 @@
-/// AMM — purpose-built APT/$TOKEN constant-product pool (LOCKED 2026-05-02).
+/// AMM — purpose-built SUPRA/$TOKEN constant-product pool (LOCKED 2026-05-02).
 ///
 /// Composability shape MATCHES darbitex AMM exactly (minus arbitrage module).
 /// External aggregators / arb bots can route through both venues uniformly via:
@@ -17,19 +17,20 @@
 module desnet::amm {
     use std::signer;
     use std::vector;
-    use aptos_framework::aptos_coin::AptosCoin;
-    use aptos_framework::coin;
-    use aptos_framework::event;
-    use aptos_framework::fungible_asset::{Self, FungibleAsset, FungibleStore, Metadata};
-    use aptos_framework::object::{Self, Object, ExtendRef};
-    use aptos_framework::primary_fungible_store;
+    use supra_framework::supra_coin::SupraCoin;
+    use supra_framework::coin;
+    use supra_framework::event;
+    use supra_framework::fungible_asset::{Self, FungibleAsset, FungibleStore, Metadata};
+    use supra_framework::object::{Self, Object, ExtendRef};
+    use supra_framework::primary_fungible_store;
     use aptos_std::math128;
 
     use desnet::governance;
 
     friend desnet::factory;
     friend desnet::lp_staking;
-    friend desnet::apt_vault;
+    friend desnet::supra_vault;
+    friend desnet::ipo;
 
     // ============ CONSTANTS ============
 
@@ -37,7 +38,6 @@ module desnet::amm {
     const FLASH_FEE_BPS: u64 = 10;                    // = LP swap fee (uniform 10 bps, all 100% to LP)
     const FEE_DENOM: u64 = 10000;
     const MIN_INITIAL_LP: u128 = 1000;
-    const APT_FA_ADDR: address = @0xa;
     const FEE_ACC_SCALE: u128 = 1_000_000_000_000_000_000;
 
     const SEED_POOL: vector<u8> = b"desnet::amm::pool::";
@@ -61,22 +61,24 @@ module desnet::amm {
     const E_WRONG_POOL: u64 = 13;
     const E_K_VIOLATED: u64 = 14;
     const E_WRONG_TOKEN: u64 = 15;
+    const E_SWAPS_DISABLED: u64 = 16;
 
     // ============ TYPES ============
 
     /// Per-handle Pool. LP is in `desnet::lp_staking::Position` NFTs (not FA).
     struct Pool has key {
         handle: vector<u8>,
-        apt_reserve: Object<FungibleStore>,
+        supra_reserve: Object<FungibleStore>,
         token_reserve: Object<FungibleStore>,
-        apt_fees: Object<FungibleStore>,
+        supra_fees: Object<FungibleStore>,
         token_fees: Object<FungibleStore>,
         token_metadata_addr: address,
         lp_supply: u128,
-        fee_per_lp_apt: u128,
+        fee_per_lp_supra: u128,
         fee_per_lp_token: u128,
         creator_pid: address,
         locked: bool,                                 // flash loan reentrancy guard
+        swaps_enabled: bool,                          // IPO gate: false sampai IPO complete
         extend_ref: ExtendRef,
     }
 
@@ -95,7 +97,7 @@ module desnet::amm {
         handle: vector<u8>,
         pool_addr: address,
         token_metadata_addr: address,
-        apt_in: u64,
+        supra_in: u64,
         token_in: u64,
         lp_minted: u128,
         creator_pid: address,
@@ -105,10 +107,10 @@ module desnet::amm {
     struct LiquidityAdded has drop, store {
         handle: vector<u8>,
         pool_addr: address,
-        apt_in: u64,
+        supra_in: u64,
         token_in: u64,
         lp_minted: u128,
-        new_apt_reserve: u64,
+        new_supra_reserve: u64,
         new_token_reserve: u64,
         new_lp_supply: u128,
     }
@@ -118,9 +120,9 @@ module desnet::amm {
         handle: vector<u8>,
         pool_addr: address,
         lp_burned: u128,
-        apt_out: u64,
+        supra_out: u64,
         token_out: u64,
-        new_apt_reserve: u64,
+        new_supra_reserve: u64,
         new_token_reserve: u64,
         new_lp_supply: u128,
     }
@@ -130,11 +132,11 @@ module desnet::amm {
         handle: vector<u8>,
         pool_addr: address,
         actor: address,
-        apt_to_token: bool,
+        supra_to_token: bool,
         amount_in: u64,
         amount_out: u64,
         fee_amount: u64,
-        new_apt_reserve: u64,
+        new_supra_reserve: u64,
         new_token_reserve: u64,
     }
 
@@ -142,7 +144,7 @@ module desnet::amm {
     struct FeesExtractedForClaim has drop, store {
         handle: vector<u8>,
         pool_addr: address,
-        apt_extracted: u64,
+        supra_extracted: u64,
         token_extracted: u64,
     }
 
@@ -187,20 +189,21 @@ module desnet::amm {
 
     public(friend) fun create_pool_atomic(
         handle: vector<u8>,
-        apt_in: FungibleAsset,
+        supra_in: FungibleAsset,
         token_in: FungibleAsset,
         creator_pid: address,
+        swaps_enabled: bool,
     ): u128 {
         assert!(!vector::is_empty(&handle), E_INVALID_HANDLE);
         let pool_addr = pool_address_of_handle(handle);
         assert!(!exists<Pool>(pool_addr), E_POOL_ALREADY_EXISTS);
 
-        let apt_amount = fungible_asset::amount(&apt_in);
+        let supra_amount = fungible_asset::amount(&supra_in);
         let token_amount = fungible_asset::amount(&token_in);
-        assert!(apt_amount > 0 && token_amount > 0, E_ZERO_AMOUNT);
+        assert!(supra_amount > 0 && token_amount > 0, E_ZERO_AMOUNT);
 
-        let apt_meta = fungible_asset::metadata_from_asset(&apt_in);
-        assert!(object::object_address(&apt_meta) == APT_FA_ADDR, E_INVALID_FA_TYPE);
+        let supra_meta = fungible_asset::metadata_from_asset(&supra_in);
+        assert!(object::object_address(&supra_meta) == governance::native_fa_metadata(), E_INVALID_FA_TYPE);
 
         let token_meta = fungible_asset::metadata_from_asset(&token_in);
         let token_meta_addr = object::object_address(&token_meta);
@@ -212,29 +215,30 @@ module desnet::amm {
         let pool_transfer_ref = object::generate_transfer_ref(&pool_constructor);
         object::disable_ungated_transfer(&pool_transfer_ref);
 
-        let apt_reserve = create_store_at_pool(pool_addr, apt_meta);
+        let supra_reserve = create_store_at_pool(pool_addr, supra_meta);
         let token_reserve = create_store_at_pool(pool_addr, token_meta);
-        let apt_fees = create_store_at_pool(pool_addr, apt_meta);
+        let supra_fees = create_store_at_pool(pool_addr, supra_meta);
         let token_fees = create_store_at_pool(pool_addr, token_meta);
 
-        let initial_lp = mint_lp_initial(apt_amount, token_amount);
+        let initial_lp = mint_lp_initial(supra_amount, token_amount);
         assert!(initial_lp >= MIN_INITIAL_LP, E_INITIAL_LP_BELOW_MIN);
 
-        fungible_asset::deposit(apt_reserve, apt_in);
+        fungible_asset::deposit(supra_reserve, supra_in);
         fungible_asset::deposit(token_reserve, token_in);
 
         move_to(&pool_signer, Pool {
             handle: handle,
-            apt_reserve,
+            supra_reserve,
             token_reserve,
-            apt_fees,
+            supra_fees,
             token_fees,
             token_metadata_addr: token_meta_addr,
             lp_supply: initial_lp,
-            fee_per_lp_apt: 0,
+            fee_per_lp_supra: 0,
             fee_per_lp_token: 0,
             creator_pid,
             locked: false,
+            swaps_enabled,
             extend_ref: pool_extend_ref,
         });
 
@@ -242,7 +246,7 @@ module desnet::amm {
             handle,
             pool_addr,
             token_metadata_addr: token_meta_addr,
-            apt_in: apt_amount,
+            supra_in: supra_amount,
             token_in: token_amount,
             lp_minted: initial_lp,
             creator_pid,
@@ -258,50 +262,50 @@ module desnet::amm {
 
     // ============ ADD LIQUIDITY (FRIEND, called by lp_staking) ============
 
-    /// M1 fix (audit R1): returns (lp_minted, apt_refund_fa, token_refund_fa).
+    /// M1 fix (audit R1): returns (lp_minted, supra_refund_fa, token_refund_fa).
     /// Caller (lp_staking) deposits refund FAs back to user. Uniswap V2 pattern —
     /// prevents naive callers from gifting surplus to existing LPs on ratio mismatch.
     public(friend) fun add_liquidity_internal(
         handle: vector<u8>,
-        apt_in: FungibleAsset,
+        supra_in: FungibleAsset,
         token_in: FungibleAsset,
         min_lp_out: u64,
     ): (u128, FungibleAsset, FungibleAsset) acquires Pool {
         let pool_addr = pool_address_of_handle(handle);
         assert!(exists<Pool>(pool_addr), E_POOL_NOT_FOUND);
 
-        let apt_amount = fungible_asset::amount(&apt_in);
+        let supra_amount = fungible_asset::amount(&supra_in);
         let token_amount = fungible_asset::amount(&token_in);
-        assert!(apt_amount > 0 && token_amount > 0, E_ZERO_AMOUNT);
+        assert!(supra_amount > 0 && token_amount > 0, E_ZERO_AMOUNT);
 
-        let apt_meta = fungible_asset::metadata_from_asset(&apt_in);
-        assert!(object::object_address(&apt_meta) == APT_FA_ADDR, E_INVALID_FA_TYPE);
+        let supra_meta = fungible_asset::metadata_from_asset(&supra_in);
+        assert!(object::object_address(&supra_meta) == governance::native_fa_metadata(), E_INVALID_FA_TYPE);
 
         let pool = borrow_global_mut<Pool>(pool_addr);
         assert!(!pool.locked, E_LOCKED);
         let token_meta = fungible_asset::metadata_from_asset(&token_in);
         assert!(object::object_address(&token_meta) == pool.token_metadata_addr, E_INVALID_FA_TYPE);
 
-        let apt_reserve_amt = fungible_asset::balance(pool.apt_reserve);
+        let supra_reserve_amt = fungible_asset::balance(pool.supra_reserve);
         let token_reserve_amt = fungible_asset::balance(pool.token_reserve);
-        assert!(apt_reserve_amt > 0 && token_reserve_amt > 0, E_INSUFFICIENT_LIQUIDITY);
+        assert!(supra_reserve_amt > 0 && token_reserve_amt > 0, E_INSUFFICIENT_LIQUIDITY);
 
-        let lp_from_apt = ((apt_amount as u128) * pool.lp_supply) / (apt_reserve_amt as u128);
+        let lp_from_supra = ((supra_amount as u128) * pool.lp_supply) / (supra_reserve_amt as u128);
         let lp_from_token = ((token_amount as u128) * pool.lp_supply) / (token_reserve_amt as u128);
-        let lp_minted = if (lp_from_apt < lp_from_token) lp_from_apt else lp_from_token;
+        let lp_minted = if (lp_from_supra < lp_from_token) lp_from_supra else lp_from_token;
         assert!(lp_minted > 0, E_INSUFFICIENT_LIQUIDITY);
         assert!(lp_minted >= (min_lp_out as u128), E_SLIPPAGE_EXCEEDED);
 
         // M1: compute optimal pair from lp_minted; refund surplus from over-funded side.
-        let optimal_apt = (lp_minted * (apt_reserve_amt as u128)) / pool.lp_supply;
+        let optimal_supra = (lp_minted * (supra_reserve_amt as u128)) / pool.lp_supply;
         let optimal_token = (lp_minted * (token_reserve_amt as u128)) / pool.lp_supply;
-        let apt_surplus = (apt_amount as u128) - optimal_apt;
+        let supra_surplus = (supra_amount as u128) - optimal_supra;
         let token_surplus = (token_amount as u128) - optimal_token;
 
-        let apt_refund = if (apt_surplus > 0) {
-            fungible_asset::extract(&mut apt_in, (apt_surplus as u64))
+        let supra_refund = if (supra_surplus > 0) {
+            fungible_asset::extract(&mut supra_in, (supra_surplus as u64))
         } else {
-            fungible_asset::zero(apt_meta)
+            fungible_asset::zero(supra_meta)
         };
         let token_refund = if (token_surplus > 0) {
             fungible_asset::extract(&mut token_in, (token_surplus as u64))
@@ -309,22 +313,22 @@ module desnet::amm {
             fungible_asset::zero(token_meta)
         };
 
-        fungible_asset::deposit(pool.apt_reserve, apt_in);
+        fungible_asset::deposit(pool.supra_reserve, supra_in);
         fungible_asset::deposit(pool.token_reserve, token_in);
         pool.lp_supply = pool.lp_supply + lp_minted;
 
         event::emit(LiquidityAdded {
             handle: pool.handle,
             pool_addr,
-            apt_in: apt_amount - (apt_surplus as u64),
+            supra_in: supra_amount - (supra_surplus as u64),
             token_in: token_amount - (token_surplus as u64),
             lp_minted,
-            new_apt_reserve: fungible_asset::balance(pool.apt_reserve),
+            new_supra_reserve: fungible_asset::balance(pool.supra_reserve),
             new_token_reserve: fungible_asset::balance(pool.token_reserve),
             new_lp_supply: pool.lp_supply,
         });
 
-        (lp_minted, apt_refund, token_refund)
+        (lp_minted, supra_refund, token_refund)
     }
 
     // ============ REMOVE LIQUIDITY (FRIEND) ============
@@ -332,7 +336,7 @@ module desnet::amm {
     public(friend) fun remove_liquidity_internal(
         handle: vector<u8>,
         lp_amount: u128,
-        min_apt_out: u64,
+        min_supra_out: u64,
         min_token_out: u64,
     ): (FungibleAsset, FungibleAsset) acquires Pool {
         let pool_addr = pool_address_of_handle(handle);
@@ -344,43 +348,43 @@ module desnet::amm {
         assert!(!pool.locked, E_LOCKED);
         assert!(pool.lp_supply >= lp_amount, E_INSUFFICIENT_LP_BURN);
 
-        let apt_reserve_amt = fungible_asset::balance(pool.apt_reserve);
+        let supra_reserve_amt = fungible_asset::balance(pool.supra_reserve);
         let token_reserve_amt = fungible_asset::balance(pool.token_reserve);
 
-        let apt_out_u128 = ((apt_reserve_amt as u128) * lp_amount) / pool.lp_supply;
+        let supra_out_u128 = ((supra_reserve_amt as u128) * lp_amount) / pool.lp_supply;
         let token_out_u128 = ((token_reserve_amt as u128) * lp_amount) / pool.lp_supply;
-        let apt_out = (apt_out_u128 as u64);
+        let supra_out = (supra_out_u128 as u64);
         let token_out = (token_out_u128 as u64);
 
-        assert!(apt_out >= min_apt_out, E_SLIPPAGE_EXCEEDED);
+        assert!(supra_out >= min_supra_out, E_SLIPPAGE_EXCEEDED);
         assert!(token_out >= min_token_out, E_SLIPPAGE_EXCEEDED);
-        assert!(apt_out > 0 && token_out > 0, E_INSUFFICIENT_LIQUIDITY);
+        assert!(supra_out > 0 && token_out > 0, E_INSUFFICIENT_LIQUIDITY);
 
         pool.lp_supply = pool.lp_supply - lp_amount;
 
         let pool_signer = object::generate_signer_for_extending(&pool.extend_ref);
-        let apt_out_fa = fungible_asset::withdraw(&pool_signer, pool.apt_reserve, apt_out);
+        let supra_out_fa = fungible_asset::withdraw(&pool_signer, pool.supra_reserve, supra_out);
         let token_out_fa = fungible_asset::withdraw(&pool_signer, pool.token_reserve, token_out);
 
         event::emit(LiquidityRemoved {
             handle: pool.handle,
             pool_addr,
             lp_burned: lp_amount,
-            apt_out,
+            supra_out,
             token_out,
-            new_apt_reserve: fungible_asset::balance(pool.apt_reserve),
+            new_supra_reserve: fungible_asset::balance(pool.supra_reserve),
             new_token_reserve: fungible_asset::balance(pool.token_reserve),
             new_lp_supply: pool.lp_supply,
         });
 
-        (apt_out_fa, token_out_fa)
+        (supra_out_fa, token_out_fa)
     }
 
     // ============ FEE EXTRACTION (FRIEND, called by lp_staking on claim) ============
 
     public(friend) fun extract_fees_for_claim(
         handle: vector<u8>,
-        apt_amount: u64,
+        supra_amount: u64,
         token_amount: u64,
     ): (FungibleAsset, FungibleAsset) acquires Pool {
         let pool_addr = pool_address_of_handle(handle);
@@ -389,27 +393,27 @@ module desnet::amm {
 
         // M1 (self-audit): defense-in-depth — gate fee extraction during flash window.
         assert!(!pool.locked, E_LOCKED);
-        assert!(fungible_asset::balance(pool.apt_fees) >= apt_amount, E_INSUFFICIENT_FEE_BUCKET);
+        assert!(fungible_asset::balance(pool.supra_fees) >= supra_amount, E_INSUFFICIENT_FEE_BUCKET);
         assert!(fungible_asset::balance(pool.token_fees) >= token_amount, E_INSUFFICIENT_FEE_BUCKET);
 
         let pool_signer = object::generate_signer_for_extending(&pool.extend_ref);
-        let apt_fa = fungible_asset::withdraw(&pool_signer, pool.apt_fees, apt_amount);
+        let supra_fa = fungible_asset::withdraw(&pool_signer, pool.supra_fees, supra_amount);
         let token_fa = fungible_asset::withdraw(&pool_signer, pool.token_fees, token_amount);
 
         event::emit(FeesExtractedForClaim {
             handle: pool.handle,
             pool_addr,
-            apt_extracted: apt_amount,
+            supra_extracted: supra_amount,
             token_extracted: token_amount,
         });
 
-        (apt_fa, token_fa)
+        (supra_fa, token_fa)
     }
 
     // ============ SWAP (PUBLIC) ============
 
     /// Generic swap by pool_addr — darbitex-shape composable entry for aggregators.
-    /// Detects direction from fa_in metadata: APT_FA → APT-in, else → TOKEN-in.
+    /// Detects direction from fa_in metadata: SUPRA_FA → SUPRA-in, else → TOKEN-in.
     public fun swap(
         pool_addr: address,
         _swapper: address,
@@ -421,28 +425,28 @@ module desnet::amm {
 
         let in_meta = fungible_asset::metadata_from_asset(&fa_in);
         let in_meta_addr = object::object_address(&in_meta);
-        if (in_meta_addr == APT_FA_ADDR) {
-            swap_exact_apt_in(handle, fa_in, min_out)
+        if (in_meta_addr == governance::native_fa_metadata()) {
+            swap_exact_supra_in(handle, fa_in, min_out)
         } else {
             swap_exact_token_in(handle, fa_in, min_out)
         }
     }
 
-    public entry fun swap_apt_for_token(
+    public entry fun swap_supra_for_token(
         caller: &signer,
         handle: vector<u8>,
         amount_in: u64,
         min_out: u64,
     ) acquires Pool {
         let caller_addr = signer::address_of(caller);
-        let apt_coin = coin::withdraw<AptosCoin>(caller, amount_in);
-        let apt_fa = coin::coin_to_fungible_asset(apt_coin);
+        let supra_coin = coin::withdraw<SupraCoin>(caller, amount_in);
+        let supra_fa = coin::coin_to_fungible_asset(supra_coin);
         // v0.3.2 (F5): route through *_actor to populate event.actor with caller addr.
-        let token_out_fa = swap_exact_apt_in_actor(handle, apt_fa, min_out, caller_addr);
+        let token_out_fa = swap_exact_supra_in_actor(handle, supra_fa, min_out, caller_addr);
         primary_fungible_store::deposit(caller_addr, token_out_fa);
     }
 
-    public entry fun swap_token_for_apt(
+    public entry fun swap_token_for_supra(
         caller: &signer,
         handle: vector<u8>,
         amount_in: u64,
@@ -456,58 +460,59 @@ module desnet::amm {
 
         let token_fa = primary_fungible_store::withdraw(caller, token_meta, amount_in);
         // v0.3.2 (F5): route through *_actor to populate event.actor with caller addr.
-        let apt_out_fa = swap_exact_token_in_actor(handle, token_fa, min_out, caller_addr);
-        primary_fungible_store::deposit(caller_addr, apt_out_fa);
+        let supra_out_fa = swap_exact_token_in_actor(handle, token_fa, min_out, caller_addr);
+        primary_fungible_store::deposit(caller_addr, supra_out_fa);
     }
 
     /// v0.3.2 (F5): backward-compat wrapper. Composable callers (aggregators/flash arbs)
     /// that don't have the actor address available can still call this — event.actor stays
-    /// @0x0 sentinel. New code should prefer `swap_exact_apt_in_actor` to preserve attribution.
-    public fun swap_exact_apt_in(
+    /// @0x0 sentinel. New code should prefer `swap_exact_supra_in_actor` to preserve attribution.
+    public fun swap_exact_supra_in(
         handle: vector<u8>,
-        apt_in: FungibleAsset,
+        supra_in: FungibleAsset,
         min_out: u64,
     ): FungibleAsset acquires Pool {
-        swap_exact_apt_in_actor(handle, apt_in, min_out, @0x0)
+        swap_exact_supra_in_actor(handle, supra_in, min_out, @0x0)
     }
 
     /// v0.3.2 (F5): actor-aware variant. `actor` is recorded in `Swapped` event for indexer
     /// attribution. Pass `@0x0` for sentinel "actor unknown / multi-hop call".
-    public fun swap_exact_apt_in_actor(
+    public fun swap_exact_supra_in_actor(
         handle: vector<u8>,
-        apt_in: FungibleAsset,
+        supra_in: FungibleAsset,
         min_out: u64,
         actor: address,
     ): FungibleAsset acquires Pool {
         let pool_addr = pool_address_of_handle(handle);
         assert!(exists<Pool>(pool_addr), E_POOL_NOT_FOUND);
 
-        let amount_in = fungible_asset::amount(&apt_in);
+        let amount_in = fungible_asset::amount(&supra_in);
         assert!(amount_in > 0, E_ZERO_AMOUNT);
 
-        let apt_meta = fungible_asset::metadata_from_asset(&apt_in);
-        assert!(object::object_address(&apt_meta) == APT_FA_ADDR, E_INVALID_FA_TYPE);
+        let supra_meta = fungible_asset::metadata_from_asset(&supra_in);
+        assert!(object::object_address(&supra_meta) == governance::native_fa_metadata(), E_INVALID_FA_TYPE);
 
         let pool = borrow_global_mut<Pool>(pool_addr);
         assert!(!pool.locked, E_LOCKED);
-        let apt_reserve_amt = fungible_asset::balance(pool.apt_reserve);
+        assert!(pool.swaps_enabled, E_SWAPS_DISABLED);
+        let supra_reserve_amt = fungible_asset::balance(pool.supra_reserve);
         let token_reserve_amt = fungible_asset::balance(pool.token_reserve);
 
         let fee_amount = (amount_in * FEE_BPS) / FEE_DENOM;
 
-        let amount_out = compute_amount_out(apt_reserve_amt, token_reserve_amt, amount_in);
+        let amount_out = compute_amount_out(supra_reserve_amt, token_reserve_amt, amount_in);
         assert!(amount_out >= min_out, E_SLIPPAGE_EXCEEDED);
         assert!(amount_out > 0, E_INSUFFICIENT_LIQUIDITY);
 
-        let apt_fee_fa = fungible_asset::extract(&mut apt_in, fee_amount);
-        fungible_asset::deposit(pool.apt_fees, apt_fee_fa);
+        let supra_fee_fa = fungible_asset::extract(&mut supra_in, fee_amount);
+        fungible_asset::deposit(pool.supra_fees, supra_fee_fa);
 
         if (pool.lp_supply > 0) {
             let fee_per_lp_delta = ((fee_amount as u128) * FEE_ACC_SCALE) / pool.lp_supply;
-            pool.fee_per_lp_apt = pool.fee_per_lp_apt + fee_per_lp_delta;
+            pool.fee_per_lp_supra = pool.fee_per_lp_supra + fee_per_lp_delta;
         };
 
-        fungible_asset::deposit(pool.apt_reserve, apt_in);
+        fungible_asset::deposit(pool.supra_reserve, supra_in);
 
         let pool_signer = object::generate_signer_for_extending(&pool.extend_ref);
         let token_out_fa = fungible_asset::withdraw(&pool_signer, pool.token_reserve, amount_out);
@@ -516,11 +521,11 @@ module desnet::amm {
             handle: pool.handle,
             pool_addr,
             actor,
-            apt_to_token: true,
+            supra_to_token: true,
             amount_in,
             amount_out,
             fee_amount,
-            new_apt_reserve: fungible_asset::balance(pool.apt_reserve),
+            new_supra_reserve: fungible_asset::balance(pool.supra_reserve),
             new_token_reserve: fungible_asset::balance(pool.token_reserve),
         });
 
@@ -551,15 +556,16 @@ module desnet::amm {
 
         let pool = borrow_global_mut<Pool>(pool_addr);
         assert!(!pool.locked, E_LOCKED);
+        assert!(pool.swaps_enabled, E_SWAPS_DISABLED);
         let token_meta = fungible_asset::metadata_from_asset(&token_in);
         assert!(object::object_address(&token_meta) == pool.token_metadata_addr, E_INVALID_FA_TYPE);
 
-        let apt_reserve_amt = fungible_asset::balance(pool.apt_reserve);
+        let supra_reserve_amt = fungible_asset::balance(pool.supra_reserve);
         let token_reserve_amt = fungible_asset::balance(pool.token_reserve);
 
         let fee_amount = (amount_in * FEE_BPS) / FEE_DENOM;
 
-        let amount_out = compute_amount_out(token_reserve_amt, apt_reserve_amt, amount_in);
+        let amount_out = compute_amount_out(token_reserve_amt, supra_reserve_amt, amount_in);
         assert!(amount_out >= min_out, E_SLIPPAGE_EXCEEDED);
         assert!(amount_out > 0, E_INSUFFICIENT_LIQUIDITY);
 
@@ -574,21 +580,21 @@ module desnet::amm {
         fungible_asset::deposit(pool.token_reserve, token_in);
 
         let pool_signer = object::generate_signer_for_extending(&pool.extend_ref);
-        let apt_out_fa = fungible_asset::withdraw(&pool_signer, pool.apt_reserve, amount_out);
+        let supra_out_fa = fungible_asset::withdraw(&pool_signer, pool.supra_reserve, amount_out);
 
         event::emit(Swapped {
             handle: pool.handle,
             pool_addr,
             actor,
-            apt_to_token: false,
+            supra_to_token: false,
             amount_in,
             amount_out,
             fee_amount,
-            new_apt_reserve: fungible_asset::balance(pool.apt_reserve),
+            new_supra_reserve: fungible_asset::balance(pool.supra_reserve),
             new_token_reserve: fungible_asset::balance(pool.token_reserve),
         });
 
-        apt_out_fa
+        supra_out_fa
     }
 
     // ============ FLASH LOAN (PUBLIC, Aave-standard) ============
@@ -609,8 +615,8 @@ module desnet::amm {
         pool.locked = true;
 
         let metadata_addr = object::object_address(&metadata);
-        let store = if (metadata_addr == APT_FA_ADDR) {
-            pool.apt_reserve
+        let store = if (metadata_addr == governance::native_fa_metadata()) {
+            pool.supra_reserve
         } else {
             assert!(metadata_addr == pool.token_metadata_addr, E_WRONG_TOKEN);
             pool.token_reserve
@@ -658,8 +664,8 @@ module desnet::amm {
 
         let pool = borrow_global_mut<Pool>(pool_addr);
 
-        let (reserve_store, fee_store, is_apt) = if (metadata_addr == APT_FA_ADDR) {
-            (pool.apt_reserve, pool.apt_fees, true)
+        let (reserve_store, fee_store, is_supra) = if (metadata_addr == governance::native_fa_metadata()) {
+            (pool.supra_reserve, pool.supra_fees, true)
         } else {
             (pool.token_reserve, pool.token_fees, false)
         };
@@ -672,8 +678,8 @@ module desnet::amm {
         // Update fee accumulator
         if (pool.lp_supply > 0) {
             let fee_per_lp_delta = ((fee as u128) * FEE_ACC_SCALE) / pool.lp_supply;
-            if (is_apt) {
-                pool.fee_per_lp_apt = pool.fee_per_lp_apt + fee_per_lp_delta;
+            if (is_supra) {
+                pool.fee_per_lp_supra = pool.fee_per_lp_supra + fee_per_lp_delta;
             } else {
                 pool.fee_per_lp_token = pool.fee_per_lp_token + fee_per_lp_delta;
             };
@@ -708,8 +714,8 @@ module desnet::amm {
         (amount * FLASH_FEE_BPS) / FEE_DENOM
     }
 
-    fun mint_lp_initial(apt: u64, token: u64): u128 {
-        let product = (apt as u128) * (token as u128);
+    fun mint_lp_initial(supra: u64, token: u64): u128 {
+        let product = (supra as u128) * (token as u128);
         math128::sqrt(product)
     }
 
@@ -721,7 +727,7 @@ module desnet::amm {
         assert!(exists<Pool>(pool_addr), E_POOL_NOT_FOUND);
         let pool = borrow_global<Pool>(pool_addr);
         (
-            fungible_asset::balance(pool.apt_reserve),
+            fungible_asset::balance(pool.supra_reserve),
             fungible_asset::balance(pool.token_reserve),
         )
     }
@@ -732,7 +738,7 @@ module desnet::amm {
         assert!(exists<Pool>(pool_addr), E_POOL_NOT_FOUND);
         let pool = borrow_global<Pool>(pool_addr);
         (
-            fungible_asset::balance(pool.apt_fees),
+            fungible_asset::balance(pool.supra_fees),
             fungible_asset::balance(pool.token_fees),
         )
     }
@@ -749,7 +755,7 @@ module desnet::amm {
         let pool_addr = pool_address_of_handle(handle);
         assert!(exists<Pool>(pool_addr), E_POOL_NOT_FOUND);
         let pool = borrow_global<Pool>(pool_addr);
-        (pool.fee_per_lp_apt, pool.fee_per_lp_token)
+        (pool.fee_per_lp_supra, pool.fee_per_lp_token)
     }
 
     #[view]
@@ -770,17 +776,17 @@ module desnet::amm {
     public fun quote_swap_exact_in(
         handle: vector<u8>,
         amount_in: u64,
-        apt_to_token: bool,
+        supra_to_token: bool,
     ): u64 acquires Pool {
         let pool_addr = pool_address_of_handle(handle);
         assert!(exists<Pool>(pool_addr), E_POOL_NOT_FOUND);
         let pool = borrow_global<Pool>(pool_addr);
-        let apt_r = fungible_asset::balance(pool.apt_reserve);
+        let supra_r = fungible_asset::balance(pool.supra_reserve);
         let token_r = fungible_asset::balance(pool.token_reserve);
-        if (apt_to_token) {
-            compute_amount_out(apt_r, token_r, amount_in)
+        if (supra_to_token) {
+            compute_amount_out(supra_r, token_r, amount_in)
         } else {
-            compute_amount_out(token_r, apt_r, amount_in)
+            compute_amount_out(token_r, supra_r, amount_in)
         }
     }
 
@@ -791,7 +797,7 @@ module desnet::amm {
         assert!(exists<Pool>(pool_addr), E_POOL_NOT_FOUND);
         let pool = borrow_global<Pool>(pool_addr);
         (
-            fungible_asset::balance(pool.apt_reserve),
+            fungible_asset::balance(pool.supra_reserve),
             fungible_asset::balance(pool.token_reserve),
         )
     }
@@ -806,16 +812,16 @@ module desnet::amm {
     public fun lp_fee_per_share(pool_addr: address): (u128, u128) acquires Pool {
         assert!(exists<Pool>(pool_addr), E_POOL_NOT_FOUND);
         let pool = borrow_global<Pool>(pool_addr);
-        (pool.fee_per_lp_apt, pool.fee_per_lp_token)
+        (pool.fee_per_lp_supra, pool.fee_per_lp_token)
     }
 
     #[view]
     public fun pool_tokens(pool_addr: address): (Object<Metadata>, Object<Metadata>) acquires Pool {
         assert!(exists<Pool>(pool_addr), E_POOL_NOT_FOUND);
         let pool = borrow_global<Pool>(pool_addr);
-        let apt_meta = object::address_to_object<Metadata>(APT_FA_ADDR);
+        let supra_meta = object::address_to_object<Metadata>(governance::native_fa_metadata());
         let token_meta = object::address_to_object<Metadata>(pool.token_metadata_addr);
-        (apt_meta, token_meta)
+        (supra_meta, token_meta)
     }
 
     #[view]
@@ -848,23 +854,23 @@ module desnet::amm {
     public fun fee_buckets_at(pool_addr: address): (u64, u64) acquires Pool {
         assert!(exists<Pool>(pool_addr), E_POOL_NOT_FOUND);
         let pool = borrow_global<Pool>(pool_addr);
-        (fungible_asset::balance(pool.apt_fees), fungible_asset::balance(pool.token_fees))
+        (fungible_asset::balance(pool.supra_fees), fungible_asset::balance(pool.token_fees))
     }
 
     #[view]
     public fun quote_swap_exact_in_at(
         pool_addr: address,
         amount_in: u64,
-        is_apt_in: bool,
+        is_supra_in: bool,
     ): u64 acquires Pool {
         assert!(exists<Pool>(pool_addr), E_POOL_NOT_FOUND);
         let pool = borrow_global<Pool>(pool_addr);
-        let apt_r = fungible_asset::balance(pool.apt_reserve);
+        let supra_r = fungible_asset::balance(pool.supra_reserve);
         let token_r = fungible_asset::balance(pool.token_reserve);
-        if (is_apt_in) {
-            compute_amount_out(apt_r, token_r, amount_in)
+        if (is_supra_in) {
+            compute_amount_out(supra_r, token_r, amount_in)
         } else {
-            compute_amount_out(token_r, apt_r, amount_in)
+            compute_amount_out(token_r, supra_r, amount_in)
         }
     }
 
@@ -881,6 +887,17 @@ module desnet::amm {
     #[view]
     public fun read_warning(): vector<u8> { WARNING }
 
+    // ============ IPO GATE ============
+
+    /// Enable swaps on a pool. Friend-only (called by ipo::complete_ipo).
+    /// Permanently irreversible for a given pool — no disable counterpart.
+    public(friend) fun enable_swaps(handle: vector<u8>) acquires Pool {
+        let pool_addr = pool_address_of_handle(handle);
+        assert!(exists<Pool>(pool_addr), E_POOL_NOT_FOUND);
+        let pool = borrow_global_mut<Pool>(pool_addr);
+        pool.swaps_enabled = true;
+    }
+
     // ============ TEST-ONLY HELPERS ============
 
     #[test_only]
@@ -889,34 +906,35 @@ module desnet::amm {
     }
 
     #[test_only]
-    public fun mint_lp_initial_for_test(apt: u64, token: u64): u128 {
-        mint_lp_initial(apt, token)
+    public fun mint_lp_initial_for_test(supra: u64, token: u64): u128 {
+        mint_lp_initial(supra, token)
     }
 
     #[test_only]
     public fun create_pool_atomic_for_test(
         handle: vector<u8>,
-        apt_in: FungibleAsset,
+        supra_in: FungibleAsset,
         token_in: FungibleAsset,
         creator_pid: address,
+        swaps_enabled: bool,
     ): u128 {
-        create_pool_atomic(handle, apt_in, token_in, creator_pid)
+        create_pool_atomic(handle, supra_in, token_in, creator_pid, swaps_enabled)
     }
 
     #[test_only]
     public fun add_liquidity_internal_for_test(
         handle: vector<u8>,
-        apt_in: FungibleAsset,
+        supra_in: FungibleAsset,
         token_in: FungibleAsset,
         min_lp_out: u64,
     ): u128 acquires Pool {
-        let (lp, apt_refund, token_refund) =
-            add_liquidity_internal(handle, apt_in, token_in, min_lp_out);
+        let (lp, supra_refund, token_refund) =
+            add_liquidity_internal(handle, supra_in, token_in, min_lp_out);
         // Tests may pass non-exact-ratio inputs, so refunds can be non-zero.
         // Sink them at @desnet (test-only path; production caller receives the refund).
-        if (fungible_asset::amount(&apt_refund) > 0) {
-            primary_fungible_store::deposit(@desnet, apt_refund);
-        } else { fungible_asset::destroy_zero(apt_refund) };
+        if (fungible_asset::amount(&supra_refund) > 0) {
+            primary_fungible_store::deposit(@desnet, supra_refund);
+        } else { fungible_asset::destroy_zero(supra_refund) };
         if (fungible_asset::amount(&token_refund) > 0) {
             primary_fungible_store::deposit(@desnet, token_refund);
         } else { fungible_asset::destroy_zero(token_refund) };
@@ -927,10 +945,10 @@ module desnet::amm {
     public fun remove_liquidity_internal_for_test(
         handle: vector<u8>,
         lp_amount: u128,
-        min_apt_out: u64,
+        min_supra_out: u64,
         min_token_out: u64,
     ): (FungibleAsset, FungibleAsset) acquires Pool {
-        remove_liquidity_internal(handle, lp_amount, min_apt_out, min_token_out)
+        remove_liquidity_internal(handle, lp_amount, min_supra_out, min_token_out)
     }
 
     // ============ UNIT TESTS ============
@@ -1017,9 +1035,9 @@ module desnet::amm {
         let token_out = compute_amount_out(r0, r1, amount_in);
         let r0_after = r0 + amount_in;
         let r1_after = r1 - token_out;
-        let apt_back = compute_amount_out(r1_after, r0_after, token_out);
-        assert!(apt_back < amount_in, 1);
-        let loss_bps = ((amount_in - apt_back) * 10000) / amount_in;
+        let supra_back = compute_amount_out(r1_after, r0_after, token_out);
+        assert!(supra_back < amount_in, 1);
+        let loss_bps = ((amount_in - supra_back) * 10000) / amount_in;
         assert!(loss_bps >= 18 && loss_bps <= 30, 2);
     }
 }

@@ -1,6 +1,6 @@
 /// Profile — PID Object NFT primitive (LOCKED 2026-05-01).
 ///
-/// PID = Profile ID. Aptos Object NFT, deterministic addr from wallet:
+/// PID = Profile ID. Supra Object NFT, deterministic addr from wallet:
 ///   pid_addr = derive_pid_address(wallet) = create_object_address(@desnet, bcs(wallet))
 ///
 /// Three-tier capability hierarchy (Opsi 1 ExtendRef pattern, locked v1):
@@ -26,17 +26,17 @@ module desnet::profile {
     use std::string::{Self, String};
     use std::vector;
     use std::option::{Self, Option};
-    use aptos_framework::event;
-    use aptos_framework::fungible_asset::Metadata;
-    use aptos_framework::object::{Self, ExtendRef, TransferRef};
-    use aptos_framework::primary_fungible_store;
-    use aptos_framework::timestamp;
+    use supra_framework::event;
+    use supra_framework::fungible_asset::Metadata;
+    use supra_framework::object::{Self, ExtendRef, TransferRef};
+    use supra_framework::primary_fungible_store;
+    use supra_framework::timestamp;
     use aptos_std::smart_table::{Self, SmartTable};
 
     use desnet::reference_gate::{Self, ReferenceGate};
     use desnet::factory;
     use desnet::governance;
-    use desnet::handle_fee_vault;
+    use desnet::supra_fee_vault;
 
     friend desnet::mint;
     friend desnet::link;
@@ -50,14 +50,14 @@ module desnet::profile {
     const HANDLE_MIN_LEN: u64 = 1;
     const HANDLE_MAX_LEN: u64 = 64;
 
-    /// Length-tier APT pricing (one-time, no renewal). Raw u64 (APT has 8 decimals).
-    /// Tiers calibrated for APT≈$1: 100/50/20/10/5/1 APT.
-    const PRICE_1_CHAR_APT: u64 = 10_000_000_000;     // 100 APT
-    const PRICE_2_CHAR_APT: u64 =  5_000_000_000;     //  50 APT
-    const PRICE_3_CHAR_APT: u64 =  2_000_000_000;     //  20 APT
-    const PRICE_4_CHAR_APT: u64 =  1_000_000_000;     //  10 APT
-    const PRICE_5_CHAR_APT: u64 =    500_000_000;     //   5 APT
-    const PRICE_6PLUS_CHAR_APT: u64 = 100_000_000;    //   1 APT
+    /// Length-tier SUPRA pricing (one-time, no renewal). Raw u64 (SUPRA has 8 decimals).
+    /// Tiers calibrated for SUPRA≈$1: 100/50/20/10/5/1 SUPRA.
+    const PRICE_1_CHAR_SUPRA: u64 = 100_000_000_000_000;     // 1M SUPRA
+    const PRICE_2_CHAR_SUPRA: u64 =  10_000_000_000_000;     // 100K SUPRA
+    const PRICE_3_CHAR_SUPRA: u64 =   1_000_000_000_000;     // 10K SUPRA
+    const PRICE_4_CHAR_SUPRA: u64 =     100_000_000_000;     // 1K SUPRA
+    const PRICE_5_CHAR_SUPRA: u64 =      10_000_000_000;     // 100 SUPRA
+    const PRICE_6PLUS_CHAR_SUPRA: u64 =   1_000_000_000;     // 10 SUPRA
 
     /// Caps for inline metadata at registration.
     const AVATAR_MAX_BYTES: u64 = 8192;       // ≤8KB inline (LOCKED)
@@ -85,7 +85,7 @@ module desnet::profile {
     const E_SYNC_GATE_ALREADY_SET: u64 = 16;
     const E_RESERVED_HANDLE: u64 = 17;
     const E_INVALID_ADDRESS: u64 = 18;
-    /// v0.3.2 (F10): update_fee_receiver neutered after handle_fee_vault (F9) takes over fee routing.
+    /// v0.3.2 (F10): update_fee_receiver neutered after supra_fee_vault (F9) takes over fee routing.
     const E_NEUTERED: u64 = 19;
 
     // ============ TYPES ============
@@ -146,7 +146,7 @@ module desnet::profile {
         handle: String,
         wallet: address,
         pid_addr: address,
-        fee_paid_apt: u64,
+        fee_paid_supra: u64,
         timestamp_secs: u64,
     }
 
@@ -202,12 +202,12 @@ module desnet::profile {
 
     // ============ INIT — resource_account deploy pattern (mirror factory) ============
 
-    /// APT FA metadata addr (Aptos paired-coin convention).
-    const APT_FA_METADATA: address = @0xa;
+    /// SUPRA FA metadata addr (Supra paired-coin convention).
+    const SUPRA_FA_METADATA: address = @0xa;
 
     /// Init callback. The package SignerCapability is owned by
     /// `desnet::governance`; profile just initializes its singleton resources
-    /// using the resource_account signer that Aptos passes in here.
+    /// using the resource_account signer that Supra passes in here.
     fun init_module(account: &signer) {
         let protocol_addr = signer::address_of(account);
 
@@ -228,11 +228,11 @@ module desnet::profile {
 
     // ============ ADMIN — config updates (multisig → governance later) ============
 
-    /// Admin updates fee_receiver. Used pre-handle_fee_vault to point fees somewhere.
-    /// Post-vault upgrade, register_handle body bypasses this field — handle_fee_vault
+    /// Admin updates fee_receiver. Used pre-supra_fee_vault to point fees somewhere.
+    /// Post-vault upgrade, register_handle body bypasses this field — supra_fee_vault
     /// is the immutable destination. Kept here for v0.3.0 baseline; body becomes
     /// `abort 0` in v0.3.1 compat upgrade.
-    /// v0.3.2 (F10): NEUTERED. With handle_fee_vault (F9), `state.fee_receiver` field
+    /// v0.3.2 (F10): NEUTERED. With supra_fee_vault (F9), `state.fee_receiver` field
     /// is no longer read by `register_handle` body — fees route directly to the vault.
     /// Field retained as vestigial (compat-only). Eliminates the last admin knob over
     /// fee destination once F9 is live.
@@ -290,14 +290,14 @@ module desnet::profile {
         };
     }
 
-    /// Length-tier APT pricing. Returns raw u64 (8 decimals).
-    public fun handle_fee_apt(handle_len: u64): u64 {
-        if (handle_len == 1) PRICE_1_CHAR_APT
-        else if (handle_len == 2) PRICE_2_CHAR_APT
-        else if (handle_len == 3) PRICE_3_CHAR_APT
-        else if (handle_len == 4) PRICE_4_CHAR_APT
-        else if (handle_len == 5) PRICE_5_CHAR_APT
-        else PRICE_6PLUS_CHAR_APT
+    /// Length-tier SUPRA pricing. Returns raw u64 (8 decimals).
+    public fun handle_fee_supra(handle_len: u64): u64 {
+        if (handle_len == 1) PRICE_1_CHAR_SUPRA
+        else if (handle_len == 2) PRICE_2_CHAR_SUPRA
+        else if (handle_len == 3) PRICE_3_CHAR_SUPRA
+        else if (handle_len == 4) PRICE_4_CHAR_SUPRA
+        else if (handle_len == 5) PRICE_5_CHAR_SUPRA
+        else PRICE_6PLUS_CHAR_SUPRA
     }
 
     // ============ REGISTER HANDLE — atomic with token spawn ============
@@ -312,7 +312,7 @@ module desnet::profile {
     ///   7. move_to TransferVault (transfer_ref isolated from Profile fields)
     ///   8. Insert handle → wallet in HandleRegistry
     ///   9. Cross-package call factory::create_token(wallet, handle, pid_addr)
-    ///       Factory atomically spawns $TOKEN FA + APT/D vaults + reaction/LP reserves;
+    ///       Factory atomically spawns $TOKEN FA + SUPRA/D vaults + reaction/LP reserves;
     ///       deposits 5% creator allocation (50M $TOKEN) to pid_addr's primary store.
     ///  10. Emit HandleRegistered event
     ///
@@ -332,6 +332,9 @@ module desnet::profile {
         token_symbol: vector<u8>,
         token_icon_uri: vector<u8>,
         token_project_uri: vector<u8>,
+        ipo_target_tvl: u64,
+        ipo_entry_price_x: u64,
+        ipo_entry_price_y: u64,
     ) acquires HandleRegistry, ProtocolState {
         // 1. Validate
         validate_handle(&handle);
@@ -361,22 +364,16 @@ module desnet::profile {
         );
         assert!(!exists<Profile>(pid_addr), E_PID_ALREADY_EXISTS);
 
-        // 3. Fee in APT — v0.3.2 F9: route directly to handle_fee_vault
+        // 3. Fee in SUPRA — v0.3.2 F9: route directly to supra_fee_vault
         //    (10% deployer beneficiary / 90% DESNET buyback-burn).
-        //    state.fee_receiver field is now vestigial (compat-preserved); body bypasses it.
-        //    Borrow kept (unused) to preserve `acquires ProtocolState` annotation parity
-        //    with the deployed bytecode metadata.
-        //    Plus pool_seed_apt (5 APT) — withdrawn as separate FA, passed to factory
-        //    for atomic AMM pool seed.
+        //    No more pool_seed (5 SUPRA) — IPO handles all SUPRA collection.
         let _state = borrow_global<ProtocolState>(@desnet);
-        let fee_raw = handle_fee_apt(vector::length(&handle));
-        let apt_metadata = object::address_to_object<Metadata>(APT_FA_METADATA);
+        let fee_raw = handle_fee_supra(vector::length(&handle));
+        let supra_metadata = object::address_to_object<Metadata>(SUPRA_FA_METADATA);
         if (fee_raw > 0) {
-            let fee_fa = primary_fungible_store::withdraw(wallet, apt_metadata, fee_raw);
-            handle_fee_vault::deposit_apt_fa(fee_fa);
+            let fee_fa = primary_fungible_store::withdraw(wallet, supra_metadata, fee_raw);
+            supra_fee_vault::deposit_supra_fa(fee_fa);
         };
-        let pool_seed_amount = factory::pool_seed_apt_amount();
-        let pool_seed_fa = primary_fungible_store::withdraw(wallet, apt_metadata, pool_seed_amount);
 
         // 4. Create PID Object via package signer (governance-derived)
         let protocol_signer = governance::derive_pkg_signer();
@@ -416,18 +413,19 @@ module desnet::profile {
         // 8. Register handle → wallet mapping
         smart_table::add(&mut registry.handle_to_wallet, string::utf8(handle), wallet_addr);
 
-        // 9. Atomic token + AMM pool + locked LP (factory).
-        //    factory::create_token_atomic is friend-only (only desnet::profile may call),
-        //    so APT collection above cannot be bypassed by external callers.
+        // 9. Atomic token + vault + IPO (factory).
+        //    factory::create_token_atomic is friend-only (only desnet::profile may call).
         factory::create_token_atomic(
             handle,
             pid_addr,
             &pid_signer,
-            pool_seed_fa,
             string::utf8(token_name),
             string::utf8(token_symbol),
             string::utf8(token_icon_uri),
             string::utf8(token_project_uri),
+            ipo_target_tvl,
+            ipo_entry_price_x,
+            ipo_entry_price_y,
         );
 
         // 10. Emit
@@ -435,7 +433,7 @@ module desnet::profile {
             handle: string::utf8(handle),
             wallet: wallet_addr,
             pid_addr,
-            fee_paid_apt: fee_raw,
+            fee_paid_supra: fee_raw,
             timestamp_secs: now_secs,
         });
     }
@@ -446,16 +444,15 @@ module desnet::profile {
     ///
     /// - "desnet" → @desnet_claimer (= @origin = deployer multisig)
     /// - "darbitex" → Darbitex Final publisher multisig 3/5 (cross-project)
-    /// - "d" → D Aptos pkg (sealed resource_account, no signer ever — permanent burn)
-    /// - "aptos" → Darbitex treasury multisig 3/5
-    /// - "apt" → dedicated apt-claimer multisig
+    /// - "d" → D Supra pkg (sealed resource_account, no signer ever — permanent burn)
+    /// - "supra" → Darbitex treasury multisig 3/5
+    /// - "supra" → dedicated supra-claimer multisig
     fun reserved_handle_claimer(handle: &vector<u8>): option::Option<address> {
         let h = *handle;
         if (h == b"desnet")        option::some(@desnet_claimer)
         else if (h == b"darbitex") option::some(@darbitex_claimer)
         else if (h == b"d")        option::some(@d_claimer)
-        else if (h == b"aptos")    option::some(@aptos_claimer)
-        else if (h == b"apt")      option::some(@apt_claimer)
+        else if (h == b"supra")    option::some(@supra_claimer)
         else option::none()
     }
 
@@ -568,7 +565,7 @@ module desnet::profile {
     /// Controller attaches sync_gate. Gates who can Sync to this PID.
     /// IMMUTABLE post-attach (rugpull-engagement-rules prevention).
     /// To clear, call clear_sync_gate (also one-way to none).
-    /// Args flattened to primitives — Aptos entry fns can't take struct params.
+    /// Args flattened to primitives — Supra entry fns can't take struct params.
     public entry fun attach_sync_gate(
         controller: &signer,
         pid_addr: address,
@@ -648,7 +645,7 @@ module desnet::profile {
     // ============ ASSERTIONS ============
 
     /// Assert caller is the current owner of the PID NFT.
-    /// Owner = address holding the Object NFT (per Aptos object framework).
+    /// Owner = address holding the Object NFT (per Supra object framework).
     /// Initially set in register_handle via object::transfer(protocol_signer, ..., wallet).
     /// Owner can rotate via marketplace transfer (ungated_transfer enabled), so always
     /// query current state via object::owner.
@@ -782,14 +779,14 @@ module desnet::profile {
     // ============ TESTS ============
 
     #[test]
-    fun test_handle_fee_apt_tiers() {
-        assert!(handle_fee_apt(1) == PRICE_1_CHAR_APT, 1);     // 100 APT
-        assert!(handle_fee_apt(2) == PRICE_2_CHAR_APT, 2);     //  50 APT
-        assert!(handle_fee_apt(3) == PRICE_3_CHAR_APT, 3);     //  20 APT
-        assert!(handle_fee_apt(4) == PRICE_4_CHAR_APT, 4);     //  10 APT
-        assert!(handle_fee_apt(5) == PRICE_5_CHAR_APT, 5);     //   5 APT
-        assert!(handle_fee_apt(6) == PRICE_6PLUS_CHAR_APT, 6); //   1 APT
-        assert!(handle_fee_apt(64) == PRICE_6PLUS_CHAR_APT, 7);
+    fun test_handle_fee_supra_tiers() {
+        assert!(handle_fee_supra(1) == PRICE_1_CHAR_SUPRA, 1);     // 100 SUPRA
+        assert!(handle_fee_supra(2) == PRICE_2_CHAR_SUPRA, 2);     //  50 SUPRA
+        assert!(handle_fee_supra(3) == PRICE_3_CHAR_SUPRA, 3);     //  20 SUPRA
+        assert!(handle_fee_supra(4) == PRICE_4_CHAR_SUPRA, 4);     //  10 SUPRA
+        assert!(handle_fee_supra(5) == PRICE_5_CHAR_SUPRA, 5);     //   5 SUPRA
+        assert!(handle_fee_supra(6) == PRICE_6PLUS_CHAR_SUPRA, 6); //   1 SUPRA
+        assert!(handle_fee_supra(64) == PRICE_6PLUS_CHAR_SUPRA, 7);
     }
 
     #[test]
