@@ -1,5 +1,7 @@
 build/
+.supra/
 .aptos/
 *.tar.gz
+*.bak
 .DS_Store
 .deploy/

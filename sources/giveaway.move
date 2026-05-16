@@ -19,11 +19,11 @@ module desnet::giveaway {
     use std::option::{Self, Option};
     use std::signer;
     use std::vector;
-    use aptos_framework::event;
-    use aptos_framework::fungible_asset::Metadata;
-    use aptos_framework::object::{Self, ExtendRef, Object, ObjectCore};
-    use aptos_framework::primary_fungible_store;
-    use aptos_framework::timestamp;
+    use supra_framework::event;
+    use supra_framework::fungible_asset::Metadata;
+    use supra_framework::object::{Self, ExtendRef, Object, ObjectCore};
+    use supra_framework::primary_fungible_store;
+    use supra_framework::timestamp;
     use aptos_std::smart_table::{Self, SmartTable};
 
     use desnet::profile;
@@ -127,6 +127,7 @@ module desnet::giveaway {
     /// total_budget into giveaway escrow, registers under PidGiveawayStorage.
     public entry fun create_fa_giveaway(
         sponsor: &signer,
+        sponsor_pid: address,
         mint_seq: u64,
         token_metadata: Object<Metadata>,
         amount_per_claim: u64,
@@ -138,9 +139,8 @@ module desnet::giveaway {
         lp_stake_gate_addr: address,
         lp_stake_gate_set: bool,
     ) acquires PidGiveawayStorage {
+        profile::assert_authorized(sponsor, sponsor_pid);
         let sponsor_addr = signer::address_of(sponsor);
-        let sponsor_pid = profile::derive_pid_address(sponsor_addr);
-        profile::assert_pid_exists(sponsor_pid);
 
         // Validate mint_seq corresponds to a real mint by sponsor
         assert!(mint_seq < mint::next_seq(sponsor_pid), E_MINT_NOT_FOUND);
@@ -200,6 +200,7 @@ module desnet::giveaway {
     /// Aborts whole tx if any NFT not owned by sponsor (no partial-escrow state).
     public entry fun create_nft_giveaway(
         sponsor: &signer,
+        sponsor_pid: address,
         mint_seq: u64,
         collection_addr: address,
         nft_addrs: vector<address>,
@@ -210,9 +211,8 @@ module desnet::giveaway {
         lp_stake_gate_addr: address,
         lp_stake_gate_set: bool,
     ) acquires PidGiveawayStorage {
+        profile::assert_authorized(sponsor, sponsor_pid);
         let sponsor_addr = signer::address_of(sponsor);
-        let sponsor_pid = profile::derive_pid_address(sponsor_addr);
-        profile::assert_pid_exists(sponsor_pid);
 
         // Validate mint_seq corresponds to a real mint by sponsor
         assert!(mint_seq < mint::next_seq(sponsor_pid), E_MINT_NOT_FOUND);
@@ -283,13 +283,13 @@ module desnet::giveaway {
     /// lp_stake_gate verification. Pass `@0x0` if giveaway has no lp_stake_gate.
     public entry fun claim_giveaway(
         claimer: &signer,
+        claimer_pid: address,
         giveaway_addr: address,
         claimer_nft_proof_addr: address,
         claimer_stake_position_addr: address,
     ) acquires Giveaway {
+        profile::assert_authorized(claimer, claimer_pid);
         let claimer_addr = signer::address_of(claimer);
-        let claimer_pid = profile::derive_pid_address(claimer_addr);
-        profile::assert_pid_exists(claimer_pid);
 
         let giveaway = borrow_global_mut<Giveaway>(giveaway_addr);
 

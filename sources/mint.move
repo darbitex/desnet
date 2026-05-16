@@ -11,7 +11,7 @@
 /// - author MUST have Profile (Named tier; guests can't mint)
 /// - content_text ≤ 333 bytes
 /// - media: if Inline, data ≤ 8KB hard cap
-/// - mentions ≤ 10 (any Aptos addr — flexible: PID/hex/ANS-resolved)
+/// - mentions ≤ 10 (any Supra addr — flexible: PID/hex/ANS-resolved)
 /// - tags ≤ 5, each 1-32 bytes lowercase a-z/0-9/-
 /// - tickers ≤ 5, each MUST be factory-spawned FA (factory::is_factory_token assert)
 /// - tips ≤ 10, each token MUST be FA-standard (no legacy coin)
@@ -25,15 +25,16 @@ module desnet::mint {
     use std::signer;
     use std::option::{Self, Option};
     use std::vector;
-    use aptos_framework::event;
-    use aptos_framework::fungible_asset::{Self, Metadata};
-    use aptos_framework::object::{Self, Object};
-    use aptos_framework::primary_fungible_store;
-    use aptos_framework::timestamp;
+    use supra_framework::event;
+    use supra_framework::fungible_asset::{Self, Metadata};
+    use supra_framework::object::{Self, Object};
+    use supra_framework::primary_fungible_store;
+    use supra_framework::timestamp;
     use aptos_std::smart_table::{Self, SmartTable};
 
     use desnet::profile;
-    use desnet::reference_gate::{Self, ReferenceGate};
+    use desnet::profile::ReferenceGate;
+    use desnet::reference_gate;
     use desnet::history;
     use desnet::assets;
     use desnet::factory;
@@ -199,6 +200,10 @@ module desnet::mint {
     /// in same tx. Tx aborts if any tip lacks balance — atomic all-or-nothing.
     public entry fun create_mint(
         author: &signer,
+        // PID to post as. Caller is authorized iff signer is the PID's NFT owner OR
+        // its configured controller. Subdomain PIDs work transparently here — the
+        // wallet that owns `alice@bob` passes that PID's address as `author_pid`.
+        author_pid: address,
         content_kind: u8,
         content_text: vector<u8>,
         // Media (optional, packed as 4 args; caller passes empty vec for unused)
@@ -229,9 +234,7 @@ module desnet::mint {
         asset_master_addr: address,
         asset_master_set: bool,
     ) acquires PidMintMeta {
-        let author_addr = signer::address_of(author);
-        let author_pid = profile::derive_pid_address(author_addr);
-        profile::assert_pid_exists(author_pid);
+        profile::assert_authorized(author, author_pid);
         ensure_mint_storage(author_pid);
 
         // ============ Validate content + media ============
@@ -320,7 +323,7 @@ module desnet::mint {
         meta.mint_count = meta.mint_count + 1;
 
         // Execute tips atomically — abort whole mint if any fails
-        let tips_vec = execute_tips(author, &tip_recipients, &tip_tokens, &tip_amounts, seq);
+        let tips_vec = execute_tips(author, author_pid, &tip_recipients, &tip_tokens, &tip_amounts, seq);
 
         // ============ Build canonical MintEvent + write to history ============
 
@@ -376,6 +379,7 @@ module desnet::mint {
 
     fun execute_tips(
         author: &signer,
+        author_pid: address,
         recipients: &vector<address>,
         tokens: &vector<address>,
         amounts: &vector<u64>,
@@ -395,7 +399,7 @@ module desnet::mint {
             primary_fungible_store::deposit(recipient, fa_in);
 
             event::emit(TipExecuted {
-                from_pid: profile::derive_pid_address(signer::address_of(author)),
+                from_pid: author_pid,
                 to_addr: recipient,
                 token_metadata: token_addr,
                 amount,
@@ -472,24 +476,23 @@ module desnet::mint {
 
     /// Attach ReferenceGate to a specific mint. Gates Voice/Spark/Echo/Remix/Press
     /// of this mint. Immutable post-attach.
-    /// Args flattened to primitives — Aptos entry fns can't take struct params.
+    /// Args flattened to primitives — Supra entry fns can't take struct params.
     public entry fun attach_mint_gate(
         author: &signer,
+        author_pid: address,
         seq: u64,
         target_pid: address,
         min_token_balance: u64,
         max_token_balance: u64,
         min_lp_stake: u64,
     ) acquires PidMintMeta, PidMintExtras {
-        let author_addr = signer::address_of(author);
-        let author_pid = profile::derive_pid_address(author_addr);
-        profile::assert_pid_exists(author_pid);
+        profile::assert_authorized(author, author_pid);
         ensure_mint_storage(author_pid);
 
         // Validate seq corresponds to a real mint by author
         assert!(seq < next_seq(author_pid), E_MINT_NOT_FOUND);
 
-        let gate = reference_gate::new(target_pid, min_token_balance, max_token_balance, min_lp_stake);
+        let gate = profile::reference_gate_new(target_pid, min_token_balance, max_token_balance, min_lp_stake);
         let extras_store = borrow_global_mut<PidMintExtras>(author_pid);
         if (smart_table::contains(&extras_store.extras, seq)) {
             let entry = smart_table::borrow_mut(&mut extras_store.extras, seq);
@@ -581,7 +584,7 @@ module desnet::mint {
     fun test_validate_tags_accept_valid() {
         let tags = vector::empty<vector<u8>>();
         vector::push_back(&mut tags, b"defi");
-        vector::push_back(&mut tags, b"aptos-move");
+        vector::push_back(&mut tags, b"supra-move");
         vector::push_back(&mut tags, b"web3-2026");
         validate_tags(&tags);
     }

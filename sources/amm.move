@@ -34,8 +34,8 @@ module desnet::amm {
 
     // ============ CONSTANTS ============
 
-    const FEE_BPS: u64 = 10;
-    const FLASH_FEE_BPS: u64 = 10;                    // = LP swap fee (uniform 10 bps, all 100% to LP)
+    const FEE_BPS: u64 = 100;
+    const FLASH_FEE_BPS: u64 = 100;                    // = LP swap fee (uniform 10 bps, all 100% to LP)
     const FEE_DENOM: u64 = 10000;
     const MIN_INITIAL_LP: u128 = 1000;
     const FEE_ACC_SCALE: u128 = 1_000_000_000_000_000_000;
@@ -358,7 +358,7 @@ module desnet::amm {
 
         assert!(supra_out >= min_supra_out, E_SLIPPAGE_EXCEEDED);
         assert!(token_out >= min_token_out, E_SLIPPAGE_EXCEEDED);
-        assert!(supra_out > 0 && token_out > 0, E_INSUFFICIENT_LIQUIDITY);
+        assert!(supra_out > 0 || token_out > 0, E_INSUFFICIENT_LIQUIDITY);
 
         pool.lp_supply = pool.lp_supply - lp_amount;
 
@@ -967,21 +967,21 @@ module desnet::amm {
     #[test]
     fun test_compute_amount_out_known_values() {
         // 100 in, 1000 reserve_in, 2000 reserve_out
-        // amount_after_fee = 100 × 9990 = 999000
-        // num = 999000 × 2000 = 1_998_000_000
-        // den = 1000 × 10000 + 999000 = 10_999_000
-        // out = 1_998_000_000 / 10_999_000 = 181
-        assert!(compute_amount_out(1000, 2000, 100) == 181, 1);
+        // amount_after_fee = 100 × 9900 = 990000
+        // num = 990000 × 2000 = 1_980_000_000
+        // den = 1000 × 10000 + 990000 = 10_990_000
+        // out = 1_980_000_000 / 10_990_000 = 180
+        assert!(compute_amount_out(1000, 2000, 100) == 180, 1);
     }
 
     #[test]
     fun test_compute_amount_out_with_fee() {
         // 10000 in, 100k/200k reserves
-        // amount_after_fee = 10000 × 9990 = 99_900_000
-        // num = 99_900_000 × 200_000 = 19_980_000_000_000
-        // den = 100_000 × 10_000 + 99_900_000 = 1_099_900_000
-        // out = 19_980_000_000_000 / 1_099_900_000 = 18165
-        assert!(compute_amount_out(100_000, 200_000, 10_000) == 18165, 1);
+        // amount_after_fee = 10000 × 9900 = 99_000_000
+        // num = 99_000_000 × 200_000 = 19_800_000_000_000
+        // den = 100_000 × 10_000 + 99_000_000 = 1_099_000_000
+        // out = 19_800_000_000_000 / 1_099_000_000 = 18016
+        assert!(compute_amount_out(100_000, 200_000, 10_000) == 18016, 1);
     }
 
     #[test]
@@ -991,10 +991,10 @@ module desnet::amm {
 
     #[test]
     fun test_compute_flash_fee() {
-        // 10 bps of 10000 = 10
-        assert!(compute_flash_fee(10000) == 10, 1);
-        // 10 bps of 100M = 100000
-        assert!(compute_flash_fee(100_000_000) == 100_000, 2);
+        // 100 bps of 10000 = 100
+        assert!(compute_flash_fee(10000) == 100, 1);
+        // 100 bps of 100M = 1_000_000
+        assert!(compute_flash_fee(100_000_000) == 1_000_000, 2);
     }
 
     #[test]
@@ -1009,12 +1009,12 @@ module desnet::amm {
 
     #[test]
     fun test_fee_bps_constant() {
-        assert!(fee_bps(b"x") == 10, 1);
+        assert!(fee_bps(b"x") == FEE_BPS, 1);
     }
 
     #[test]
     fun test_flash_fee_bps_constant() {
-        assert!(flash_fee_bps() == 10, 1);
+        assert!(flash_fee_bps() == FLASH_FEE_BPS, 1);
     }
 
     #[test]
@@ -1038,6 +1038,6 @@ module desnet::amm {
         let supra_back = compute_amount_out(r1_after, r0_after, token_out);
         assert!(supra_back < amount_in, 1);
         let loss_bps = ((amount_in - supra_back) * 10000) / amount_in;
-        assert!(loss_bps >= 18 && loss_bps <= 30, 2);
+        assert!(loss_bps >= 180 && loss_bps <= 220, 2);
     }
 }

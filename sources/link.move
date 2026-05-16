@@ -4,7 +4,7 @@
 /// ENDORSE removed from link_kind enum (= derived view from LP staking position).
 ///
 /// LinkEvent { link_kind: SYNC, state: ADD/REMOVE } — kept ADD/REMOVE pattern
-/// (Aptos events immutable on emit; un-action emits state=REMOVE).
+/// (Supra events immutable on emit; un-action emits state=REMOVE).
 ///
 /// PidSyncSet at syncer's PID (NOT target's). Target has count only — popular
 /// accounts can't afford full follower-list resource. Indexer derives "who syncs
@@ -17,11 +17,12 @@ module desnet::link {
     use std::bcs;
     use std::signer;
     use std::option;
-    use aptos_framework::timestamp;
+    use supra_framework::timestamp;
     use aptos_std::smart_table::{Self, SmartTable};
 
     use desnet::profile;
-    use desnet::reference_gate::{Self, ReferenceGate};
+    use desnet::profile::ReferenceGate;
+    use desnet::reference_gate;
     use desnet::history;
 
     friend desnet::mint;
@@ -99,13 +100,13 @@ module desnet::link {
     /// - Not already synced
     public entry fun sync(
         syncer: &signer,
+        syncer_pid: address,
         target_pid: address,
         syncer_stake_position_addr: address,    // @0x0 if no LP-stake gate or no position
     ) acquires PidSyncSet {
+        profile::assert_authorized(syncer, syncer_pid);
         let syncer_addr = signer::address_of(syncer);
-        let syncer_pid = profile::derive_pid_address(syncer_addr);
 
-        profile::assert_pid_exists(syncer_pid);
         profile::assert_pid_exists(target_pid);
         assert!(syncer_pid != target_pid, E_SELF_SYNC_DISALLOWED);
 
@@ -150,10 +151,10 @@ module desnet::link {
     /// emits LinkEvent { kind=SYNC, state=REMOVE }.
     public entry fun unsync(
         syncer: &signer,
+        syncer_pid: address,
         target_pid: address,
     ) acquires PidSyncSet {
-        let syncer_addr = signer::address_of(syncer);
-        let syncer_pid = profile::derive_pid_address(syncer_addr);
+        profile::assert_authorized(syncer, syncer_pid);
 
         assert!(exists<PidSyncSet>(syncer_pid), E_SYNC_SET_NOT_INITIALIZED);
         let set = borrow_global_mut<PidSyncSet>(syncer_pid);

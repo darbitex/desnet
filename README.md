@@ -1,8 +1,8 @@
 # DeSNet
 
-A decentralized social network protocol on Aptos. Every profile is an Object NFT, every profile spawns its own fungible token, and every social action — posts, likes, replies, quotes, presses, syncs — is an on-chain primitive. No centralized backend, no off-chain database, no protocol fees on swaps.
+A decentralized social network protocol on Supra. Every profile is an Object NFT, every profile spawns its own fungible token, and every social action — posts, likes, replies, quotes, presses, syncs — is an on-chain primitive. No centralized backend, no off-chain database, no protocol fees on swaps.
 
-**Status:** v0.3.3 live on Aptos mainnet (`@desnet = 0x7ba7ee5a...`). 18 Move modules, ~8.9k LoC, audited by a 6-LLM panel (5 GREEN / 1 YELLOW disputed-and-rejected).
+**Status:** v0.3.3 live on Supra mainnet (`@desnet = 0x7ba7ee5a...`). 18 Move modules, ~8.9k LoC, audited by a 6-LLM panel (5 GREEN / 1 YELLOW disputed-and-rejected).
 
 **License:** [The Unlicense](LICENSE) — public domain.
 
@@ -14,11 +14,11 @@ A profile (PID) on DeSNet is a transferable Object NFT with a deterministic addr
 
 1. Mints the PID Object NFT to the registrant
 2. Spawns a per-profile fungible token `$ALICE` (1B supply, 8 decimals)
-3. Creates an APT/`$ALICE` AMM pool seeded with 5 APT + 50M tokens (FDV ≈ 100 APT)
+3. Creates an SUPRA/`$ALICE` AMM pool seeded with 5 SUPRA + 50M tokens (FDV ≈ 100 SUPRA)
 4. Locks the creator's LP position permanently into the staking pool
-5. Splits the handle fee 10% to the deployer / 90% into APT → DESNET buyback-burn
+5. Splits the handle fee 10% to the deployer / 90% into SUPRA → DESNET buyback-burn
 
-Handle pricing scales by length: 1-char = 100 APT, 6+ chars = 1 APT. One-time, immutable, no renewal.
+Handle pricing scales by length: 1-char = 100 SUPRA, 6+ chars = 1 SUPRA. One-time, immutable, no renewal.
 
 The PID itself is the unit of identity, the token is the unit of speech-economy, and the AMM pool is the price discovery surface — all bound together at registration in a single transaction.
 
@@ -36,7 +36,7 @@ Every social action on DeSNet is one of seven on-chain primitives:
 | Press  | `press`   | Mint a Mint as a collectible NFT         |
 | Sync   | `link`    | Subscribe to a PID's mints               |
 
-Posts can carry tags (ownerless folksonomy), tickers (factory-spawned `$X` only — every ticker resolves to a PID), mentions (any Aptos address), and tips (any FA-standard token). Pressing a Mint distributes a linear-curve emission from that token's reaction reserve to the presser.
+Posts can carry tags (ownerless folksonomy), tickers (factory-spawned `$X` only — every ticker resolves to a PID), mentions (any Supra address), and tips (any FA-standard token). Pressing a Mint distributes a linear-curve emission from that token's reaction reserve to the presser.
 
 ## Architecture
 
@@ -45,8 +45,8 @@ Posts can carry tags (ownerless folksonomy), tickers (factory-spawned `$X` only 
                                        │
        ┌──────────┬─────────┬──────────┼───────────┬────────────┬──────────┐
        │          │         │          │           │            │          │
-   profile     factory     amm    lp_staking   apt_vault   handle_fee   voter_history
-   (PID NFT)  (atomic     (APT/$T  (LP NFT     (50/50      _vault       (DESNET-only
+   profile     factory     amm    lp_staking   supra_vault   supra_fee   voter_history
+   (PID NFT)  (atomic     (SUPRA/$T  (LP NFT     (50/50      _vault       (DESNET-only
               spawn)       10bps)   positions   buyback-    (10/90       voting power
                                     + emission) burn)       deployer/    + fallback)
                                                             buyback-
@@ -58,14 +58,14 @@ Posts can carry tags (ownerless folksonomy), tickers (factory-spawned `$X` only 
        ├── assets        (fractal-tree on-chain media ≤ 5 MB, MIME PNG/JPEG/WebP/GIF/SVG)
        ├── giveaway      (FA / NFT giveaways with 3 gates)
        ├── lp_emission / reaction_emission (sealed reserves: 90% LP, 5% reactions)
-       └── apt_vault     (per-token APT vault with embedded BurnRef)
+       └── supra_vault     (per-token SUPRA vault with embedded BurnRef)
 ```
 
-**Eighteen modules total.** The graph is enforced by Move `friend` visibility — verb modules can only write to `history` through the friend interface, factory is the only creator of new `$TOKEN`s, `apt_vault` holds each token's `BurnRef` and exposes burn only via a delegate call from `handle_fee_vault`.
+**Eighteen modules total.** The graph is enforced by Move `friend` visibility — verb modules can only write to `history` through the friend interface, factory is the only creator of new `$TOKEN`s, `supra_vault` holds each token's `BurnRef` and exposes burn only via a delegate call from `supra_fee_vault`.
 
 ## Where the value flows
 
-**DESNET (the protocol token).** Registered as the `desnet` handle. Receives 90% of every handle-registration fee as a buyback-and-burn: APT → AMM swap → burn. Two-phase commit-reveal (`request_settle` → 60 s delay → `execute_settle`) defends against MEV. Every settle is permissionless and every burn is a permanent supply reduction. v0.3.2 first burn: 3,685,451 DESNET (-0.37% supply on a single 0.9 APT settle).
+**DESNET (the protocol token).** Registered as the `desnet` handle. Receives 90% of every handle-registration fee as a buyback-and-burn: SUPRA → AMM swap → burn. Two-phase commit-reveal (`request_settle` → 60 s delay → `execute_settle`) defends against MEV. Every settle is permissionless and every burn is a permanent supply reduction. v0.3.2 first burn: 3,685,451 DESNET (-0.37% supply on a single 0.9 SUPRA settle).
 
 **Per-profile tokens.** 1B supply at mint, allocated:
 - 5% (50M) seeded into the AMM pool
@@ -101,12 +101,12 @@ sources/
   governance.move          DAO + chunked upgrade staging + multisig publish
   factory.move             Atomic register_handle pipeline
   profile.move             PID Object NFT + handle registry + signer hierarchy
-  amm.move                 APT/$TOKEN constant-product pool, 10 bps to LP
+  amm.move                 SUPRA/$TOKEN constant-product pool, 10 bps to LP
   lp_staking.move          V3-style LP positions + emission + fee claims
   lp_emission.move         Sealed 900M reserve drained by claims
   reaction_emission.move   Sealed 50M reserve drained by Press actors
-  apt_vault.move           Per-token vault + embedded BurnRef
-  handle_fee_vault.move    10/90 split + two-phase MEV-safe settle
+  supra_vault.move           Per-token vault + embedded BurnRef
+  supra_fee_vault.move    10/90 split + two-phase MEV-safe settle
   voter_history.move       Per-token voting power with legacy fallback
   reference_gate.move      Sync + balance + LP-stake gating primitive
   mint.move                Mint / Voice / Remix verbs
@@ -128,12 +128,12 @@ docs/
 ## Building
 
 ```sh
-aptos move compile --named-addresses \
+supra move tool compile --named-addresses \
   desnet=<deploy_addr>,origin=<origin_addr>,desnet_claimer=<claimer_addr>
-aptos move test
+supra move tool test
 ```
 
-The package depends on `desnet-bootstrap` (a sibling local package providing the chunked-upgrade publisher capability — required because the package exceeds Aptos's 64 KB single-tx publish limit). Mainnet deploys go through `governance::multisig_stage_upgrade_chunk` → `multisig_publish_chunked_upgrade` with a 3/5 multisig threshold on `@origin`.
+The package depends on `desnet-bootstrap` (a sibling local package providing the chunked-upgrade publisher capability — required because the package exceeds Supra's 64 KB single-tx publish limit). Mainnet deploys go through `governance::multisig_stage_upgrade_chunk` → `multisig_publish_chunked_upgrade` with a 3/5 multisig threshold on `@origin`.
 
 ## Mainnet addresses
 
@@ -147,7 +147,7 @@ The package depends on `desnet-bootstrap` (a sibling local package providing the
 | LP staking pool       | `0x983d04dd23cdaa139af36e79af464739e6ec9f13874c2f6dc329ee508389481b` |
 | LP emission reserve   | `0x19c83d5de114c22ca462029c1ec5069d3c9c3aaec7a8028aefb4a41942e1088b` |
 | Reaction emission     | `0x4d7544844fa9b6eea0a2720b434627986fc7adc0339d39b851824a892be44e23` |
-| APT vault (DESNET)    | `0xfd45ced87cc95c4a9f2bba5c633b357d748d0b03071e19ff2b66529104774d09` |
+| SUPRA vault (DESNET)    | `0xfd45ced87cc95c4a9f2bba5c633b357d748d0b03071e19ff2b66529104774d09` |
 
 ## Design philosophy
 
@@ -164,5 +164,5 @@ The package depends on `desnet-bootstrap` (a sibling local package providing the
 
 - **v0.3.3** — current mainnet. R6 audit 5/6 GREEN. Tag `v0.3.3-mainnet-live`.
 - **v0.3.2** — superseded. Introduced two-phase settle infra and per-token voter history.
-- **v0.3.1** — superseded. Added `handle_fee_vault` (initial 50/50 split, later changed to 10/90).
+- **v0.3.1** — superseded. Added `supra_fee_vault` (initial 50/50 split, later changed to 10/90).
 - **v0.3.0** — initial mainnet. Design lock under [`docs/v0.3.0-design-lock.md`](docs/v0.3.0-design-lock.md).

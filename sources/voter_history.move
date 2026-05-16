@@ -1,30 +1,26 @@
-/// Voter History — per-voter cumulative LP staking rewards record.
+/// Voter History — per-voter cumulative LP fee / rewards record.
 ///
 /// CRITICAL — voting power source authentication:
 ///
-/// `record_reward_received` is the SOLE pathway for voting power generation. Called
-/// EXCLUSIVELY by `desnet::lp_staking::claim_internal` after pulling emission from
-/// the LP emission reserve. Other DESNET inflows (market buy, transfer, third-party
-/// reward streams added to LP pool, cross-token rewards, etc.) do NOT populate this
-/// history and do NOT count toward voting power.
+/// Two pathways feed into voting power:
+///   1. (Legacy) `desnet::lp_staking::claim_internal` — LP staking rewards (pre-IPO model).
+///   2. `desnet::ipo::claim_fees` — DESNET-side LP swap fees (IPO model).
 ///
 /// Cross-module authentication via friend visibility + signer addr check:
-///   - `record_reward_received` is `public(friend)` with `friend desnet::lp_staking;`
-///     as the load-bearing barrier (compile-time enforcement).
-///   - The runtime `signer::address_of(authority) == @desnet` assertion remains as
-///     belt-and-braces defense-in-depth against future refactors that widen friend
-///     scope or hypothetical compiler edge cases.
+///   - `record_reward_received` is `public(friend)` gated; callers validated at
+///     compile-time by friend list + runtime `signer::address_of(authority) == @desnet`.
 ///
 /// Storage: centralized SmartTable<voter_addr, VoterHistory> at @desnet.
 module desnet::voter_history {
     use std::signer;
     use std::vector;
-    use aptos_framework::event;
-    use aptos_framework::timestamp;
+    use supra_framework::event;
+    use supra_framework::timestamp;
     use aptos_std::smart_table::{Self, SmartTable};
 
     friend desnet::governance;
     friend desnet::lp_staking;
+    friend desnet::ipo;
 
     // ============ CONSTANTS ============
 

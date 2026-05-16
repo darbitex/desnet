@@ -1,20 +1,20 @@
 /// IPO (Initial Pool Offering) — replaces 90%-5%-5% with 100% pooled distribution.
 ///
-/// ── Konsep ──
-/// Buyer deposit SUPRA di harga entry tetap selama fase IPO. Setiap deposit
-/// mint Position NFT (transferable) yang merepresentasikan LP shares di AMM pool.
+/// ── Concept ──
+/// Buyer deposits SUPRA at fixed entry price during the IPO phase. Each deposit
+/// mints a transferable Position NFT representing LP shares in the AMM pool.
 ///
-/// ── Target TVL belum tercapai ──
-///   Burn Position → refund 100% SUPRA (token kembali ke IPO reserve).
+/// ── Target TVL not yet reached ──
+///   Burn Position → refund 100% SUPRA (tokens returned from IPO reserve).
 ///
-/// ── Target TVL tercapai ──
-///   Pool unlock (swap enabled). LP holders earn swap fees via MasterChef
-///   accumulator (amm::fee_per_lp_supra / fee_per_lp_token).
-///   Principal tetap di pool — tidak bisa withdraw.
+/// ── Target TVL reached ──
+///   Pool unlocks (swaps enabled). LP holders earn swap fees via MasterChef
+///   accumulator (amm::fee_per_lp_supra / amm::fee_per_lp_token).
+///   Principal stays in the pool — cannot be withdrawn.
 ///
 /// ── Subdomain Profile ──
-///   IPO creator dapat main handle (PID NFT).
-///   Peserta IPO dapat subdomain: `peserta@domain`.
+///   IPO creator gets the main handle (PID NFT).
+///   IPO participants get subdomain: `alice@domain`.
 module desnet::ipo {
     use std::signer;
     use std::string::{Self, String};
@@ -22,12 +22,14 @@ module desnet::ipo {
     use aptos_std::smart_table::{Self, SmartTable};
     use supra_framework::event;
     use supra_framework::fungible_asset::{Self, FungibleAsset, FungibleStore, Metadata};
-    use supra_framework::object::{Self, ExtendRef, DeleteRef};
+    use supra_framework::object::{Self, Object, ExtendRef, DeleteRef};
     use supra_framework::primary_fungible_store;
     use supra_framework::timestamp;
 
     use desnet::amm;
     use desnet::governance;
+    use desnet::voter_history;
+    use desnet::profile;
 
     friend desnet::factory;
 
@@ -49,6 +51,12 @@ module desnet::ipo {
     const E_BAD_RATIO: u64 = 13;
     const E_SUBDOMAIN_TAKEN: u64 = 14;
     const E_INVALID_SUBDOMAIN: u64 = 15;
+    const E_EXCEEDS_MAX_ALLOCATION: u64 = 16;
+    const E_TARGET_TOO_LOW: u64 = 17;
+
+    /// Max cumulative deposit per address = 1% of target TVL.
+    const MAX_PER_ADDRESS_BPS: u64 = 100;
+    const MIN_TARGET_TVL: u64 = 100_000_000_000_000;
 
     /// ───── Types ─────
 
@@ -66,10 +74,12 @@ module desnet::ipo {
         extend_ref: ExtendRef,
         pool_addr: address,
         total_lp: u128,
+        depositor_totals: SmartTable<address, u64>,
     }
 
     struct Position has key {
         ipo_addr: address,
+        depositor: address,
         supra_deposited: u64,
         shares: u128,
         fee_debt_supra: u128,
@@ -172,7 +182,7 @@ module desnet::ipo {
     ) {
         let ipo_addr = ipo_address_of_handle(handle);
         assert!(!exists<IPOPool>(ipo_addr), E_IPO_ALREADY_EXISTS);
-        assert!(target_tvl > 0, 1);
+        assert!(target_tvl >= MIN_TARGET_TVL, E_TARGET_TOO_LOW);
         assert!(entry_price_x > 0 && entry_price_y > 0, E_BAD_RATIO);
         assert!(fungible_asset::amount(&token_fa) > 0, 2);
 
@@ -204,6 +214,7 @@ module desnet::ipo {
             extend_ref,
             pool_addr: @0x0,
             total_lp: 0,
+            depositor_totals: smart_table::new(),
         });
 
         // Init subdomain registry
@@ -250,22 +261,29 @@ module desnet::ipo {
         assert!(!ipo.completed, E_IPO_COMPLETED);
         let new_total = ipo.total_supra_raised + amount;
         assert!(new_total <= ipo.target_tvl, E_OVER_TARGET);
-
-        // Register subdomain
-        let reg_addr = subdomain_registry_address(&handle);
-        assert!(exists<SubdomainRegistry>(reg_addr), E_IPO_NOT_FOUND);
-        let reg = borrow_global_mut<SubdomainRegistry>(reg_addr);
-        assert!(!smart_table::contains(&reg.entries, sub_name), E_SUBDOMAIN_TAKEN);
-        smart_table::add(&mut reg.entries, sub_name, caller_addr);
+        let addr_total = if (smart_table::contains(&ipo.depositor_totals, caller_addr)) {
+            *smart_table::borrow(&ipo.depositor_totals, caller_addr)
+        } else { 0 };
+        let max_per_addr = (ipo.target_tvl * MAX_PER_ADDRESS_BPS) / 10000;
+        assert!(addr_total + amount <= max_per_addr, E_EXCEEDS_MAX_ALLOCATION);
+        smart_table::upsert(&mut ipo.depositor_totals, caller_addr, addr_total + amount);
 
         let token_amount = ((amount as u128) * (ipo.entry_price_y as u128)
             / (ipo.entry_price_x as u128)) as u64;
         assert!(token_amount > 0, E_ZERO_DEPOSIT);
 
+        // Financial transfer FIRST (fix M1: subdomain only registered after SUPRA secured)
         let supra_meta = object::address_to_object<Metadata>(governance::native_fa_metadata());
         let supra_fa = primary_fungible_store::withdraw(caller, supra_meta, amount);
         let ipo_signer = object::generate_signer_for_extending(&ipo.extend_ref);
         let token_fa = fungible_asset::withdraw(&ipo_signer, ipo.token_store, token_amount);
+
+        // Register subdomain (after transfers succeed)
+        let reg_addr = subdomain_registry_address(&handle);
+        assert!(exists<SubdomainRegistry>(reg_addr), E_IPO_NOT_FOUND);
+        let reg = borrow_global_mut<SubdomainRegistry>(reg_addr);
+        assert!(!smart_table::contains(&reg.entries, sub_name), E_SUBDOMAIN_TAKEN);
+        smart_table::add(&mut reg.entries, sub_name, caller_addr);
 
         let lp_minted: u128;
         if (ipo.pool_addr == @0x0) {
@@ -277,12 +295,12 @@ module desnet::ipo {
             );
             lp_minted = lp;
             if (fungible_asset::amount(&supra_refund) > 0) {
-                fungible_asset::deposit(ipo.supra_store, supra_refund);
+                primary_fungible_store::deposit(caller_addr, supra_refund);
             } else {
                 fungible_asset::destroy_zero(supra_refund);
             };
             if (fungible_asset::amount(&token_refund) > 0) {
-                fungible_asset::deposit(ipo.token_store, token_refund);
+                primary_fungible_store::deposit(caller_addr, token_refund);
             } else {
                 fungible_asset::destroy_zero(token_refund);
             };
@@ -305,6 +323,7 @@ module desnet::ipo {
 
         move_to(&pos_signer, Position {
             ipo_addr,
+            depositor: caller_addr,
             supra_deposited: amount,
             shares: lp_minted,
             fee_debt_supra: fee_supra,
@@ -312,6 +331,12 @@ module desnet::ipo {
             delete_ref: pos_delete,
             subdomain: sub_name,
         });
+
+        // Create PID NFT for subdomain registrant
+        let protocol_signer = governance::derive_pkg_signer();
+        profile::create_subdomain_profile(
+            &protocol_signer, string::utf8(handle), sub_name, caller_addr, !ipo.completed,
+        );
 
         event::emit(DepositMade {
             handle,
@@ -354,14 +379,27 @@ module desnet::ipo {
         let lp_amount = pos.shares;
         let (supra_out, token_out) = amm::remove_liquidity_internal(handle, lp_amount, 0, 0);
 
-        let ipo_signer = object::generate_signer_for_extending(&ipo.extend_ref);
         let supra_refund_amt = fungible_asset::amount(&supra_out);
-        fungible_asset::deposit(ipo.token_store, token_out);
-
-        primary_fungible_store::deposit(caller_addr, supra_out);
+        if (supra_refund_amt > 0) {
+            primary_fungible_store::deposit(caller_addr, supra_out);
+        } else {
+            fungible_asset::destroy_zero(supra_out);
+        };
+        if (fungible_asset::amount(&token_out) > 0) {
+            fungible_asset::deposit(ipo.token_store, token_out);
+        } else {
+            fungible_asset::destroy_zero(token_out);
+        };
 
         ipo.total_lp = ipo.total_lp - lp_amount;
         ipo.total_supra_raised = ipo.total_supra_raised - pos.supra_deposited;
+        let original_depositor = pos.depositor;
+        let remaining = *smart_table::borrow(&ipo.depositor_totals, original_depositor) - pos.supra_deposited;
+        if (remaining == 0) {
+            smart_table::remove(&mut ipo.depositor_totals, original_depositor);
+        } else {
+            *smart_table::borrow_mut(&mut ipo.depositor_totals, original_depositor) = remaining;
+        };
 
         // Release subdomain
         let reg_addr = subdomain_registry_address(&handle);
@@ -375,6 +413,7 @@ module desnet::ipo {
         let sub_name = pos.subdomain;
         let Position {
             ipo_addr: _,
+            depositor: _,
             supra_deposited: _,
             shares: _,
             fee_debt_supra: _,
@@ -403,8 +442,12 @@ module desnet::ipo {
         assert!(exists<IPOPool>(ipo_addr), E_IPO_NOT_FOUND);
         let ipo = borrow_global_mut<IPOPool>(ipo_addr);
         assert!(!ipo.completed, E_ALREADY_COMPLETED);
-        assert!(ipo.total_supra_raised >= ipo.target_tvl, E_BELOW_TARGET);
         assert!(ipo.pool_addr != @0x0, E_NO_POOL);
+        // CRITICAL: must reach target_tvl before swaps unlock.
+        // Pre-fix this was `> 0` — allowed anyone to lock the IPO after the
+        // first deposit (refund path aborts when completed), turning the 100%
+        // refund promise into a griefing surface.
+        assert!(ipo.total_supra_raised >= ipo.target_tvl, E_BELOW_TARGET);
 
         ipo.completed = true;
         amm::enable_swaps(handle);
@@ -424,7 +467,7 @@ module desnet::ipo {
         caller: &signer,
         handle: vector<u8>,
         position_addr: address,
-    ) acquires Position {
+    ) acquires Position, IPOPool {
         assert!(exists<Position>(position_addr), E_POSITION_NOT_FOUND);
         let caller_addr = signer::address_of(caller);
         let pos_obj = object::address_to_object<Position>(position_addr);
@@ -462,8 +505,16 @@ module desnet::ipo {
         } else {
             fungible_asset::destroy_zero(supra_fa);
         };
-        if (fungible_asset::amount(&token_fa) > 0) {
+        let token_fee_amount = fungible_asset::amount(&token_fa);
+        if (token_fee_amount > 0) {
             primary_fungible_store::deposit(caller_addr, token_fa);
+            // Record DESNET-side LP fee for voting power
+            if (ipo.token_metadata_addr == governance::desnet_fa_addr()) {
+                let pkg_signer = governance::derive_pkg_signer();
+                voter_history::record_reward_received_for_token(
+                    &pkg_signer, caller_addr, governance::desnet_fa_addr(), token_fee_amount,
+                );
+            };
         } else {
             fungible_asset::destroy_zero(token_fa);
         };
@@ -499,14 +550,52 @@ module desnet::ipo {
         )
     }
 
+    /// ───── Claim subdomain PID post-IPO ─────
+
+    /// Allows a Position owner to claim a subdomain + PID NFT after IPO completes.
+    /// Uniqueness guaranteed via SubdomainRegistry (shared with deposit_supra path).
+    /// Callable by anyone who owns a Position in the domain, even after transfer.
+    public entry fun claim_subdomain_pid(
+        caller: &signer,
+        handle: vector<u8>,
+        position_addr: address,
+        subdomain: vector<u8>,
+    ) acquires IPOPool, SubdomainRegistry {
+        let caller_addr = signer::address_of(caller);
+        assert!(exists<Position>(position_addr), E_POSITION_NOT_FOUND);
+        let pos_obj = object::address_to_object<Position>(position_addr);
+        assert!(object::owner(pos_obj) == caller_addr, E_NOT_OWNER);
+
+        let ipo_addr = ipo_address_of_handle(handle);
+        assert!(exists<IPOPool>(ipo_addr), E_IPO_NOT_FOUND);
+        let ipo = borrow_global<IPOPool>(ipo_addr);
+        assert!(ipo.completed, E_IPO_NOT_COMPLETED);
+
+        let sub_name = string::utf8(subdomain);
+        validate_subdomain(&sub_name);
+
+        // Uniqueness — shared SubdomainRegistry with deposit_supra path
+        let reg_addr = subdomain_registry_address(&handle);
+        assert!(exists<SubdomainRegistry>(reg_addr), E_IPO_NOT_FOUND);
+        let reg = borrow_global_mut<SubdomainRegistry>(reg_addr);
+        assert!(!smart_table::contains(&reg.entries, sub_name), E_SUBDOMAIN_TAKEN);
+        smart_table::add(&mut reg.entries, sub_name, caller_addr);
+
+        let protocol_signer = governance::derive_pkg_signer();
+        profile::create_subdomain_profile(
+            &protocol_signer, string::utf8(handle), sub_name, caller_addr, false,
+        );
+    }
+
     #[view]
     public fun position_info(position_addr: address): (
-        address, u64, u128, u128, u128, String,
+        address, address, u64, u128, u128, u128, String,
     ) acquires Position {
         assert!(exists<Position>(position_addr), E_POSITION_NOT_FOUND);
         let pos = borrow_global<Position>(position_addr);
         (
             pos.ipo_addr,
+            pos.depositor,
             pos.supra_deposited,
             pos.shares,
             pos.fee_debt_supra,
@@ -524,10 +613,16 @@ module desnet::ipo {
         let pos = borrow_global<Position>(position_addr);
         let (fee_supra, fee_token) = amm::fee_per_lp(handle);
         let scale = amm::fee_acc_scale();
-        let pending_supra = ((pos.shares as u128) * fee_supra / scale)
-            .saturating_sub((pos.shares as u128) * pos.fee_debt_supra / scale);
-        let pending_token = ((pos.shares as u128) * fee_token / scale)
-            .saturating_sub((pos.shares as u128) * pos.fee_debt_token / scale);
+        let raw_pending_supra = ((pos.shares as u128) * fee_supra) / scale;
+        let raw_debt_supra = ((pos.shares as u128) * pos.fee_debt_supra) / scale;
+        let pending_supra = if (raw_pending_supra > raw_debt_supra) {
+            raw_pending_supra - raw_debt_supra
+        } else { 0 };
+        let raw_pending_token = ((pos.shares as u128) * fee_token) / scale;
+        let raw_debt_token = ((pos.shares as u128) * pos.fee_debt_token) / scale;
+        let pending_token = if (raw_pending_token > raw_debt_token) {
+            raw_pending_token - raw_debt_token
+        } else { 0 };
         ((pending_supra as u64), (pending_token as u64))
     }
 
@@ -550,6 +645,17 @@ module desnet::ipo {
         smart_table::contains(&reg.entries, subdomain)
     }
 
+    #[view]
+    public fun depositor_total(handle: vector<u8>, depositor: address): u64
+    acquires IPOPool {
+        let ipo_addr = ipo_address_of_handle(handle);
+        assert!(exists<IPOPool>(ipo_addr), E_IPO_NOT_FOUND);
+        let ipo = borrow_global<IPOPool>(ipo_addr);
+        if (smart_table::contains(&ipo.depositor_totals, depositor)) {
+            *smart_table::borrow(&ipo.depositor_totals, depositor)
+        } else { 0 }
+    }
+
     /// ───── Validation ─────
 
     fun validate_subdomain(name: &String) {
@@ -565,5 +671,69 @@ module desnet::ipo {
             assert!(ok, E_INVALID_SUBDOMAIN);
             i = i + 1;
         };
+    }
+
+    // ============ MOVE PROVER SPEC ============
+
+    spec module {
+        /// Invariant: after first deposit, pool_addr is set and never resets.
+        invariant update [suspendable]
+            forall ipo_p: address:
+                (old(exists<IPOPool>(ipo_p)) && exists<IPOPool>(ipo_p))
+                ==> (old(borrow_global<IPOPool>(ipo_p).pool_addr) != @0x0
+                     ==> borrow_global<IPOPool>(ipo_p).pool_addr == old(borrow_global<IPOPool>(ipo_p).pool_addr));
+
+        /// Invariant: completed ⇒ pool_addr is set.
+        invariant [suspendable]
+            forall ipo_p: address where exists<IPOPool>(ipo_p):
+                borrow_global<IPOPool>(ipo_p).completed ==> borrow_global<IPOPool>(ipo_p).pool_addr != @0x0;
+
+        /// Invariant: completed flag is monotonic (never goes from true → false).
+        invariant update [suspendable]
+            forall ipo_p: address:
+                (old(exists<IPOPool>(ipo_p)) && exists<IPOPool>(ipo_p))
+                ==> (old(borrow_global<IPOPool>(ipo_p).completed) ==> borrow_global<IPOPool>(ipo_p).completed);
+
+        /// Invariant: total_supra_raised ≤ target_tvl when NOT completed.
+        invariant [suspendable]
+            forall ipo_p: address where exists<IPOPool>(ipo_p):
+                !borrow_global<IPOPool>(ipo_p).completed
+                ==> borrow_global<IPOPool>(ipo_p).total_supra_raised <= borrow_global<IPOPool>(ipo_p).target_tvl;
+
+        /// Invariant: target_tvl ≥ MIN_TARGET_TVL.
+        invariant [suspendable]
+            forall ipo_p: address where exists<IPOPool>(ipo_p):
+                borrow_global<IPOPool>(ipo_p).target_tvl >= MIN_TARGET_TVL;
+
+        /// Invariant: entry prices are positive.
+        invariant [suspendable]
+            forall ipo_p: address where exists<IPOPool>(ipo_p):
+                borrow_global<IPOPool>(ipo_p).entry_price_x > 0
+                && borrow_global<IPOPool>(ipo_p).entry_price_y > 0;
+
+        /// Invariant: total_lp fits in u128 bounds (no arithmetic overflow risk).
+        invariant [suspendable]
+            forall ipo_p: address where exists<IPOPool>(ipo_p):
+                borrow_global<IPOPool>(ipo_p).total_lp <= 340282366920938463463374607431768211455;
+
+        /// Invariant: token_metadata_addr is set and immutable.
+        invariant [suspendable]
+            forall ipo_p: address where exists<IPOPool>(ipo_p):
+                borrow_global<IPOPool>(ipo_p).token_metadata_addr != @0x0;
+    }
+
+    spec fun spec_ipo_seed(handle: vector<u8>): vector<u8> {
+        concat(SEED_IPO, handle)
+    }
+
+    spec fun spec_subdomain_seed(handle: vector<u8>): vector<u8> {
+        concat(SEED_SUBDOMAIN, handle)
+    }
+
+    spec position_info {
+        aborts_if !exists<Position>(position_addr);
+    }
+    spec pending_fees {
+        aborts_if !exists<Position>(position_addr);
     }
 }

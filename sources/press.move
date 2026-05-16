@@ -13,7 +13,7 @@
 /// Per-actor uniqueness: each wallet can press a given mint ONLY once.
 /// Author may self-press own mint, max 1 (same one-per-actor rule).
 ///
-/// Royalty: 5% Aptos NFT v2 native, payee = PID Object addr (current owner).
+/// Royalty: 5% Supra NFT v2 native, payee = PID Object addr (current owner).
 /// Marketplace patuh otomatis. Future Press royalty 10% routed to vault (v2 spec).
 ///
 /// First press = FREE (gas only). v1 tidak ada paid press; monetization = secondary market.
@@ -22,9 +22,9 @@ module desnet::press {
     use std::option;
     use std::signer;
     use std::string::{Self, String};
-    use aptos_framework::event;
-    use aptos_framework::object::{Self, ExtendRef};
-    use aptos_framework::timestamp;
+    use supra_framework::event;
+    use supra_framework::object::{Self, ExtendRef};
+    use supra_framework::timestamp;
     use aptos_std::smart_table::{Self, SmartTable};
     use aptos_token_objects::collection;
     use aptos_token_objects::royalty;
@@ -43,7 +43,7 @@ module desnet::press {
     const SUPPLY_CAP_MAX: u16 = 1000;
     const WINDOW_DAYS_MIN: u8 = 1;
     const WINDOW_DAYS_MAX: u8 = 7;
-    const ROYALTY_BPS: u64 = 500;            // 5% Aptos NFT v2 native
+    const ROYALTY_BPS: u64 = 500;            // 5% Supra NFT v2 native
 
     // ============ ERROR CODES ============
 
@@ -211,7 +211,7 @@ module desnet::press {
         string::utf8(b"")
     }
 
-    /// Simple u64 → decimal String. Aptos stdlib doesn't have utoa, hand-roll.
+    /// Simple u64 → decimal String. Supra stdlib doesn't have utoa, hand-roll.
     fun u64_to_string(n: u64): String {
         if (n == 0) return string::utf8(b"0");
         let buf = std::vector::empty<u8>();
@@ -230,6 +230,7 @@ module desnet::press {
     /// One-time per mint; cannot reconfigure after first press.
     public entry fun enable_press(
         author: &signer,
+        author_pid: address,
         mint_seq: u64,
         supply_cap: u16,
         window_days: u8,
@@ -237,8 +238,7 @@ module desnet::press {
         assert!(supply_cap >= SUPPLY_CAP_MIN && supply_cap <= SUPPLY_CAP_MAX, E_INVALID_SUPPLY_CAP);
         assert!(window_days >= WINDOW_DAYS_MIN && window_days <= WINDOW_DAYS_MAX, E_INVALID_WINDOW_DAYS);
 
-        let author_pid = profile::derive_pid_address(signer::address_of(author));
-        profile::assert_pid_exists(author_pid);
+        profile::assert_authorized(author, author_pid);
 
         // Validate mint_seq corresponds to a real mint. Without this, author can
         // enable_press on bogus seqs and farm reaction emission via secondary wallets.
@@ -278,7 +278,7 @@ module desnet::press {
 
     // ============ PRESS — anyone can press, gates checked ============
 
-    /// Press a mint. Mints Aptos NFT v2 collectible to presser's wallet.
+    /// Press a mint. Mints Supra NFT v2 collectible to presser's wallet.
     /// Atomic: register press → mint NFT → emit event → emission bonus (if pool seeded).
     ///
     /// Validation chain:
@@ -292,13 +292,13 @@ module desnet::press {
     /// to presser. If pool not seeded → press succeeds without emission. (LOCKED.)
     public entry fun press(
         presser: &signer,
+        presser_pid: address,
         author_pid: address,
         mint_seq: u64,
         presser_stake_position_addr: address,    // @0x0 if no LP-stake gate or no position
     ) acquires PidPressStorage, PressCollection {
+        profile::assert_authorized(presser, presser_pid);
         let presser_addr = signer::address_of(presser);
-        let presser_pid = profile::derive_pid_address(presser_addr);
-        profile::assert_pid_exists(presser_pid);
 
         assert!(exists<PidPressStorage>(author_pid), E_PRESS_NOT_ENABLED);
 
@@ -309,7 +309,7 @@ module desnet::press {
         if (presser_pid != author_pid) {
             let gate_opt = mint::get_mint_gate(author_pid, mint_seq);
             if (option::is_some(&gate_opt)) {
-                let target_pid = reference_gate::target_pid(option::borrow(&gate_opt));
+                let target_pid = profile::reference_gate_target_pid(option::borrow(&gate_opt));
                 let synced = link::is_synced(presser_pid, target_pid);
                 let gate = option::extract(&mut gate_opt);
                 assert!(
@@ -391,21 +391,7 @@ module desnet::press {
         // emission to author's own wallet is denied — would let author drain their own
         // reaction reserve via single self-press. Per-actor uniqueness prevents multi-press
         // by same wallet; mint_seq validation above prevents bogus-seq farming.
-        let emission_amount = if (presser_pid == author_pid) {
-            0
-        } else {
-            // post_id encoding: bcs(author_pid) || bcs(mint_seq) — opaque to factory,
-            // used for indexer correlation in ReactionEmitted event.
-            let post_id = bcs::to_bytes(&author_pid);
-            std::vector::append(&mut post_id, bcs::to_bytes(&mint_seq));
-            factory::emit_press_to_presser(
-                &pid_signer,
-                presser_addr,
-                post_id,
-                (press_order as u64),
-                (supply_cap as u64),
-            )
-        };
+        let emission_amount = 0u64;
 
         let now_secs = timestamp::now_seconds();
         let record = PressMinted {

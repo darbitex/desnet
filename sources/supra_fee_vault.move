@@ -1,29 +1,28 @@
-/// HandleFeeVault — handle reg fees: 10% deployer, 90% buy DESNET + burn.
+/// SupraFeeVault — handle reg fees: 10% deployer, 90% buy DESNET + burn.
 /// Destinations immutable. No admin.
-module desnet::handle_fee_vault {
-    use aptos_framework::event;
-    use aptos_framework::fungible_asset::{Self, Metadata};
-    use aptos_framework::object::{Self, ExtendRef};
-    use aptos_framework::primary_fungible_store;
+module desnet::supra_fee_vault {
+    use supra_framework::event;
+    use supra_framework::fungible_asset::{Self, Metadata};
+    use supra_framework::object::{Self, ExtendRef};
+    use std::vector;
+    use supra_framework::primary_fungible_store;
 
     use desnet::amm;
-    use desnet::apt_vault;
-    use desnet::factory;
+    use desnet::supra_vault;
     use desnet::governance;
 
     friend desnet::profile;
 
-    const SEED_VAULT: vector<u8> = b"handle_fee_vault";
+    const SEED_VAULT: vector<u8> = b"supra_fee_vault";
     const DESNET_HANDLE: vector<u8> = b"desnet";
-    const APT_FA_ADDR: address = @0xa;
 
     /// 10% to deployer beneficiary, 90% to DESNET buyback-burn.
     const SPLIT_DEPLOYER_BPS: u64 = 1000;
     const SPLIT_BURN_BPS: u64 = 9000;
     const BPS_DENOM: u64 = 10000;
 
-    /// Min APT balance for settle (anti-dust). 0.1 APT.
-    const APT_SETTLE_THRESHOLD: u64 = 10_000_000;
+    /// Min SUPRA balance for settle (anti-dust). 0.1 SUPRA.
+    const SUPRA_SETTLE_THRESHOLD: u64 = 10_000_000;
 
     const E_BELOW_THRESHOLD: u64 = 1;
     const E_VAULT_NOT_INITIALIZED: u64 = 2;
@@ -39,7 +38,7 @@ module desnet::handle_fee_vault {
     /// withdraw path, but kept as defensive guard).
     const E_VAULT_SHRUNK_BELOW_SNAPSHOT: u64 = 8;
 
-    /// v0.3.3 (G3): commit-reveal delay parameters mirror R3 H3 fix on apt_vault.
+    /// v0.3.3 (G3): commit-reveal delay parameters mirror R3 H3 fix on supra_vault.
     /// 60s delay defeats single-tx sandwich (atomic same-tx grief impossible);
     /// cross-tx pre-positioning bounded by 5% slippage tolerance baked at request.
     /// Grace window: 600s before request expires (prevents stale baseline exploit).
@@ -48,7 +47,7 @@ module desnet::handle_fee_vault {
     const SETTLE_SLIPPAGE_BPS: u64 = 9500;
     const BPS_FULL: u64 = 10000;
 
-    struct HandleFeeVault has key {
+    struct SupraFeeVault has key {
         deployer_beneficiary: address,
         extend_ref: ExtendRef,
     }
@@ -61,7 +60,7 @@ module desnet::handle_fee_vault {
     /// Excess balance accrued during window stays in vault for next settle cycle.
     struct PendingSettle has key, drop {
         requested_at_secs: u64,
-        apt_balance_at_request: u64,
+        supra_balance_at_request: u64,
         to_deployer_at_request: u64,
         to_burn_at_request: u64,
         min_desnet_out: u64,
@@ -69,7 +68,7 @@ module desnet::handle_fee_vault {
 
     #[event]
     struct Settled has drop, store {
-        total_apt: u64,
+        total_supra: u64,
         to_deployer: u64,
         desnet_burned: u64,
     }
@@ -83,7 +82,7 @@ module desnet::handle_fee_vault {
         let transfer_ref = object::generate_transfer_ref(&constructor);
         object::disable_ungated_transfer(&transfer_ref);
 
-        move_to(&vault_signer, HandleFeeVault {
+        move_to(&vault_signer, SupraFeeVault {
             deployer_beneficiary: @origin,
             extend_ref,
         });
@@ -98,33 +97,33 @@ module desnet::handle_fee_vault {
     /// v0.3.3 (G6): added #[view].
     #[view]
     public fun vault_exists(): bool {
-        exists<HandleFeeVault>(vault_addr())
+        exists<SupraFeeVault>(vault_addr())
     }
 
-    /// Friend-only: APT FA → vault primary store. Called by profile::register_handle.
-    public(friend) fun deposit_apt_fa(fa: fungible_asset::FungibleAsset) {
+    /// Friend-only: SUPRA FA → vault primary store. Called by profile::register_handle.
+    public(friend) fun deposit_supra_fa(fa: fungible_asset::FungibleAsset) {
         primary_fungible_store::deposit(vault_addr(), fa);
     }
 
-    /// Public top-up — anyone can deposit APT to vault.
-    public entry fun deposit_apt(depositor: &signer, amount: u64) {
-        let apt_meta = object::address_to_object<Metadata>(APT_FA_ADDR);
-        let fa = primary_fungible_store::withdraw(depositor, apt_meta, amount);
-        deposit_apt_fa(fa);
+    /// Public top-up — anyone can deposit SUPRA to vault.
+    public entry fun deposit_supra(depositor: &signer, amount: u64) {
+        let supra_meta = object::address_to_object<Metadata>(governance::native_fa_metadata());
+        let fa = primary_fungible_store::withdraw(depositor, supra_meta, amount);
+        deposit_supra_fa(fa);
     }
 
     /// v0.3.3 (G3, R5 CONV-1 MED-HIGH fix): old single-tx settle DEPRECATED for
     /// MEV-safety. The original `min_out=0` swap was atomically sandwich-attackable;
     /// any caller could front-run by skewing the AMM pool, trigger settle to swap
-    /// at unfavorable rate, then back-run to extract APT and leak protocol revenue.
+    /// at unfavorable rate, then back-run to extract SUPRA and leak protocol revenue.
     /// Replaced by two-phase commit-reveal: `request_settle()` (records reserves
     /// snapshot + 5% slippage min_out) → 60s delay → `execute_settle()` (enforces
     /// pre-recorded min_out). Single-tx sandwich now structurally impossible;
     /// cross-tx pre-positioning bounded by 5% baked tolerance.
-    /// Body kept (with abort) for compat preservation of `acquires HandleFeeVault`
+    /// Body kept (with abort) for compat preservation of `acquires SupraFeeVault`
     /// annotation parity. Callers MUST switch to two-phase flow.
-    public entry fun settle(_caller: &signer) acquires HandleFeeVault {
-        let _ = borrow_global<HandleFeeVault>(vault_addr());
+    public entry fun settle(_caller: &signer) acquires SupraFeeVault {
+        let _ = borrow_global<SupraFeeVault>(vault_addr());
         abort E_USE_TWO_PHASE
     }
 
@@ -133,14 +132,14 @@ module desnet::handle_fee_vault {
     /// `execute_settle` to consume this snapshot. If cross-tx attacker shifts pool
     /// >5% during the 60s window, execute_settle aborts (pool moved too far).
     /// Pending settle expires after grace (cleanable via `cancel_pending_settle`).
-    public entry fun request_settle(_caller: &signer) acquires HandleFeeVault {
+    public entry fun request_settle(_caller: &signer) acquires SupraFeeVault {
         let v_addr = vault_addr();
-        assert!(exists<HandleFeeVault>(v_addr), E_VAULT_NOT_INITIALIZED);
+        assert!(exists<SupraFeeVault>(v_addr), E_VAULT_NOT_INITIALIZED);
         assert!(!exists<PendingSettle>(v_addr), E_PENDING_SETTLE_ALREADY_EXISTS);
 
-        let apt_meta = object::address_to_object<Metadata>(APT_FA_ADDR);
-        let total = primary_fungible_store::balance(v_addr, apt_meta);
-        assert!(total >= APT_SETTLE_THRESHOLD, E_BELOW_THRESHOLD);
+        let supra_meta = object::address_to_object<Metadata>(governance::native_fa_metadata());
+        let total = primary_fungible_store::balance(v_addr, supra_meta);
+        assert!(total >= SUPRA_SETTLE_THRESHOLD, E_BELOW_THRESHOLD);
 
         let to_deployer = (total * SPLIT_DEPLOYER_BPS) / BPS_DENOM;
         let to_burn = total - to_deployer;
@@ -149,11 +148,11 @@ module desnet::handle_fee_vault {
         let quoted_out = amm::quote_swap_exact_in(DESNET_HANDLE, to_burn, true);
         let min_out = (quoted_out * SETTLE_SLIPPAGE_BPS) / BPS_FULL;
 
-        let vault = borrow_global<HandleFeeVault>(v_addr);
+        let vault = borrow_global<SupraFeeVault>(v_addr);
         let vault_signer = object::generate_signer_for_extending(&vault.extend_ref);
         move_to(&vault_signer, PendingSettle {
-            requested_at_secs: aptos_framework::timestamp::now_seconds(),
-            apt_balance_at_request: total,
+            requested_at_secs: supra_framework::timestamp::now_seconds(),
+            supra_balance_at_request: total,
             to_deployer_at_request: to_deployer,
             to_burn_at_request: to_burn,
             min_desnet_out: min_out,
@@ -164,12 +163,12 @@ module desnet::handle_fee_vault {
     /// at least SETTLE_DELAY_SECS ago, within grace window. Enforces baked min_out
     /// — if pool moved >5% adversely since request, swap aborts (caller must
     /// `cancel_pending_settle` and `request_settle` again at fresh reserves).
-    public entry fun execute_settle(_caller: &signer) acquires HandleFeeVault, PendingSettle {
+    public entry fun execute_settle(_caller: &signer) acquires SupraFeeVault, PendingSettle {
         let v_addr = vault_addr();
-        assert!(exists<HandleFeeVault>(v_addr), E_VAULT_NOT_INITIALIZED);
+        assert!(exists<SupraFeeVault>(v_addr), E_VAULT_NOT_INITIALIZED);
         assert!(exists<PendingSettle>(v_addr), E_PENDING_SETTLE_NOT_FOUND);
 
-        let now = aptos_framework::timestamp::now_seconds();
+        let now = supra_framework::timestamp::now_seconds();
         let pending_ref = borrow_global<PendingSettle>(v_addr);
         let requested_at = pending_ref.requested_at_secs;
         let min_out = pending_ref.min_desnet_out;
@@ -177,10 +176,10 @@ module desnet::handle_fee_vault {
         assert!(now <= requested_at + SETTLE_DELAY_SECS + SETTLE_REQUEST_GRACE_SECS, E_PENDING_SETTLE_EXPIRED);
 
         // S1 fix: extract LOCKED amounts from snapshot — do NOT recompute from current balance.
-        // Excess balance (current - apt_balance_at_request) stays in vault for next cycle.
+        // Excess balance (current - supra_balance_at_request) stays in vault for next cycle.
         let PendingSettle {
             requested_at_secs: _,
-            apt_balance_at_request,
+            supra_balance_at_request,
             to_deployer_at_request,
             to_burn_at_request,
             min_desnet_out,
@@ -189,29 +188,32 @@ module desnet::handle_fee_vault {
         // Sanity check: vault must still have ≥ snapshot amount (vault has no withdraw path
         // other than this fn, so balance can only grow via deposits — never shrink).
         // v0.3.3 (Qwen R6 M1): distinct error from anti-dust threshold for monitor clarity.
-        let apt_meta = object::address_to_object<Metadata>(APT_FA_ADDR);
-        let current_total = primary_fungible_store::balance(v_addr, apt_meta);
-        assert!(current_total >= apt_balance_at_request, E_VAULT_SHRUNK_BELOW_SNAPSHOT);
+        let supra_meta = object::address_to_object<Metadata>(governance::native_fa_metadata());
+        let current_total = primary_fungible_store::balance(v_addr, supra_meta);
+        assert!(current_total >= supra_balance_at_request, E_VAULT_SHRUNK_BELOW_SNAPSHOT);
 
-        let vault = borrow_global<HandleFeeVault>(v_addr);
+        let vault = borrow_global<SupraFeeVault>(v_addr);
         let vault_signer = object::generate_signer_for_extending(&vault.extend_ref);
 
-        let apt_for_deployer = primary_fungible_store::withdraw(&vault_signer, apt_meta, to_deployer_at_request);
-        primary_fungible_store::deposit(vault.deployer_beneficiary, apt_for_deployer);
+        let supra_for_deployer = primary_fungible_store::withdraw(&vault_signer, supra_meta, to_deployer_at_request);
+        primary_fungible_store::deposit(vault.deployer_beneficiary, supra_for_deployer);
 
-        // 90% APT swap with min_out enforcement — sandwich-safe per snapshot.
+        // 90% SUPRA swap with min_out enforcement — sandwich-safe per snapshot.
         // Swap amount AND min_out paired from same request snapshot — slippage check
         // properly bounds the actual swap size (S1 fix vs anchor-mismatch bug).
-        let apt_for_burn_fa = primary_fungible_store::withdraw(&vault_signer, apt_meta, to_burn_at_request);
-        let desnet_fa = amm::swap_exact_apt_in(DESNET_HANDLE, apt_for_burn_fa, min_desnet_out);
+        let supra_for_burn_fa = primary_fungible_store::withdraw(&vault_signer, supra_meta, to_burn_at_request);
+        let desnet_fa = amm::swap_exact_supra_in(DESNET_HANDLE, supra_for_burn_fa, min_desnet_out);
         let desnet_burned = fungible_asset::amount(&desnet_fa);
 
-        let desnet_apt_vault = factory::vault_addr_of_handle(DESNET_HANDLE);
-        apt_vault::burn_via_vault(desnet_apt_vault, desnet_fa);
+        let vault_seed = vector::empty<u8>();
+        vector::append(&mut vault_seed, b"vault::");
+        vector::append(&mut vault_seed, DESNET_HANDLE);
+        let desnet_supra_vault = object::create_object_address(&@desnet, vault_seed);
+        supra_vault::burn_via_vault(desnet_supra_vault, desnet_fa);
 
-        // Settled.total_apt reflects snapshot amount actually settled (not current vault balance).
+        // Settled.total_supra reflects snapshot amount actually settled (not current vault balance).
         event::emit(Settled {
-            total_apt: apt_balance_at_request,
+            total_supra: supra_balance_at_request,
             to_deployer: to_deployer_at_request,
             desnet_burned,
         });
@@ -248,26 +250,26 @@ module desnet::handle_fee_vault {
     /// Pre-v0.3.1, register_handle deposited fees to `state.fee_receiver` (= @desnet
     /// at init). This pulls those funds into the vault for proper 10/90 split.
     public entry fun migrate_legacy_fees(_caller: &signer) {
-        let apt_meta = object::address_to_object<Metadata>(APT_FA_ADDR);
-        let balance = primary_fungible_store::balance(@desnet, apt_meta);
+        let supra_meta = object::address_to_object<Metadata>(governance::native_fa_metadata());
+        let balance = primary_fungible_store::balance(@desnet, supra_meta);
         if (balance == 0) return;
         let pkg_signer = governance::derive_pkg_signer();
-        let fa = primary_fungible_store::withdraw(&pkg_signer, apt_meta, balance);
-        deposit_apt_fa(fa);
+        let fa = primary_fungible_store::withdraw(&pkg_signer, supra_meta, balance);
+        deposit_supra_fa(fa);
     }
 
     #[view]
-    public fun deployer_beneficiary(): address acquires HandleFeeVault {
+    public fun deployer_beneficiary(): address acquires SupraFeeVault {
         let v_addr = vault_addr();
-        assert!(exists<HandleFeeVault>(v_addr), E_VAULT_NOT_INITIALIZED);
-        borrow_global<HandleFeeVault>(v_addr).deployer_beneficiary
+        assert!(exists<SupraFeeVault>(v_addr), E_VAULT_NOT_INITIALIZED);
+        borrow_global<SupraFeeVault>(v_addr).deployer_beneficiary
     }
 
     #[view]
-    public fun apt_balance(): u64 {
+    public fun supra_balance(): u64 {
         let v_addr = vault_addr();
-        let apt_meta = object::address_to_object<Metadata>(APT_FA_ADDR);
-        primary_fungible_store::balance(v_addr, apt_meta)
+        let supra_meta = object::address_to_object<Metadata>(governance::native_fa_metadata());
+        primary_fungible_store::balance(v_addr, supra_meta)
     }
 
     #[view]
@@ -277,5 +279,5 @@ module desnet::handle_fee_vault {
     public fun split_burn_bps(): u64 { SPLIT_BURN_BPS }
 
     #[view]
-    public fun settle_threshold(): u64 { APT_SETTLE_THRESHOLD }
+    public fun settle_threshold(): u64 { SUPRA_SETTLE_THRESHOLD }
 }

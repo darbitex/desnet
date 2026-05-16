@@ -16,7 +16,7 @@ module desnet::history {
     use std::option::Option;
     use std::signer;
     use std::vector;
-    use aptos_framework::object;
+    use supra_framework::object;
 
     use desnet::profile;
 
@@ -361,13 +361,13 @@ module desnet::history {
     // ============ INTEGRATION TESTS (append + rotate) ============
 
     #[test_only]
-    use aptos_framework::timestamp;
+    use supra_framework::timestamp;
     #[test_only]
-    use aptos_framework::account;
+    use supra_framework::account;
     #[test_only]
     use std::option;
 
-    #[test(framework = @aptos_framework, creator = @0xa11ce)]
+    #[test(framework = @supra_framework, creator = @0xa11ce)]
     fun test_history_first_append_lazy_init(framework: &signer, creator: &signer)
         acquires HistoryLog, HistoryChunk
     {
@@ -386,7 +386,7 @@ module desnet::history {
         assert!(count_verb(pid_addr, VERB_SPARK) == 0, 5);
     }
 
-    #[test(framework = @aptos_framework, creator = @0xa11ce)]
+    #[test(framework = @supra_framework, creator = @0xa11ce)]
     fun test_history_verb_counters_independent(framework: &signer, creator: &signer)
         acquires HistoryLog, HistoryChunk
     {
@@ -410,7 +410,7 @@ module desnet::history {
         assert!(count_verb(pid_addr, VERB_REMIX) == 0, 6);
     }
 
-    #[test(framework = @aptos_framework, creator = @0xa11ce)]
+    #[test(framework = @supra_framework, creator = @0xa11ce)]
     fun test_history_chunk_rotates_at_threshold(framework: &signer, creator: &signer)
         acquires HistoryLog, HistoryChunk
     {

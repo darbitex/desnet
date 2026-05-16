@@ -11,7 +11,7 @@
 ///      calling this once DAO is trusted.
 ///   2. `propose_upgrade` → `cast_vote` → `ratify` → `execute_proposal` —
 ///      full DAO flow with voting, quorum, approval threshold, and 30d timelock.
-///      Calls `aptos_framework::code::publish_package_txn` directly with the
+///      Calls `supra_framework::code::publish_package_txn` directly with the
 ///      derived package signer (no cross-package dispatch needed in monolith).
 ///
 /// Voting power formula (LOCKED, anti-whale):
@@ -33,16 +33,16 @@ module desnet::governance {
     use std::option::{Self, Option};
     use std::signer;
     use std::vector;
-    use aptos_framework::account::{Self, SignerCapability};
-    use aptos_framework::code;
-    use aptos_framework::event;
+    use supra_framework::account::{Self, SignerCapability};
+    use supra_framework::code;
+    use supra_framework::event;
     // Bootstrap publisher lives at @origin (deployer multisig). It holds the
     // SignerCapability for @desnet (created at bootstrap deploy) until our
     // init_module takes ownership via `take_cap_for_desnet` here. This indirection
     // is required because the main DesNet package exceeds the 64KB single-tx
     // publish limit and must be deployed via chunked publish through bootstrap.
     use origin::publisher;
-    use aptos_framework::timestamp;
+    use supra_framework::timestamp;
     use aptos_std::smart_table::{Self, SmartTable};
 
     use desnet::voter_history;
@@ -51,7 +51,8 @@ module desnet::governance {
     friend desnet::profile;
     friend desnet::amm;
     friend desnet::lp_staking;
-    friend desnet::handle_fee_vault;
+    friend desnet::supra_fee_vault;
+    friend desnet::ipo;
 
     // ============ CONSTANTS ============
 
@@ -105,6 +106,8 @@ module desnet::governance {
         // DESNET FA addr for voting_power balance check.
         // @0x0 = NOT YET CONFIGURED (voting_power returns 0).
         desnet_fa_metadata: address,
+        // Native asset FA addr (e.g., SUPRA). Used for fees and AMM reserves.
+        native_fa_metadata: address,
         // 30d emission estimate (denominator for threshold/quorum).
         // 0 = NOT YET CONFIGURED (proposals can't be submitted).
         total_30d_emission: u64,
@@ -241,6 +244,7 @@ module desnet::governance {
             proposal_count: 0,
             proposals: smart_table::new(),
             desnet_fa_metadata: @0x0,
+            native_fa_metadata: @0xa, // Default to SUPRA native asset
             total_30d_emission: 0,
             multisig_upgrade_disabled: false,
         });
@@ -253,6 +257,13 @@ module desnet::governance {
             deployer: @origin,
             timestamp_secs: timestamp::now_seconds(),
         });
+    }
+
+    // ============ VIEW ============
+
+    #[view]
+    public fun native_fa_metadata(): address acquires GovernanceState {
+        borrow_global<GovernanceState>(@desnet).native_fa_metadata
     }
 
     // ============ PACKAGE SIGNER (friend-only) ============
@@ -966,17 +977,17 @@ module desnet::governance {
     #[view]
     public fun voting_power(voter_addr: address): u64 acquires GovernanceState {
         let _ = borrow_global<GovernanceState>(@desnet);
-        if (!aptos_framework::object::object_exists<aptos_framework::fungible_asset::Metadata>(DESNET_FA_ADDR))
+        if (!supra_framework::object::object_exists<supra_framework::fungible_asset::Metadata>(DESNET_FA_ADDR))
             return 0;
         let earned = if (voter_history::has_per_token_entry(voter_addr)) {
             voter_history::rewards_earned_30d_for_token(voter_addr, DESNET_FA_ADDR)
         } else {
             voter_history::rewards_earned_30d(voter_addr)
         };
-        let fa_meta = aptos_framework::object::address_to_object<aptos_framework::fungible_asset::Metadata>(
+        let fa_meta = supra_framework::object::address_to_object<supra_framework::fungible_asset::Metadata>(
             DESNET_FA_ADDR
         );
-        let balance = aptos_framework::primary_fungible_store::balance(voter_addr, fa_meta);
+        let balance = supra_framework::primary_fungible_store::balance(voter_addr, fa_meta);
         if (earned < balance) earned else balance
     }
 
@@ -1012,6 +1023,9 @@ module desnet::governance {
         abort E_NEUTERED
     }
 
+    #[view]
+    public fun desnet_fa_addr(): address { DESNET_FA_ADDR }
+
     /// v0.3.2 (F6b): NEUTERED. Auto-tracker (Emission30dRollingBucket) is sole source
     /// of truth via `effective_30d_emission()`. Manual setter eliminates manipulation
     /// surface where multisig could pin denominator to favorable value.
@@ -1022,6 +1036,16 @@ module desnet::governance {
     ) acquires GovernanceState {
         let _ = borrow_global<GovernanceState>(@desnet);
         abort E_NEUTERED
+    }
+
+    /// Update the native FA metadata address (e.g., if SUPRA address changes or for different networks).
+    public entry fun update_native_fa_metadata(
+        multisig: &signer,
+        new_addr: address,
+    ) acquires GovernanceState {
+        assert!(signer::address_of(multisig) == @origin, E_NOT_MULTISIG);
+        let state = borrow_global_mut<GovernanceState>(@desnet);
+        state.native_fa_metadata = new_addr;
     }
 
     #[view]
@@ -1072,7 +1096,7 @@ module desnet::governance {
     /// a SignerCapability at @desnet for derive_pkg_signer to work in tests.
     #[test_only]
     public fun init_for_test() {
-        use aptos_framework::account;
+        use supra_framework::account;
         if (!account::exists_at(@desnet)) {
             account::create_account_for_test(@desnet);
         };
@@ -1084,6 +1108,7 @@ module desnet::governance {
             proposal_count: 0,
             proposals: smart_table::new(),
             desnet_fa_metadata: @0x0,
+            native_fa_metadata: @0xa,
             total_30d_emission: 0,
             multisig_upgrade_disabled: false,
         });

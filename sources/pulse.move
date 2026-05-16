@@ -5,7 +5,7 @@
 /// Voice (reply) and Remix (quote) live in mint.move (they create new MintEvents).
 /// Press (NFT collectible) lives in press.move (different scope: NFT mint).
 ///
-/// State pattern: PulseEvent { reaction_kind, state: ADD/REMOVE }. Aptos events
+/// State pattern: PulseEvent { reaction_kind, state: ADD/REMOVE }. Supra events
 /// are append-only on emit — un-action emits state=REMOVE same kind. Asymmetric
 /// "abort" pattern rejected (events immutable).
 ///
@@ -15,7 +15,7 @@ module desnet::pulse {
     use std::bcs;
     use std::signer;
     use std::option;
-    use aptos_framework::timestamp;
+    use supra_framework::timestamp;
     use aptos_std::smart_table::{Self, SmartTable};
 
     use desnet::profile;
@@ -88,14 +88,16 @@ module desnet::pulse {
 
     public entry fun spark(
         actor: &signer,
+        actor_pid: address,
         target_author: address,
         target_seq: u64,
         actor_stake_position_addr: address,    // @0x0 if no LP-stake gate or no position
     ) acquires PidReactionRegistry {
+        profile::assert_authorized(actor, actor_pid);
         let actor_addr = signer::address_of(actor);
-        let actor_pid = profile::derive_pid_address(actor_addr);
-        profile::assert_pid_exists(actor_pid);
 
+        // ReferenceGate semantic stays wallet-keyed (balance + LP-stake), but PID-space
+        // primitives (self-exempt, sync, history) read actor_pid from the caller.
         check_mint_gate_or_self_exempt(actor_addr, actor_pid, target_author, target_seq, actor_stake_position_addr);
         ensure_reaction_registry(actor_pid);
 
@@ -105,10 +107,11 @@ module desnet::pulse {
 
     public entry fun unspark(
         actor: &signer,
+        actor_pid: address,
         target_author: address,
         target_seq: u64,
     ) acquires PidReactionRegistry {
-        let actor_pid = profile::derive_pid_address(signer::address_of(actor));
+        profile::assert_authorized(actor, actor_pid);
         let key = make_key(target_author, target_seq, REACTION_SPARK);
         toggle_reaction(actor_pid, &key, REACTION_SPARK, target_author, target_seq, false);
     }
@@ -117,13 +120,13 @@ module desnet::pulse {
 
     public entry fun echo(
         actor: &signer,
+        actor_pid: address,
         target_author: address,
         target_seq: u64,
         actor_stake_position_addr: address,    // @0x0 if no LP-stake gate or no position
     ) acquires PidReactionRegistry {
+        profile::assert_authorized(actor, actor_pid);
         let actor_addr = signer::address_of(actor);
-        let actor_pid = profile::derive_pid_address(actor_addr);
-        profile::assert_pid_exists(actor_pid);
 
         check_mint_gate_or_self_exempt(actor_addr, actor_pid, target_author, target_seq, actor_stake_position_addr);
         ensure_reaction_registry(actor_pid);
@@ -134,10 +137,11 @@ module desnet::pulse {
 
     public entry fun unecho(
         actor: &signer,
+        actor_pid: address,
         target_author: address,
         target_seq: u64,
     ) acquires PidReactionRegistry {
-        let actor_pid = profile::derive_pid_address(signer::address_of(actor));
+        profile::assert_authorized(actor, actor_pid);
         let key = make_key(target_author, target_seq, REACTION_ECHO);
         toggle_reaction(actor_pid, &key, REACTION_ECHO, target_author, target_seq, false);
     }
@@ -162,7 +166,7 @@ module desnet::pulse {
         if (option::is_none(&gate_opt)) return;  // no gate, open access
 
         // Pre-compute sync state via link (cycle-safe: pulse uses link, link doesn't use pulse).
-        let target_pid = reference_gate::target_pid(option::borrow(&gate_opt));
+        let target_pid = profile::reference_gate_target_pid(option::borrow(&gate_opt));
         let synced = link::is_synced(actor_pid, target_pid);
 
         let gate = option::extract(&mut gate_opt);

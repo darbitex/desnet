@@ -25,7 +25,7 @@ module desnet::factory {
 
     use supra_framework::fungible_asset::MutateMetadataRef;
 
-    friend desnet::profile;
+    friend desnet::registration;
 
     // ============ CONSTANTS ============
 
@@ -160,7 +160,6 @@ module desnet::factory {
     public(friend) fun create_token_atomic(
         handle: vector<u8>,
         pid_addr: address,
-        pid_signer: &signer,
         name: String,
         symbol: String,
         icon_uri: String,

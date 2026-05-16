@@ -33,8 +33,6 @@ module desnet::profile {
     use supra_framework::timestamp;
     use aptos_std::smart_table::{Self, SmartTable};
 
-    use desnet::reference_gate::{Self, ReferenceGate};
-    use desnet::factory;
     use desnet::governance;
     use desnet::supra_fee_vault;
 
@@ -44,6 +42,7 @@ module desnet::profile {
     friend desnet::press;
     friend desnet::giveaway;
     friend desnet::history;
+
 
     // ============ CONSTANTS ============
 
@@ -64,6 +63,7 @@ module desnet::profile {
     const BIO_MAX_BYTES: u64 = 333;           // ≤333B inline (LOCKED)
 
     const SEED_PID: vector<u8> = b"pid::";
+    const SEED_SUBPID: vector<u8> = b"subpid::";
 
     // ============ ERROR CODES ============
 
@@ -90,6 +90,28 @@ module desnet::profile {
 
     // ============ TYPES ============
 
+    /// Single 4-field primitive struct for engagement policy. Stored as Option<ReferenceGate>.
+    struct ReferenceGate has copy, drop, store {
+        target_pid: address,
+        min_token_balance: u64,
+        max_token_balance: u64,
+        min_lp_stake: u64,
+    }
+
+    public fun reference_gate_new(
+        target_pid: address,
+        min_token_balance: u64,
+        max_token_balance: u64,
+        min_lp_stake: u64,
+    ): ReferenceGate {
+        ReferenceGate { target_pid, min_token_balance, max_token_balance, min_lp_stake }
+    }
+
+    public fun reference_gate_target_pid(gate: &ReferenceGate): address { gate.target_pid }
+    public fun reference_gate_min_token_balance(gate: &ReferenceGate): u64 { gate.min_token_balance }
+    public fun reference_gate_max_token_balance(gate: &ReferenceGate): u64 { gate.max_token_balance }
+    public fun reference_gate_min_lp_stake(gate: &ReferenceGate): u64 { gate.min_lp_stake }
+
     /// PID Profile resource at PID Object addr.
     struct Profile has key {
         handle: String,                            // bare lowercase, immutable post-reg
@@ -102,6 +124,7 @@ module desnet::profile {
         sync_gate: Option<ReferenceGate>,          // opt-in node-membership policy
         extend_ref: ExtendRef,                     // for ExtendRef-derived signer (Opsi 1)
         registered_at_secs: u64,
+        pre_ipo_cohort: bool,                      // true = pre-IPO / IPO-phase, false = post-IPO
     }
 
     /// Per-app signer registry entry. Controller-managed.
@@ -271,6 +294,16 @@ module desnet::profile {
         object::create_object_address(&@desnet, seed)
     }
 
+    /// Derives a deterministic PID address for a subdomain relative to a domain handle.
+    #[view]
+    public fun derive_subdomain_pid_address(handle: String, subdomain: String): address {
+        let seed = vector::empty<u8>();
+        vector::append(&mut seed, SEED_SUBPID);
+        vector::append(&mut seed, bcs::to_bytes(&handle));
+        vector::append(&mut seed, bcs::to_bytes(&subdomain));
+        object::create_object_address(&@desnet, seed)
+    }
+
     // ============ HANDLE VALIDATION ============
 
     fun validate_handle(handle: &vector<u8>) {
@@ -328,13 +361,6 @@ module desnet::profile {
         controller_addr: address,
         avatar_b64: vector<u8>,
         bio: vector<u8>,
-        token_name: vector<u8>,
-        token_symbol: vector<u8>,
-        token_icon_uri: vector<u8>,
-        token_project_uri: vector<u8>,
-        ipo_target_tvl: u64,
-        ipo_entry_price_x: u64,
-        ipo_entry_price_y: u64,
     ) acquires HandleRegistry, ProtocolState {
         // 1. Validate
         validate_handle(&handle);
@@ -364,9 +390,7 @@ module desnet::profile {
         );
         assert!(!exists<Profile>(pid_addr), E_PID_ALREADY_EXISTS);
 
-        // 3. Fee in SUPRA — v0.3.2 F9: route directly to supra_fee_vault
-        //    (10% deployer beneficiary / 90% DESNET buyback-burn).
-        //    No more pool_seed (5 SUPRA) — IPO handles all SUPRA collection.
+        // 3. Fee in SUPRA — route directly to supra_fee_vault
         let _state = borrow_global<ProtocolState>(@desnet);
         let fee_raw = handle_fee_supra(vector::length(&handle));
         let supra_metadata = object::address_to_object<Metadata>(SUPRA_FA_METADATA);
@@ -392,43 +416,26 @@ module desnet::profile {
             controller: controller_addr,
             signers_: smart_table::new(),
             metadata_uri: string::utf8(b""),
-            avatar_blob_id: avatar_b64,            // inline base64 stored as bytes
+            avatar_blob_id: avatar_b64,
             banner_blob_id: vector::empty(),
             bio: string::utf8(bio),
             sync_gate: option::none(),
             extend_ref,
             registered_at_secs: now_secs,
+            pre_ipo_cohort: false,
         });
 
         // 7. TransferVault — transfer_ref isolated (controller cannot transfer NFT)
         move_to(&pid_signer, TransferVault { transfer_ref });
 
         // 7.5 Transfer Object ownership to wallet (NFT-style).
-        // After create_named_object, initial owner = protocol_signer (creator).
-        // Transfer to wallet so wallet becomes the PID NFT holder. ungated_transfer
-        // remains enabled → marketplace-listable (Wapal/BlueMove/Tradeport).
         let pid_object = object::address_to_object<Profile>(pid_addr);
         object::transfer(&protocol_signer, pid_object, wallet_addr);
 
         // 8. Register handle → wallet mapping
         smart_table::add(&mut registry.handle_to_wallet, string::utf8(handle), wallet_addr);
 
-        // 9. Atomic token + vault + IPO (factory).
-        //    factory::create_token_atomic is friend-only (only desnet::profile may call).
-        factory::create_token_atomic(
-            handle,
-            pid_addr,
-            &pid_signer,
-            string::utf8(token_name),
-            string::utf8(token_symbol),
-            string::utf8(token_icon_uri),
-            string::utf8(token_project_uri),
-            ipo_target_tvl,
-            ipo_entry_price_x,
-            ipo_entry_price_y,
-        );
-
-        // 10. Emit
+        // 9. Emit
         event::emit(HandleRegistered {
             handle: string::utf8(handle),
             wallet: wallet_addr,
@@ -461,6 +468,65 @@ module desnet::profile {
         vector::append(&mut seed, SEED_PID);
         vector::append(&mut seed, bcs::to_bytes(&wallet));
         seed
+    }
+
+    /// Creates a PID NFT for a subdomain registrant (called by `desnet::ipo`).
+    ///
+    /// Deterministic addr via `derive_subdomain_pid_address(handle, subdomain)`.
+    /// Profile.handle = subdomain (bare name), controller = depositor.
+    /// Ownership transferred to depositor wallet.
+    ///
+    /// Caller must provide the protocol_signer (obtained via governance::derive_pkg_signer).
+    /// Internally creates the named object, stores Profile + TransferVault, transfers NFT,
+    /// and emits HandleRegistered. No caller-side seed or ref management needed.
+    public fun create_subdomain_profile(
+        protocol_signer: &signer,
+        handle: String,
+        subdomain: String,
+        controller: address,
+        pre_ipo_cohort: bool,
+    ) {
+        let pid_addr = derive_subdomain_pid_address(handle, subdomain);
+        assert!(!exists<Profile>(pid_addr), E_PID_ALREADY_EXISTS);
+        let _state = borrow_global<ProtocolState>(@desnet);
+
+        let seed = vector::empty<u8>();
+        vector::append(&mut seed, SEED_SUBPID);
+        vector::append(&mut seed, bcs::to_bytes(&handle));
+        vector::append(&mut seed, bcs::to_bytes(&subdomain));
+        let constructor_ref = object::create_named_object(protocol_signer, seed);
+
+        let pid_signer = object::generate_signer(&constructor_ref);
+        let extend_ref = object::generate_extend_ref(&constructor_ref);
+        let transfer_ref = object::generate_transfer_ref(&constructor_ref);
+
+        let now_secs = timestamp::now_seconds();
+        move_to(&pid_signer, Profile {
+            handle: subdomain,
+            controller,
+            signers_: smart_table::new(),
+            metadata_uri: string::utf8(b""),
+            avatar_blob_id: vector::empty(),
+            banner_blob_id: vector::empty(),
+            bio: string::utf8(b""),
+            sync_gate: option::none(),
+            extend_ref,
+            registered_at_secs: now_secs,
+            pre_ipo_cohort,
+        });
+
+        move_to(&pid_signer, TransferVault { transfer_ref });
+
+        let pid_object = object::address_to_object<Profile>(pid_addr);
+        object::transfer(protocol_signer, pid_object, controller);
+
+        event::emit(HandleRegistered {
+            handle,
+            wallet: controller,
+            pid_addr,
+            fee_paid_supra: 0,
+            timestamp_secs: now_secs,
+        });
     }
 
     // ============ CONTROLLER + SIGNER MANAGEMENT ============
@@ -579,7 +645,7 @@ module desnet::profile {
         // Immutability: cannot overwrite an existing gate. To replace, controller must
         // first call clear_sync_gate (2-step replacement = friction = anti-rugpull).
         assert!(option::is_none(&profile.sync_gate), E_SYNC_GATE_ALREADY_SET);
-        let gate = reference_gate::new(target_pid, min_token_balance, max_token_balance, min_lp_stake);
+        let gate = reference_gate_new(target_pid, min_token_balance, max_token_balance, min_lp_stake);
         profile.sync_gate = option::some(gate);
 
         event::emit(SyncGateAttached {
@@ -681,6 +747,20 @@ module desnet::profile {
         assert!(exists<Profile>(pid_addr), E_PROFILE_NOT_FOUND);
     }
 
+    /// Verb-auth gate. Caller is allowed to act AS this PID if they are either the
+    /// current NFT owner or the configured controller. Used by every verb entry
+    /// (mint/pulse/link/press/opinion/giveaway) so that subdomain-PID holders and
+    /// main-handle holders are treated identically — the verb modules never derive
+    /// pid_addr from the caller's wallet, the caller passes it in.
+    public(friend) fun assert_authorized(caller: &signer, pid_addr: address) acquires Profile {
+        assert!(exists<Profile>(pid_addr), E_PROFILE_NOT_FOUND);
+        let caller_addr = signer::address_of(caller);
+        let profile = borrow_global<Profile>(pid_addr);
+        if (profile.controller == caller_addr) return;
+        let pid_object = object::address_to_object<Profile>(pid_addr);
+        assert!(object::owner(pid_object) == caller_addr, E_NOT_CONTROLLER_OR_OWNER);
+    }
+
     /// Internal — friend access for sync_gate evaluation in link.move.
     public(friend) fun get_sync_gate(pid_addr: address): Option<ReferenceGate> acquires Profile {
         if (!exists<Profile>(pid_addr)) return option::none();
@@ -772,6 +852,7 @@ module desnet::profile {
             sync_gate: option::none(),
             extend_ref,
             registered_at_secs: 0,
+            pre_ipo_cohort: false,
         });
         pid_addr
     }

@@ -1,35 +1,35 @@
-/// Vault — receives APT revenue, splits 50% buyback-burn / 50% to PID owner.
+/// Vault — receives SUPRA revenue, splits 50% buyback-burn / 50% to PID owner.
 ///
 /// One Vault per spawned token. Sealed at mint. Holds BurnRef (no extraction).
 /// AMM pool is always seeded atomically at register_handle, so settle is always 50/50.
 ///
 /// Inputs:
 ///   - NFT marketplace royalty (Press collection royalty_payee = vault addr)
-///   - Direct deposit_apt (manual top-up)
+///   - Direct deposit_supra (manual top-up)
 ///   - Future revenue streams
 ///
 /// Outputs:
-///   - 50% APT to current PID owner = object::owner(pid_object) [auto-follows NFT transfer]
-///   - 50% APT → $TOKEN via in-house desnet::amm 10 bps swap, then BURN via BurnRef
-module desnet::apt_vault {
+///   - 50% SUPRA to current PID owner = object::owner(pid_object) [auto-follows NFT transfer]
+///   - 50% SUPRA → $TOKEN via in-house desnet::amm 10 bps swap, then BURN via BurnRef
+module desnet::supra_vault {
     use std::signer;
     use std::vector;
-    use aptos_framework::aptos_coin::AptosCoin;
-    use aptos_framework::coin::{Self, Coin};
-    use aptos_framework::event;
-    use aptos_framework::fungible_asset::{Self, BurnRef};
-    use aptos_framework::object::{Self, ExtendRef};
-    use aptos_framework::timestamp;
+    use supra_framework::supra_coin::SupraCoin;
+    use supra_framework::coin::{Self, Coin};
+    use supra_framework::event;
+    use supra_framework::fungible_asset::{Self, BurnRef};
+    use supra_framework::object::{Self, ExtendRef};
+    use supra_framework::timestamp;
 
     use desnet::amm;
 
     friend desnet::factory;
-    friend desnet::handle_fee_vault;
+    friend desnet::supra_fee_vault;
 
     // ============ CONSTANTS ============
 
-    /// Min APT balance for settle to execute (anti-dust). 0.1 APT (8 decimals).
-    const APT_SETTLE_THRESHOLD: u64 = 10_000_000;
+    /// Min SUPRA balance for settle to execute (anti-dust). 0.1 SUPRA (8 decimals).
+    const SUPRA_SETTLE_THRESHOLD: u64 = 10_000_000;
 
     const SPEC_VERSION: u32 = 4;
 
@@ -38,17 +38,13 @@ module desnet::apt_vault {
     /// H3 fix (audit R3): two-phase commit-reveal settle.
     /// `request_settle` records timestamp; `execute_settle` requires ≥ delay elapsed.
     /// Same-tx sandwich is impossible because manipulator must hold position across
-    /// blocks under arbitrage exposure (~200 blocks at Aptos ~0.3s block time).
+    /// blocks under arbitrage exposure (~200 blocks at Supra ~0.3s block time).
     const SETTLE_DELAY_SECS: u64 = 60;
 
     /// Re-request grace: after delay + grace, anyone can override a stale pending
     /// request. Bounds DoS vector where a spammer keeps refreshing the timer.
     const SETTLE_REQUEST_GRACE_SECS: u64 = 3600;
 
-    /// H3 fix R3 (defense-in-depth): cap buyback amount per settle at 1% of pool APT
-    /// reserve. Bounds price impact → bounds attacker's pre-position profit envelope.
-    /// Excess APT redirects to PID owner (owner_amount = total_apt - capped_buyback).
-    const MAX_BUYBACK_BPS_OF_RESERVE: u64 = 100;
     const BPS_DENOM: u64 = 10000;
 
     // ============ ERROR CODES ============
@@ -66,7 +62,7 @@ module desnet::apt_vault {
 
     /// Per-token Vault state.
     struct Vault has key {
-        apt_balance: Coin<AptosCoin>,
+        supra_balance: Coin<SupraCoin>,
         burn_ref: BurnRef,
         token_metadata_addr: address,
         handle: vector<u8>,                          // for amm swap calls
@@ -82,16 +78,16 @@ module desnet::apt_vault {
     // ============ EVENTS ============
 
     #[event]
-    struct AptDeposited has drop, store {
+    struct SupraDeposited has drop, store {
         vault_addr: address,
         depositor: address,
         amount: u64,
     }
 
     #[event]
-    struct AptSettled has drop, store {
+    struct SupraSettled has drop, store {
         vault_addr: address,
-        total_apt: u64,
+        total_supra: u64,
         to_buyback: u64,
         to_owner: u64,
         owner_addr: address,
@@ -125,7 +121,7 @@ module desnet::apt_vault {
         object::disable_ungated_transfer(&transfer_ref);
 
         move_to(&vault_signer, Vault {
-            apt_balance: coin::zero<AptosCoin>(),
+            supra_balance: coin::zero<SupraCoin>(),
             burn_ref,
             token_metadata_addr,
             handle: token_handle,
@@ -148,16 +144,16 @@ module desnet::apt_vault {
 
     // ============ DEPOSIT — permissionless ============
 
-    public entry fun deposit_apt(
+    public entry fun deposit_supra(
         depositor: &signer,
         vault_addr: address,
         amount: u64,
     ) acquires Vault {
         let vault = borrow_global_mut<Vault>(vault_addr);
-        let apt_in = coin::withdraw<AptosCoin>(depositor, amount);
-        coin::merge(&mut vault.apt_balance, apt_in);
+        let supra_in = coin::withdraw<SupraCoin>(depositor, amount);
+        coin::merge(&mut vault.supra_balance, supra_in);
 
-        event::emit(AptDeposited {
+        event::emit(SupraDeposited {
             vault_addr,
             depositor: signer::address_of(depositor),
             amount,
@@ -176,8 +172,8 @@ module desnet::apt_vault {
     ) acquires Vault {
         let vault = borrow_global_mut<Vault>(vault_addr);
 
-        let total_apt = coin::value(&vault.apt_balance);
-        assert!(total_apt >= APT_SETTLE_THRESHOLD, E_BELOW_THRESHOLD);
+        let total_supra = coin::value(&vault.supra_balance);
+        assert!(total_supra >= SUPRA_SETTLE_THRESHOLD, E_BELOW_THRESHOLD);
 
         let now = timestamp::now_seconds();
         assert!(
@@ -197,8 +193,7 @@ module desnet::apt_vault {
 
     /// Phase 2: execute the buyback-burn + owner payout. Permissionless.
     /// Requires a pending request older than `SETTLE_DELAY_SECS`.
-    /// Buyback amount is capped at `MAX_BUYBACK_BPS_OF_RESERVE` (1%) of pool APT
-    /// reserve as defense-in-depth against pre-positioning over the delay window.
+    /// Settle follows strict 50% burn / 50% owner split. Rounding sisa (1 unit) goes to owner.
     /// M5: cached amm_pool_addr matches current handle-derived addr.
     public entry fun execute_settle(
         _caller: &signer,
@@ -220,45 +215,39 @@ module desnet::apt_vault {
             E_POOL_ADDR_DRIFT
         );
 
-        let total_apt = coin::value(&vault.apt_balance);
-        assert!(total_apt >= APT_SETTLE_THRESHOLD, E_BELOW_THRESHOLD);
+        let total_supra = coin::value(&vault.supra_balance);
+        assert!(total_supra >= SUPRA_SETTLE_THRESHOLD, E_BELOW_THRESHOLD);
 
         let pid_object = object::address_to_object<object::ObjectCore>(vault.pid_object_addr);
         let owner_addr = object::owner(pid_object);
 
-        // H3 R3 defense-in-depth: cap buyback at 1% of pool APT reserve.
-        // Excess APT redirects to PID owner. Bounds attacker pre-position profit
-        // envelope (manipulation cost grows ~Δ², extractable profit grows ~Δ).
-        let raw_buyback = total_apt / 2;
-        let (apt_reserve, _token_reserve) = amm::reserves(vault.handle);
-        let reserve_cap = (apt_reserve * MAX_BUYBACK_BPS_OF_RESERVE) / BPS_DENOM;
-        let buyback_amount = if (raw_buyback > reserve_cap) reserve_cap else raw_buyback;
-        let owner_amount = total_apt - buyback_amount;
+        // Explicit 50/50 split. Buyback gets half (rounded down);
+        // owner gets the remainder (guarantees buyback + owner == total).
+        let buyback_amount = total_supra / 2;
+        let owner_amount = total_supra - buyback_amount;
 
-        let apt_for_buyback = coin::extract(&mut vault.apt_balance, buyback_amount);
-        let apt_for_owner = coin::extract(&mut vault.apt_balance, owner_amount);
+        let supra_for_buyback = coin::extract(&mut vault.supra_balance, buyback_amount);
+        let supra_for_owner = coin::extract(&mut vault.supra_balance, owner_amount);
 
-        // Buyback path: APT → $TOKEN via in-house AMM 10 bps, then BURN.
-        // No min_out slippage check — same-tx sandwich is impossible (two-phase delay)
-        // and pre-position attack profitability is bounded by the buyback cap.
-        let apt_fa_buyback = coin::coin_to_fungible_asset(apt_for_buyback);
-        let token_received = amm::swap_exact_apt_in(
+        // Buyback path: SUPRA → $TOKEN via in-house AMM 10 bps, then BURN.
+        let supra_fa_buyback = coin::coin_to_fungible_asset(supra_for_buyback);
+        let token_received = amm::swap_exact_supra_in(
             vault.handle,
-            apt_fa_buyback,
+            supra_fa_buyback,
             0,
         );
         let burned_amount = fungible_asset::amount(&token_received);
         fungible_asset::burn(&vault.burn_ref, token_received);
 
-        // Owner path: APT direct to current PID owner.
-        coin::deposit(owner_addr, apt_for_owner);
+        // Owner path: SUPRA direct to current PID owner.
+        coin::deposit(owner_addr, supra_for_owner);
 
         // Consume the pending request.
         vault.pending_settle_at_secs = 0;
 
-        event::emit(AptSettled {
+        event::emit(SupraSettled {
             vault_addr,
-            total_apt,
+            total_supra,
             to_buyback: buyback_amount,
             to_owner: owner_amount,
             owner_addr,
@@ -269,8 +258,8 @@ module desnet::apt_vault {
     // ============ VIEW ============
 
     #[view]
-    public fun apt_balance(vault_addr: address): u64 acquires Vault {
-        coin::value(&borrow_global<Vault>(vault_addr).apt_balance)
+    public fun supra_balance(vault_addr: address): u64 acquires Vault {
+        coin::value(&borrow_global<Vault>(vault_addr).supra_balance)
     }
 
     #[view]
@@ -306,13 +295,13 @@ module desnet::apt_vault {
         if (pending == 0) 0 else pending + SETTLE_DELAY_SECS
     }
 
-    // ============ DELEGATE BURN — friend (handle_fee_vault, v0.3.2 F9) ============
+    // ============ DELEGATE BURN — friend (supra_fee_vault, v0.3.2 F9) ============
 
-    /// handle_fee_vault swaps APT → DESNET via amm, then asks the DESNET per-token
+    /// supra_fee_vault swaps SUPRA → DESNET via amm, then asks the DESNET per-token
     /// vault to burn the FA via its held BurnRef. Direction-locked: caller hands a FA
     /// whose metadata MUST match `vault.token_metadata_addr` (the fungible_asset::burn
     /// check enforces this — wrong-token FA aborts).
-    /// No state mutation, no event (handle_fee_vault::Settled covers it).
+    /// No state mutation, no event (supra_fee_vault::Settled covers it).
     public(friend) fun burn_via_vault(
         vault_addr: address,
         fa: fungible_asset::FungibleAsset,
@@ -336,11 +325,11 @@ module desnet::apt_vault {
     }
 
     #[test_only]
-    public fun deposit_apt_coin_for_test(
+    public fun deposit_supra_coin_for_test(
         vault_addr: address,
-        apt_coin: Coin<AptosCoin>,
+        supra_coin: Coin<SupraCoin>,
     ) acquires Vault {
         let vault = borrow_global_mut<Vault>(vault_addr);
-        coin::merge(&mut vault.apt_balance, apt_coin);
+        coin::merge(&mut vault.supra_balance, supra_coin);
     }
 }
