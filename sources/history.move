@@ -349,7 +349,8 @@ module desnet::history {
     #[test]
     #[expected_failure(abort_code = E_INVALID_VERB, location = Self)]
     fun test_new_entry_invalid_verb() {
-        let _e = new_entry(7, 0, std::option::none<address>(), vector::empty(), std::option::none<address>());
+        // VERB_OPINION = 7 (added post-opinion-port). 8 is the next invalid value.
+        let _e = new_entry(8, 0, std::option::none<address>(), vector::empty(), std::option::none<address>());
     }
 
     #[test]

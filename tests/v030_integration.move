@@ -82,7 +82,7 @@ module desnet::v030_integration {
 
         let supra_fa = mint_supra_fa(&mint, supra_seed);
         let token_fa = fungible_asset::mint(&token_mint_ref, token_seed);
-        let _ = amm::create_pool_atomic_for_test(b"swapcoin", supra_fa, token_fa, @0xa11ce, false);
+        let _ = amm::create_pool_atomic_for_test(b"swapcoin", supra_fa, token_fa, @0xa11ce, true);
 
         let swap_in = 100_000_000u64;
         let bob_supra = mint_supra_fa(&mint, swap_in);
@@ -90,13 +90,14 @@ module desnet::v030_integration {
         let token_received = fungible_asset::amount(&token_out);
         primary_fungible_store::deposit(signer::address_of(bob), token_out);
 
+        // AMM swap fee = FEE_BPS (100 bps = 1%), so fee = swap_in / 100.
         let (supra_r, token_r) = amm::reserves(b"swapcoin");
-        let expected_supra_r = supra_seed + (swap_in - swap_in / 1000);
+        let expected_supra_r = supra_seed + (swap_in - swap_in / 100);
         assert!(supra_r == expected_supra_r, 1);
         assert!(token_r == token_seed - token_received, 2);
 
         let (supra_fees, token_fees) = amm::fee_buckets(b"swapcoin");
-        assert!(supra_fees == swap_in / 1000, 3);
+        assert!(supra_fees == swap_in / 100, 3);
         assert!(token_fees == 0, 4);
 
         cleanup(burn, mint);
@@ -176,7 +177,7 @@ module desnet::v030_integration {
 
         let supra_fa = mint_supra_fa(&mint, 1_000_000_000);
         let token_fa = fungible_asset::mint(&token_mint_ref, 10_000_000_000_000_000);
-        let _ = amm::create_pool_atomic_for_test(b"quotecoin", supra_fa, token_fa, @0xa11ce, false);
+        let _ = amm::create_pool_atomic_for_test(b"quotecoin", supra_fa, token_fa, @0xa11ce, true);
 
         let swap_in = 100_000_000u64;
         let quoted = amm::quote_swap_exact_in(b"quotecoin", swap_in, true);
@@ -223,7 +224,7 @@ module desnet::v030_integration {
 
         let supra_fa = mint_supra_fa(&mint, 1_000_000_000);
         let token_fa = fungible_asset::mint(&token_mint_ref, 10_000_000_000_000_000);
-        let _ = amm::create_pool_atomic_for_test(b"slipcoin", supra_fa, token_fa, @0xa11ce, false);
+        let _ = amm::create_pool_atomic_for_test(b"slipcoin", supra_fa, token_fa, @0xa11ce, true);
 
         let bob_supra = mint_supra_fa(&mint, 100_000_000);
         let out = amm::swap_exact_supra_in(b"slipcoin", bob_supra, 18_000_000_000_000_000u64);
@@ -245,7 +246,7 @@ module desnet::v030_integration {
 
         let supra_fa = mint_supra_fa(&mint, 1_000_000_000);
         let token_fa = fungible_asset::mint(&token_mint_ref, 10_000_000_000_000_000);
-        let _ = amm::create_pool_atomic_for_test(b"acccoin", supra_fa, token_fa, @0xa11ce, false);
+        let _ = amm::create_pool_atomic_for_test(b"acccoin", supra_fa, token_fa, @0xa11ce, true);
 
         let bob_supra = mint_supra_fa(&mint, 100_000_000);
         let out = amm::swap_exact_supra_in(b"acccoin", bob_supra, 0);
@@ -307,7 +308,7 @@ module desnet::v030_integration {
         let token_seed = 10_000_000_000_000_000u64;
         let supra_fa = mint_supra_fa(&mint, supra_seed);
         let token_fa = fungible_asset::mint(&token_mint_ref, token_seed);
-        let _ = amm::create_pool_atomic_for_test(b"flashcoin", supra_fa, token_fa, @0xa11ce, false);
+        let _ = amm::create_pool_atomic_for_test(b"flashcoin", supra_fa, token_fa, @0xa11ce, true);
 
         let pool_addr = amm::pool_address_of_handle(b"flashcoin");
         let supra_meta = object::address_to_object<Metadata>(@0xa);
@@ -320,9 +321,9 @@ module desnet::v030_integration {
         // Pool locked during borrow
         assert!(amm::pool_locked(pool_addr), 2);
 
-        // Compute fee (10 bps)
+        // Compute fee. FLASH_FEE_BPS = 100 bps (1%).
         let fee = amm::compute_flash_fee(borrow_amount);
-        assert!(fee == 100_000, 3);  // 10 bps of 100M = 100k
+        assert!(fee == 1_000_000, 3);  // 1% of 100M raw = 1M raw
 
         // Bob mints fee top-up + repays
         let topup = mint_supra_fa(&mint, fee);
@@ -381,7 +382,7 @@ module desnet::v030_integration {
 
         let supra_fa = mint_supra_fa(&mint, 1_000_000_000);
         let token_fa = fungible_asset::mint(&token_mint_ref, 10_000_000_000_000_000);
-        let _ = amm::create_pool_atomic_for_test(b"genericcoin", supra_fa, token_fa, @0xa11ce, false);
+        let _ = amm::create_pool_atomic_for_test(b"genericcoin", supra_fa, token_fa, @0xa11ce, true);
 
         let pool_addr = amm::pool_address_of_handle(b"genericcoin");
 
@@ -520,6 +521,11 @@ module desnet::v030_integration {
     fun test_settle_two_phase_executes_after_delay(framework: &signer, alice: &signer) {
         let (burn, mint) = setup_framework(framework);
         account::create_account_for_test(signer::address_of(alice));
+        // supra_vault::execute_settle deposits SUPRA back to the owner via the
+        // legacy coin v1 API (coin::deposit), which requires the destination
+        // to have a CoinStore<SupraCoin>. account_for_test creates only the
+        // account header. Register CoinStore explicitly for the test.
+        coin::register<SupraCoin>(alice);
 
         let constructor = object::create_named_object(alice, b"vaultcoin");
         primary_fungible_store::create_primary_store_enabled_fungible_asset(
@@ -539,7 +545,7 @@ module desnet::v030_integration {
         // Seed pool: 100 SUPRA (1e10) / 100M tokens (1e16).
         let supra_fa = mint_supra_fa(&mint, 10_000_000_000);
         let token_fa = fungible_asset::mint(&token_mint_ref, 10_000_000_000_000_000);
-        let _ = amm::create_pool_atomic_for_test(b"vaultcoin", supra_fa, token_fa, @0xa11ce, false);
+        let _ = amm::create_pool_atomic_for_test(b"vaultcoin", supra_fa, token_fa, @0xa11ce, true);
         let pool_addr = amm::pool_address_of_handle(b"vaultcoin");
 
         let pid_ctor = object::create_named_object(alice, b"fake_pid");
