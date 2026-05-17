@@ -339,6 +339,7 @@ module desnet::profile {
         else if (h == b"darbitex") option::some(@darbitex_claimer)
         else if (h == b"d")        option::some(@d_claimer)
         else if (h == b"supra")    option::some(@supra_claimer)
+        else if (h == b"anomaly")  option::some(@anomaly_claimer)
         else option::none()
     }
 
