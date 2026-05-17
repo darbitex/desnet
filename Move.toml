@@ -30,9 +30,9 @@ license = "Unlicense"
 [addresses]
 # Filled at deploy via --named-addresses CLI flag.
 # Mainnet: desnet=0x7ba7ee5a..., origin=0x000073c4..., desnet_claimer=0x000073c4...
-desnet = "0xDADE"
-origin = "0xA0E1"
-desnet_claimer = "0x0047a3e13465172e10661e20b7b618235e9c7e62a365d315e91cf1ef647321c9"
+desnet = "0x83bce7eb68cce9b1a301376ed859f9dd2fa7657a5e11ee44a80cf55543806d26"
+origin = "0x9463c28c2a1412c6c2dab9093ee76674352931321bcbe32d3a33d47e4fcd0690"
+desnet_claimer = "0x9463c28c2a1412c6c2dab9093ee76674352931321bcbe32d3a33d47e4fcd0690"
 # darbitex handle: claimer = darbitex Final pkg/publisher multisig (3/5).
 darbitex_claimer = "0xc988d39a4a27b26e1d659431a0c5828f3862c155d1c331386cd5974298dd78dd"
 # d handle: claimer = D Supra pkg (resource_account, SEALED — no signer derivable).
