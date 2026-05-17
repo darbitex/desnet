@@ -1,16 +1,3 @@
-/// Voter History - per-voter cumulative LP fee / rewards record.
-///
-/// CRITICAL - voting power source authentication:
-///
-/// Two pathways feed into voting power:
-///   1. (Legacy) `desnet::lp_staking::claim_internal` - LP staking rewards (pre-IPO model).
-///   2. `desnet::ipo::claim_fees` - DESNET-side LP swap fees (IPO model).
-///
-/// Cross-module authentication via friend visibility + signer addr check:
-///   - `record_reward_received` is `public(friend)` gated; callers validated at
-///     compile-time by friend list + runtime `signer::address_of(authority) == @desnet`.
-///
-/// Storage: centralized SmartTable<voter_addr, VoterHistory> at @desnet.
 module desnet::voter_history {
     use std::signer;
     use std::vector;
@@ -22,32 +9,17 @@ module desnet::voter_history {
     friend desnet::lp_staking;
     friend desnet::ipo;
 
-    // ============ CONSTANTS ============
-
-    /// 30-day rolling window for voting power computation.
     const VOTING_WINDOW_SECS: u64 = 30 * 86_400;
 
-    /// Pruning threshold for VoterHistory entries (storage bound).
-    /// 60d = 30d active + 30d safety buffer.
     const HISTORY_PRUNE_AFTER_SECS: u64 = 60 * 86_400;
-
-    // ============ ERROR CODES ============
 
     const E_NOT_FACTORY_AUTHORITY: u64 = 1;
     const E_REGISTRY_NOT_INITIALIZED: u64 = 2;
     const E_ALREADY_INITIALIZED: u64 = 3;
 
-    // ============ TYPES ============
-
-    /// Per-voter cumulative rewards history. Stored inside Registry SmartTable
-    /// at @desnet, keyed by voter wallet addr.
-    ///
-    /// IMPORTANT: entries here represent ONLY rewards distributed via the
-    /// official factory-deployed lp_emission claim path. Other DESNET inflows
-    /// do NOT populate this history.
     struct VoterHistory has store, drop {
-        rewards_history: vector<RewardEntry>,  // append-only, prunable > 60d
-        total_received: u64,                    // cumulative since first reward
+        rewards_history: vector<RewardEntry>,
+        total_received: u64,
     }
 
     struct RewardEntry has copy, drop, store {
@@ -55,26 +27,14 @@ module desnet::voter_history {
         amount: u64,
     }
 
-    /// Centralized registry at @desnet.
     struct Registry has key {
         voters: SmartTable<address, VoterHistory>,
     }
 
-    /// v0.3.2 (F7): per-token isolated rewards. Eliminates cross-token mix where a
-    /// non-DESNET reward stream could inflate voter's voting power. Lazy-init on
-    /// first per-token record. Outer key = voter_addr, inner key = token_metadata_addr.
-    /// `governance::voting_power` reads DESNET-only via this registry when present,
-    /// falls back to legacy mixed `Registry` when not.
     struct RegistryByToken has key {
         voters: SmartTable<address, SmartTable<address, VoterHistory>>,
     }
 
-    // ============ EVENTS ============
-
-    /// Emitted on every voter reward record. Pairs atomically with
-    /// desnet-factory's `LpDistributed` event (same tx). Indexer cross-check:
-    /// for each LpDistributed(amount=X) tx, sum of co-emitted VoterRewardRecorded
-    /// must equal X. Discrepancy = corruption signal.
     #[event]
     struct VoterRewardRecorded has drop, store {
         voter_addr: address,
@@ -97,8 +57,6 @@ module desnet::voter_history {
         timestamp_secs: u64,
     }
 
-    // ============ INIT - called once by governance::init_module ============
-
     public(friend) fun init_registry(governance_account: &signer) {
         let governance_addr = signer::address_of(governance_account);
         assert!(!exists<Registry>(governance_addr), E_ALREADY_INITIALIZED);
@@ -111,17 +69,6 @@ module desnet::voter_history {
         });
     }
 
-    // ============ RECORD - called EXCLUSIVELY by desnet::lp_staking::claim_internal ============
-
-    /// SOLE pathway for voting power generation. Friend-restricted to lp_staking
-    /// (load-bearing barrier). The signer.addr == @desnet assertion is belt-and-braces.
-    ///
-    /// H4 fix (audit R1): visibility tightened from `public` to `public(friend)`.
-    /// Previously, sole-call-site invariant was grep-enforced not type-enforced;
-    /// any future code with @desnet pkg_signer access could mint voting power.
-    /// Now any new caller requires explicit `friend` declaration in this file.
-    ///
-    /// Lazy-creates voter entry in centralized Registry if missing.
     public(friend) fun record_reward_received(
         factory_authority: &signer,
         voter_addr: address,
@@ -135,8 +82,6 @@ module desnet::voter_history {
 
         let registry = borrow_global_mut<Registry>(@desnet);
 
-        // Lazy-init voter entry on first reward (no voter signer required -
-        // factory authority writes to centralized governance storage)
         if (!smart_table::contains(&registry.voters, voter_addr)) {
             smart_table::add(&mut registry.voters, voter_addr, VoterHistory {
                 rewards_history: vector::empty(),
@@ -160,22 +105,14 @@ module desnet::voter_history {
         });
     }
 
-    // ============ v0.3.2 (F7): per-token isolation ============
-
-    /// Friend-only: extends `record_reward_received` with per-token tracking.
-    /// Records to BOTH legacy mixed `Registry` (preserve compat for old read-paths)
-    /// AND new `RegistryByToken` (per-token isolation for governance::voting_power).
-    /// Lazy-init RegistryByToken on first call.
     public(friend) fun record_reward_received_for_token(
         factory_authority: &signer,
         voter_addr: address,
         token_addr: address,
         amount: u64,
     ) acquires Registry, RegistryByToken {
-        // 1. Legacy path - keeps old indexers working.
         record_reward_received(factory_authority, voter_addr, amount);
 
-        // 2. Per-token isolated path. (factory_authority asserted == @desnet inside #1.)
         if (!exists<RegistryByToken>(@desnet)) {
             move_to(factory_authority, RegistryByToken { voters: smart_table::new() });
         };
@@ -196,9 +133,6 @@ module desnet::voter_history {
         history.total_received = history.total_received + amount;
     }
 
-    // ============ PRUNE - permissionless storage bound ============
-
-    /// Anyone can call to prune entries older than HISTORY_PRUNE_AFTER_SECS.
     public entry fun prune_voter_history(_caller: &signer, voter_addr: address)
         acquires Registry
     {
@@ -234,11 +168,6 @@ module desnet::voter_history {
         };
     }
 
-    // ============ VIEWS ============
-
-    /// v0.3.2 (F7): Per-token rewards within 30d. Returns 0 if RegistryByToken not yet
-    /// initialized OR voter has no entry for this token. Replaces mixed-aggregate when
-    /// caller wants strict per-token isolation (e.g., governance DESNET-only voting power).
     #[view]
     public fun rewards_earned_30d_for_token(voter_addr: address, token_addr: address): u64
         acquires RegistryByToken
@@ -263,23 +192,9 @@ module desnet::voter_history {
         sum
     }
 
-    /// v0.3.2 (F7): exists check - gates governance::voting_power's choice of
-    /// per-token vs legacy-mixed read.
-    /// v0.3.3 (G1) NOTE: superseded for voting-power by per-USER `has_per_token_entry`
-    /// to fix lazy-flip disenfranchisement. Kept for indexer compatibility.
     #[view]
     public fun has_per_token_registry(): bool { exists<RegistryByToken>(@desnet) }
 
-    /// v0.3.3 (G1, R5 CONV-3 HIGH): per-USER existence check. Eliminates lazy-flip
-    /// disenfranchisement where the FIRST claimer post-v0.3.2 instantly zeroed
-    /// voting power for all OTHER pre-existing voters by triggering the global flag.
-    /// Returns true only when THIS voter has at least one per-token entry under any
-    /// token. Governance::voting_power should use this for per-user fallback to legacy.
-    /// v0.3.3 (Qwen R6 H1 NOTE): superseded for voting-power by per-user-per-token
-    /// `has_per_token_entry_for_token` (see below). Kept for indexer compatibility.
-    /// Reason: claim_internal writes per-pool's token (not always DESNET) - this
-    /// generic check returns true for non-DESNET claimers too, which would
-    /// disenfranchise their legacy DESNET balance under voting_power's DESNET-only branch.
     #[view]
     public fun has_per_token_entry(voter_addr: address): bool acquires RegistryByToken {
         if (!exists<RegistryByToken>(@desnet)) return false;
@@ -287,13 +202,6 @@ module desnet::voter_history {
         smart_table::contains(&registry.voters, voter_addr)
     }
 
-    /// v0.3.3 (Qwen R6 H1 fix): per-USER-per-TOKEN existence check. Eliminates the
-    /// disenfranchisement vector where a voter who claims from a non-DESNET pool
-    /// (e.g., $alice token) would have `has_per_token_entry == true` triggering
-    /// the DESNET-only voting_power branch, which then returns 0 because they have
-    /// no DESNET-specific inner entry. governance::voting_power uses THIS view
-    /// (with DESNET_FA_ADDR) so a voter only loses legacy fallback once they have
-    /// an actual DESNET reward entry, not just any token entry.
     #[view]
     public fun has_per_token_entry_for_token(voter_addr: address, token_addr: address): bool
         acquires RegistryByToken
@@ -305,7 +213,6 @@ module desnet::voter_history {
         smart_table::contains(voter_tokens, token_addr)
     }
 
-    /// Sum reward entries within last 30d window. Used as filter A in voting power.
     #[view]
     public fun rewards_earned_30d(voter_addr: address): u64 acquires Registry {
         if (!exists<Registry>(@desnet)) return 0;

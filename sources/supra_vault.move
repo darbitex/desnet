@@ -1,16 +1,3 @@
-/// Vault - receives SUPRA revenue, splits 50% buyback-burn / 50% to PID owner.
-///
-/// One Vault per spawned token. Sealed at mint. Holds BurnRef (no extraction).
-/// AMM pool is always seeded atomically at register_handle, so settle is always 50/50.
-///
-/// Inputs:
-///   - NFT marketplace royalty (Press collection royalty_payee = vault addr)
-///   - Direct deposit_supra (manual top-up)
-///   - Future revenue streams
-///
-/// Outputs:
-///   - 50% SUPRA to current PID owner = object::owner(pid_object) [auto-follows NFT transfer]
-///   - 50% SUPRA -> $TOKEN via in-house desnet::amm 10 bps swap, then BURN via BurnRef
 module desnet::supra_vault {
     use std::signer;
     use std::vector;
@@ -27,28 +14,17 @@ module desnet::supra_vault {
     friend desnet::supra_fee_vault;
     friend desnet::opinion;
 
-    // ============ CONSTANTS ============
-
-    /// Min SUPRA balance for settle to execute (anti-dust). 0.1 SUPRA (8 decimals).
     const SUPRA_SETTLE_THRESHOLD: u64 = 10_000_000;
 
     const SPEC_VERSION: u32 = 4;
 
     const SEED_VAULT: vector<u8> = b"vault::";
 
-    /// H3 fix (audit R3): two-phase commit-reveal settle.
-    /// `request_settle` records timestamp; `execute_settle` requires >= delay elapsed.
-    /// Same-tx sandwich is impossible because manipulator must hold position across
-    /// blocks under arbitrage exposure (~200 blocks at Supra ~0.3s block time).
     const SETTLE_DELAY_SECS: u64 = 60;
 
-    /// Re-request grace: after delay + grace, anyone can override a stale pending
-    /// request. Bounds DoS vector where a spammer keeps refreshing the timer.
     const SETTLE_REQUEST_GRACE_SECS: u64 = 3600;
 
     const BPS_DENOM: u64 = 10000;
-
-    // ============ ERROR CODES ============
 
     const E_BELOW_THRESHOLD: u64 = 1;
     const E_VAULT_NOT_FOUND: u64 = 2;
@@ -59,24 +35,17 @@ module desnet::supra_vault {
     const E_SETTLE_NOT_READY: u64 = 7;
     const E_SETTLE_REQUEST_PENDING: u64 = 8;
 
-    // ============ TYPES ============
-
-    /// Per-token Vault state.
     struct Vault has key {
         supra_balance: Coin<SupraCoin>,
         burn_ref: BurnRef,
         token_metadata_addr: address,
-        handle: vector<u8>,                          // for amm swap calls
-        amm_pool_addr: address,                       // cached for views
+        handle: vector<u8>,
+        amm_pool_addr: address,
         pid_object_addr: address,
         spec_version: u32,
         extend_ref: ExtendRef,
-        /// H3 fix R3: timestamp of last `request_settle`. 0 = no pending request.
-        /// `execute_settle` requires `now >= pending_settle_at_secs + SETTLE_DELAY_SECS`.
         pending_settle_at_secs: u64,
     }
-
-    // ============ EVENTS ============
 
     #[event]
     struct SupraDeposited has drop, store {
@@ -101,8 +70,6 @@ module desnet::supra_vault {
         requested_at_secs: u64,
         executable_at_secs: u64,
     }
-
-    // ============ DEPLOY - friend, called by factory at token spawn ============
 
     public(friend) fun deploy(
         factory_signer: &signer,
@@ -143,8 +110,6 @@ module desnet::supra_vault {
         seed
     }
 
-    // ============ DEPOSIT - permissionless ============
-
     public entry fun deposit_supra(
         depositor: &signer,
         vault_addr: address,
@@ -161,12 +126,6 @@ module desnet::supra_vault {
         });
     }
 
-    // ============ SETTLE - two-phase (R3 H3 fix) ============
-
-    /// Phase 1: record request timestamp. Permissionless.
-    /// `execute_settle` becomes callable after SETTLE_DELAY_SECS elapses.
-    /// If a pending request already exists and is younger than
-    /// `SETTLE_DELAY_SECS + SETTLE_REQUEST_GRACE_SECS`, this aborts (DoS guard).
     public entry fun request_settle(
         _caller: &signer,
         vault_addr: address,
@@ -192,17 +151,12 @@ module desnet::supra_vault {
         });
     }
 
-    /// Phase 2: execute the buyback-burn + owner payout. Permissionless.
-    /// Requires a pending request older than `SETTLE_DELAY_SECS`.
-    /// Settle follows strict 50% burn / 50% owner split. Rounding sisa (1 unit) goes to owner.
-    /// M5: cached amm_pool_addr matches current handle-derived addr.
     public entry fun execute_settle(
         _caller: &signer,
         vault_addr: address,
     ) acquires Vault {
         let vault = borrow_global_mut<Vault>(vault_addr);
 
-        // Two-phase guard: pending request must exist and have aged past delay.
         assert!(vault.pending_settle_at_secs > 0, E_NO_PENDING_SETTLE);
         let now = timestamp::now_seconds();
         assert!(
@@ -210,7 +164,6 @@ module desnet::supra_vault {
             E_SETTLE_NOT_READY
         );
 
-        // M5: cache consistency check (assert before any swap).
         assert!(
             amm::pool_address_of_handle(vault.handle) == vault.amm_pool_addr,
             E_POOL_ADDR_DRIFT
@@ -222,15 +175,12 @@ module desnet::supra_vault {
         let pid_object = object::address_to_object<object::ObjectCore>(vault.pid_object_addr);
         let owner_addr = object::owner(pid_object);
 
-        // Explicit 50/50 split. Buyback gets half (rounded down);
-        // owner gets the remainder (guarantees buyback + owner == total).
         let buyback_amount = total_supra / 2;
         let owner_amount = total_supra - buyback_amount;
 
         let supra_for_buyback = coin::extract(&mut vault.supra_balance, buyback_amount);
         let supra_for_owner = coin::extract(&mut vault.supra_balance, owner_amount);
 
-        // Buyback path: SUPRA -> $TOKEN via in-house AMM 10 bps, then BURN.
         let supra_fa_buyback = coin::coin_to_fungible_asset(supra_for_buyback);
         let token_received = amm::swap_exact_supra_in(
             vault.handle,
@@ -240,10 +190,8 @@ module desnet::supra_vault {
         let burned_amount = fungible_asset::amount(&token_received);
         fungible_asset::burn(&vault.burn_ref, token_received);
 
-        // Owner path: SUPRA direct to current PID owner.
         coin::deposit(owner_addr, supra_for_owner);
 
-        // Consume the pending request.
         vault.pending_settle_at_secs = 0;
 
         event::emit(SupraSettled {
@@ -255,8 +203,6 @@ module desnet::supra_vault {
             token_burned: burned_amount,
         });
     }
-
-    // ============ VIEW ============
 
     #[view]
     public fun supra_balance(vault_addr: address): u64 acquires Vault {
@@ -296,13 +242,6 @@ module desnet::supra_vault {
         if (pending == 0) 0 else pending + SETTLE_DELAY_SECS
     }
 
-    // ============ DELEGATE BURN - friend (supra_fee_vault, v0.3.2 F9) ============
-
-    /// supra_fee_vault swaps SUPRA -> DESNET via amm, then asks the DESNET per-token
-    /// vault to burn the FA via its held BurnRef. Direction-locked: caller hands a FA
-    /// whose metadata MUST match `vault.token_metadata_addr` (the fungible_asset::burn
-    /// check enforces this - wrong-token FA aborts).
-    /// No state mutation, no event (supra_fee_vault::Settled covers it).
     public(friend) fun burn_via_vault(
         vault_addr: address,
         fa: fungible_asset::FungibleAsset,
@@ -310,8 +249,6 @@ module desnet::supra_vault {
         let vault = borrow_global<Vault>(vault_addr);
         fungible_asset::burn(&vault.burn_ref, fa);
     }
-
-    // ============ TEST-ONLY HELPERS ============
 
     #[test_only]
     public fun deploy_for_test(

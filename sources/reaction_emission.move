@@ -1,19 +1,3 @@
-/// Reaction Rewards Gauge - per-PID multi-FA permissionless rewards pool.
-///
-/// Keyed by author PID address (not handle string) - every Profile NFT, main
-/// or subdomain, gets its own independent reaction pool. Two reasons:
-///   1. Avoids the handle-collision hazard where main handle "alice" and
-///      subdomain "alice@bob" both resolve `profile::handle_of()` to "alice"
-///      and would otherwise share a gauge across unrelated authors.
-///   2. Subdomain authors get the same first-class fan-funding surface as
-///      main-handle authors - a `alice@bob` subdomain can be tipped/funded
-///      independently of bob's main pool.
-///
-/// On every press, the presser withdraws `BPS_PER_PRESS * current_balance /
-/// 10000` from every registered reward token. Pool is asymptotic -
-/// multiplicative decay never drives balance to zero, so the "early presser
-/// farms entire reserve" failure mode of the v0.3 sealed-reserve design is
-/// gone. Replaces v0.3's sealed 5%-of-supply reserve.
 module desnet::reaction_emission {
     use std::bcs;
     use std::signer;
@@ -28,11 +12,6 @@ module desnet::reaction_emission {
 
     friend desnet::press;
 
-    // ============ CONSTANTS ============
-
-    /// Per-press withdrawal rate against current pool balance for each
-    /// registered reward token. 25 bps = 0.25% per press. Multiplicative
-    /// decay - pool never hits zero.
     const BPS_PER_PRESS: u64 = 25;
     const BPS_DENOM: u64 = 10_000;
 
@@ -40,17 +19,10 @@ module desnet::reaction_emission {
 
     const SEED_REACTION_REWARDS: vector<u8> = b"reaction_rewards::";
 
-    // ============ ERROR CODES ============
-
     const E_POOL_NOT_FOUND: u64 = 1;
     const E_ZERO_AMOUNT: u64 = 2;
     const E_TOO_MANY_REWARD_TOKENS: u64 = 3;
-    /// Y-4 (2026-05-17 self-audit): rejects dispatchable FAs. A hook-bearing
-    /// FA registered here would let an attacker abort distribute_to_presser
-    /// on every subsequent press, bricking press::press for the author.
     const E_DISPATCHABLE_FA_REJECTED: u64 = 4;
-
-    // ============ TYPES ============
 
     struct ReactionRewardsPool has key {
         author_pid: address,
@@ -63,8 +35,6 @@ module desnet::reaction_emission {
         total_topped_up: u128,
         total_distributed: u128,
     }
-
-    // ============ EVENTS ============
 
     #[event]
     struct PoolInitialized has drop, store {
@@ -99,8 +69,6 @@ module desnet::reaction_emission {
         pool_balance_before: u64,
     }
 
-    // ============ ADDRESS DERIVATION ============
-
     public fun pool_address_of(author_pid: address): address {
         object::create_object_address(&@desnet, make_seed(author_pid))
     }
@@ -110,8 +78,6 @@ module desnet::reaction_emission {
         vector::append(&mut seed, bcs::to_bytes(&author_pid));
         seed
     }
-
-    // ============ INIT - lazy on first notify ============
 
     fun ensure_pool(author_pid: address): address {
         let pool_addr = pool_address_of(author_pid);
@@ -133,8 +99,6 @@ module desnet::reaction_emission {
         pool_addr
     }
 
-    // ============ NOTIFY - permissionless topup ============
-
     public entry fun notify_reward(
         depositor: &signer,
         author_pid: address,
@@ -143,15 +107,6 @@ module desnet::reaction_emission {
     ) acquires ReactionRewardsPool {
         assert!(amount > 0, E_ZERO_AMOUNT);
 
-        // Y-4: reject dispatchable FAs. supra-framework's
-        // dispatchable_fungible_asset lets an FA register custom
-        // withdraw/deposit hooks that run arbitrary code on every transfer.
-        // If a hook-bearing FA were registered into a reaction pool, the
-        // attacker could make its withdraw hook abort - subsequent
-        // distribute_to_presser would revert on that token, bricking
-        // press::press for the author (NFT mint and emission share the
-        // same tx). We check on the depositor's primary store which must
-        // already exist for the withdraw below to succeed.
         let depositor_addr = signer::address_of(depositor);
         let depositor_store = primary_fungible_store::ensure_primary_store_exists(
             depositor_addr, reward_token_meta,
@@ -197,13 +152,6 @@ module desnet::reaction_emission {
         });
     }
 
-    // ============ FRIEND: distribute per press ============
-
-    /// Per-press payout = `BPS_PER_PRESS * balance / 10_000` from every
-    /// registered reward token. Returns total distributed (sum across
-    /// tokens). Tokens with zero balance or quantized-to-zero payouts
-    /// are skipped. Safe to call when pool doesn't exist - returns 0
-    /// so press still succeeds before anyone funds the gauge.
     public(friend) fun distribute_to_presser(
         author_pid: address,
         presser: address,
@@ -246,8 +194,6 @@ module desnet::reaction_emission {
 
         total_distributed
     }
-
-    // ============ VIEWS ============
 
     #[view]
     public fun pool_exists(author_pid: address): bool {

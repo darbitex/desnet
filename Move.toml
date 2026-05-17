@@ -1,48 +1,17 @@
 [package]
 name = "Desnet"
-# Plain SemVer X.Y.Z — supra CLI 0.5.0 rejects pre-release suffixes ("-supra").
-# Distribution-tag info lives in the header comment below.
-version = "0.4.0"
+version = "0.0.0"
 upgrade_policy = "compatible"
-authors = ["Rera", "Claude (Anthropic)"]
+authors = ["Rera"]
 license = "Unlicense"
 
-# DeSNet Supra port — parallel-track experiment (second mode) vs Aptos v0.3.3.
-# Diverges from canonical Aptos branch — both modes coexist on different chains.
-# Lineage: Aptos v0.3.1 baseline → v0.3.3 audit hardening (F7, F9, G2, G3, G6)
-# applied → v0.4 features (opinion, assets Tier-2/3) → Supra-specific rewrites:
-#   - 100% supply → IPO launchpad (no creator-locked LP at registration)
-#   - lp_emission + reaction_emission rewritten as multi-FA permissionless gauges
-#   - reaction_emission keyed by author PID (not handle string) — main + subdomain
-#     authors get independent pools, no collision via profile::handle_of()
-#   - IPO Position = auto-stake with reward_debts (Model A — no separate stake NFT)
-#   - Position stored AT subdomain PID's deterministic addr → NFT transfer carries
-#     locked-LP implicitly
-#   - 13 verb entries gained explicit pid_addr param + profile::assert_authorized
-#     so subdomain PID is a full citizen (not just main-handle)
-#   - register_handle_with_creator_seed: atomic register + self-IPO + 10% cap
-#     (creator_wallet frozen at create_ipo = cap-eligibility only; the LP itself
-#      locks onto a creator-chosen subdomain PID NFT, same as every other backer)
-#   - supra_fee_vault replaces Aptos handle_fee_vault (native FA = SUPRA)
-# See docs/v0.3.0-design-lock.md (Aptos baseline) + memory desnet-supra-experiment
-# for the Supra delta.
-
 [addresses]
-# Filled at deploy via --named-addresses CLI flag.
-# Mainnet: desnet=0x7ba7ee5a..., origin=0x000073c4..., desnet_claimer=0x000073c4...
 desnet = "0x83bce7eb68cce9b1a301376ed859f9dd2fa7657a5e11ee44a80cf55543806d26"
 origin = "0x9463c28c2a1412c6c2dab9093ee76674352931321bcbe32d3a33d47e4fcd0690"
 desnet_claimer = "0x9463c28c2a1412c6c2dab9093ee76674352931321bcbe32d3a33d47e4fcd0690"
-# darbitex handle: claimer = darbitex Final pkg/publisher multisig (3/5).
 darbitex_claimer = "0xc988d39a4a27b26e1d659431a0c5828f3862c155d1c331386cd5974298dd78dd"
-# d handle: claimer = D Supra pkg (resource_account, SEALED — no signer derivable).
-# Permanent reservation = effective burn. Slot can never be registered.
 d_claimer = "0x587c80846b18b7d7c3801fe11e88ca114305a5153082b51d0d2547ad48622c77"
-# supra handle: claimer = Darbitex treasury multisig (3/5).
 supra_claimer = "0xdbce89113a975826028236f910668c3ff99c8db8981be6a448caa2f8836f9576"
-# supra handle: claimer = dedicated multisig.
-# (Duplicate removed)
-
 
 [dependencies.DesnetBootstrap]
 local = "../desnet-bootstrap-supra"

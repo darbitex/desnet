@@ -1,17 +1,3 @@
-/// History - per-PID append-only on-chain log (LOCKED 2026-05-01).
-///
-/// Replaces event::emit for the 7-verb palette (Mint/Spark/Voice/Echo/Remix/Press/Sync).
-/// Class-B primitive: Move runtime CAN read entries via view fns for gating logic
-/// (Endorse, ReferenceGate cross-checks) without indexer dependency.
-///
-/// Storage: HistoryLog at PID Object addr (lazy-init via profile::derive_pid_signer).
-/// Entries grouped into HistoryChunks (separate Objects owned by PID); current chunk
-/// rotates when ~30KB threshold reached. Sealed chunks immutable from this module.
-///
-/// Cached counters per verb (O(1) view) - count_verb(pid, verb) for gating.
-///
-/// Encoding: Entry.payload = BCS-encoded verb-specific data (e.g., bcs::to_bytes(&MintEvent{..})).
-/// Frontend / indexer decodes payload via Move struct definitions in respective modules.
 module desnet::history {
     use std::option::Option;
     use std::signer;
@@ -26,9 +12,6 @@ module desnet::history {
     friend desnet::press;
     friend desnet::opinion;
 
-    // ============ CONSTANTS ============
-
-    /// Verb enum (history Entry.verb).
     const VERB_MINT: u8 = 0;
     const VERB_SPARK: u8 = 1;
     const VERB_VOICE: u8 = 2;
@@ -38,40 +21,23 @@ module desnet::history {
     const VERB_SYNC: u8 = 6;
     const VERB_OPINION: u8 = 7;
 
-    /// Chunk rotation threshold: when current chunk's tracked size exceeds this,
-    /// seal it and allocate a new one. ~30KB ~ 375 small entries.
     const CHUNK_ROTATE_THRESHOLD: u64 = 30000;
 
-    /// Per-Entry payload hard cap (BCS bytes only; Entry.asset is separate ref).
-    /// Sized to fit worst-case BCS-encoded MintEvent: inline media (8192) + content (333) +
-    /// 5 tags + 10 mentions + 5 tickers + 10 tips + Option overhead ~ 10075 bytes. 12000
-    /// gives 1925-byte headroom. CHUNK_ROTATE_THRESHOLD (30000) still > 2* this so chunk
-    /// rotation calculus remains sane.
     const MAX_PAYLOAD_BYTES: u64 = 12000;
 
-    /// Per-entry overhead estimate (verb + ts + target option + asset option +
-    /// vector length headers). Used for chunk size accounting.
     const ENTRY_OVERHEAD_BYTES: u64 = 64;
 
-    // ============ ERROR CODES ============
-
     const E_PAYLOAD_TOO_LARGE: u64 = 1;
-    // E_PID_NOT_FOUND removed (was unused - profile module owns PID-existence checks).
     const E_HISTORY_NOT_INITIALIZED: u64 = 3;
     const E_CHUNK_NOT_FOUND: u64 = 4;
     const E_INVALID_VERB: u64 = 5;
 
-    // ============ TYPES ============
-
-    /// Per-PID history log root. Lives at PID Object addr.
-    /// head_chunk is always set after ensure_history_log (initialized lazily on first append).
     struct HistoryLog has key {
         head_chunk: address,
         sealed_chunks: vector<address>,
         entry_count: u64,
-        total_bytes: u64,                  // running sum of (payload + overhead) across all chunks
-        head_chunk_bytes: u64,             // bytes accumulated in current head_chunk
-        // Cached per-verb counters (O(1) reads for gating)
+        total_bytes: u64,
+        head_chunk_bytes: u64,
         mint_count: u64,
         spark_count: u64,
         voice_count: u64,
@@ -81,28 +47,19 @@ module desnet::history {
         sync_count: u64,
     }
 
-    /// Append-only chunk holding a vector of Entry. Sealed=true after rotate.
-    /// Module mutators check `sealed == false` before appending; sealed chunks
-    /// are read-only from Move runtime perspective.
     struct HistoryChunk has key {
         entries: vector<Entry>,
         sealed: bool,
     }
 
-    /// Single history entry. BCS-encoded into payload by the verb module.
-    /// Has store + copy + drop so it can be vec-pushed and copy-read by views.
     struct Entry has store, copy, drop {
         verb: u8,
         timestamp_secs: u64,
-        target: Option<address>,           // referenced PID/post for Echo/Sync/Voice/Remix
-        payload: vector<u8>,               // BCS-encoded verb-specific data, <=MAX_PAYLOAD_BYTES
-        asset: Option<address>,            // optional desnet::assets::Master ref (>8KB media)
+        target: Option<address>,
+        payload: vector<u8>,
+        asset: Option<address>,
     }
 
-    // ============ FRIEND CONSTRUCTORS ============
-
-    /// Build an Entry for friend module to pass into append.
-    /// Validates payload size cap.
     public(friend) fun new_entry(
         verb: u8,
         timestamp_secs: u64,
@@ -115,17 +72,11 @@ module desnet::history {
         Entry { verb, timestamp_secs, target, payload, asset }
     }
 
-    // ============ LAZY-INIT ============
-
-    /// Lazy-create HistoryLog + first HistoryChunk at PID addr. Idempotent.
-    /// Called from append on first-write per PID. Cycle-safe via
-    /// profile::derive_pid_signer friend pattern (history is friend of profile).
     fun ensure_history_log(pid_addr: address) {
         if (exists<HistoryLog>(pid_addr)) return;
 
         let pid_signer = profile::derive_pid_signer(pid_addr);
 
-        // First chunk Object owned by PID addr
         let chunk_constructor = object::create_object(pid_addr);
         let chunk_signer = object::generate_signer(&chunk_constructor);
         let chunk_addr = signer::address_of(&chunk_signer);
@@ -150,10 +101,6 @@ module desnet::history {
         });
     }
 
-    // ============ APPEND (friend-only) ============
-
-    /// Append an Entry to PID's history. Lazy-init on first call.
-    /// Auto-rotates chunk when threshold exceeded: seals current head, allocates new.
     public(friend) fun append(pid_addr: address, entry: Entry)
         acquires HistoryLog, HistoryChunk
     {
@@ -161,10 +108,8 @@ module desnet::history {
 
         let entry_size = vector::length(&entry.payload) + ENTRY_OVERHEAD_BYTES;
 
-        // Check rotate condition
         let log = borrow_global_mut<HistoryLog>(pid_addr);
         if (log.head_chunk_bytes + entry_size > CHUNK_ROTATE_THRESHOLD) {
-            // Seal current head (mark immutable; sealed chunks not mutated by this module)
             let old_head = log.head_chunk;
             {
                 let head_chunk = borrow_global_mut<HistoryChunk>(old_head);
@@ -172,7 +117,6 @@ module desnet::history {
             };
             vector::push_back(&mut log.sealed_chunks, old_head);
 
-            // Allocate new chunk Object owned by PID addr
             let new_chunk_constructor = object::create_object(pid_addr);
             let new_chunk_signer = object::generate_signer(&new_chunk_constructor);
             let new_chunk_addr = signer::address_of(&new_chunk_signer);
@@ -185,19 +129,16 @@ module desnet::history {
             log.head_chunk_bytes = 0;
         };
 
-        // Append entry to head chunk
         let verb = entry.verb;
         {
             let head = borrow_global_mut<HistoryChunk>(log.head_chunk);
             vector::push_back(&mut head.entries, entry);
         };
 
-        // Bump global counters
         log.entry_count = log.entry_count + 1;
         log.total_bytes = log.total_bytes + entry_size;
         log.head_chunk_bytes = log.head_chunk_bytes + entry_size;
 
-        // Bump per-verb counter
         if (verb == VERB_MINT) {
             log.mint_count = log.mint_count + 1;
         } else if (verb == VERB_SPARK) {
@@ -214,8 +155,6 @@ module desnet::history {
             log.sync_count = log.sync_count + 1;
         };
     }
-
-    // ============ VIEWS ============
 
     #[view]
     public fun history_exists(pid_addr: address): bool {
@@ -258,8 +197,6 @@ module desnet::history {
         borrow_global<HistoryChunk>(chunk_addr).sealed
     }
 
-    /// Read a specific entry from a chunk by local index. Aborts if out of range.
-    /// Returns (verb, timestamp_secs, target, payload, asset) tuple.
     #[view]
     public fun chunk_entry_at(
         chunk_addr: address,
@@ -273,8 +210,6 @@ module desnet::history {
         (e.verb, e.timestamp_secs, e.target, e.payload, e.asset)
     }
 
-    /// Cached per-verb counter - O(1) for gating logic.
-    /// E.g., Endorse gate: count_verb(target_pid, VERB_SPARK) >= threshold.
     #[view]
     public fun count_verb(pid_addr: address, verb: u8): u64 acquires HistoryLog {
         if (!exists<HistoryLog>(pid_addr)) return 0;
@@ -288,8 +223,6 @@ module desnet::history {
         else if (verb == VERB_SYNC) log.sync_count
         else 0
     }
-
-    // Verb constant getters (for cross-module + frontend use)
 
     #[view]
     public fun verb_mint(): u8 { VERB_MINT }
@@ -321,8 +254,6 @@ module desnet::history {
     #[view]
     public fun chunk_rotate_threshold(): u64 { CHUNK_ROTATE_THRESHOLD }
 
-    // ============ TESTS ============
-
     #[test]
     fun test_new_entry_payload_at_cap() {
         let payload = vector::empty<u8>();
@@ -349,7 +280,6 @@ module desnet::history {
     #[test]
     #[expected_failure(abort_code = E_INVALID_VERB, location = Self)]
     fun test_new_entry_invalid_verb() {
-        // VERB_OPINION = 7 (added post-opinion-port). 8 is the next invalid value.
         let _e = new_entry(8, 0, std::option::none<address>(), vector::empty(), std::option::none<address>());
     }
 
@@ -363,8 +293,6 @@ module desnet::history {
         assert!(verb_remix() == 4, 5);
         assert!(verb_sync() == 6, 7);
     }
-
-    // ============ INTEGRATION TESTS (append + rotate) ============
 
     #[test_only]
     use supra_framework::timestamp;
@@ -400,7 +328,6 @@ module desnet::history {
         account::create_account_for_test(signer::address_of(creator));
         let pid_addr = profile::setup_test_pid(creator);
 
-        // Append 3 sparks, 1 voice, 2 echoes
         append(pid_addr, new_entry(VERB_SPARK, 1, option::none(), vector::empty(), option::none()));
         append(pid_addr, new_entry(VERB_SPARK, 2, option::none(), vector::empty(), option::none()));
         append(pid_addr, new_entry(VERB_SPARK, 3, option::none(), vector::empty(), option::none()));
@@ -424,13 +351,10 @@ module desnet::history {
         account::create_account_for_test(signer::address_of(creator));
         let pid_addr = profile::setup_test_pid(creator);
 
-        // Each entry: 8000B payload + 64B overhead = 8064B. Threshold = 30000B.
-        // 3 entries: 24192B (under). 4th append: would-be 32256B > 30000 -> rotate fires.
         let big_payload = vector::empty<u8>();
         let i = 0;
         while (i < 8000) { vector::push_back(&mut big_payload, 0xAA); i = i + 1; };
 
-        // First 3 appends: no rotate
         let j = 0;
         while (j < 3) {
             append(pid_addr, new_entry(VERB_MINT, j, option::none(), big_payload, option::none()));
@@ -440,20 +364,16 @@ module desnet::history {
         assert!(vector::length(&sealed_before) == 0, 1);
         let head_before = head_chunk_addr(pid_addr);
 
-        // 4th append triggers rotation (24192 + 8064 = 32256 > 30000)
         append(pid_addr, new_entry(VERB_MINT, 99, option::none(), big_payload, option::none()));
 
         let sealed_after = sealed_chunks_list(pid_addr);
         assert!(vector::length(&sealed_after) == 1, 2);
-        // Old head sealed + matches what we observed before rotate
         let old_head = *vector::borrow(&sealed_after, 0);
         assert!(old_head == head_before, 3);
         assert!(chunk_is_sealed(old_head), 4);
-        // New head exists, distinct, not sealed
         let new_head = head_chunk_addr(pid_addr);
         assert!(new_head != old_head, 5);
         assert!(!chunk_is_sealed(new_head), 6);
-        // Mint counter tracks across chunks (3 in old + 1 in new)
         assert!(count_verb(pid_addr, VERB_MINT) == 4, 7);
         assert!(total_entries(pid_addr) == 4, 8);
     }

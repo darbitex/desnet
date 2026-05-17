@@ -1,19 +1,3 @@
-/// AMM - purpose-built SUPRA/$TOKEN constant-product pool (LOCKED 2026-05-02).
-///
-/// Composability shape MATCHES darbitex AMM exactly (minus arbitrage module).
-/// External aggregators / arb bots can route through both venues uniformly via:
-/// - `compute_amount_out(reserve_in, reserve_out, amount_in)` - pure quote
-/// - `swap(pool_addr, swapper, fa_in, min_out): FA` - generic by addr
-/// - `flash_borrow(pool_addr, metadata, amount): (FA, FlashReceipt)` - Aave-standard
-/// - `flash_repay(pool_addr, fa_in, receipt)` - strict repay equality
-/// - Addr-based views: `reserves(pool_addr)`, `lp_supply(pool_addr)`,
-///   `lp_fee_per_share(pool_addr)`, `pool_tokens(pool_addr)`
-///
-/// Single non-composable surface = `create_pool_atomic` (friend-only, factory at register).
-/// All other entries (add/remove/swap/flash/claim) are PUBLIC.
-///
-/// LP repr: Position NFT (Object<Position>), managed by `desnet::lp_staking`.
-/// Universal fee accumulator (denominator = lp_supply, all positions earn).
 module desnet::amm {
     use std::signer;
     use std::vector;
@@ -32,20 +16,15 @@ module desnet::amm {
     friend desnet::supra_vault;
     friend desnet::ipo;
 
-    // ============ CONSTANTS ============
-
     const FEE_BPS: u64 = 100;
-    const FLASH_FEE_BPS: u64 = 100;                    // = LP swap fee (uniform 10 bps, all 100% to LP)
+    const FLASH_FEE_BPS: u64 = 100;
     const FEE_DENOM: u64 = 10000;
     const MIN_INITIAL_LP: u128 = 1000;
     const FEE_ACC_SCALE: u128 = 1_000_000_000_000_000_000;
 
     const SEED_POOL: vector<u8> = b"desnet::amm::pool::";
 
-    /// On-chain user-facing risk disclosure (concise; off-chain docs hold full text).
     const WARNING: vector<u8> = b"DESNET AMM x*y=k. Multi-LLM audited (R1-R5, mainnet live). Use at own risk.";
-
-    // ============ ERROR CODES ============
 
     const E_POOL_NOT_FOUND: u64 = 1;
     const E_POOL_ALREADY_EXISTS: u64 = 2;
@@ -63,9 +42,6 @@ module desnet::amm {
     const E_WRONG_TOKEN: u64 = 15;
     const E_SWAPS_DISABLED: u64 = 16;
 
-    // ============ TYPES ============
-
-    /// Per-handle Pool. LP is in `desnet::lp_staking::Position` NFTs (not FA).
     struct Pool has key {
         handle: vector<u8>,
         supra_reserve: Object<FungibleStore>,
@@ -77,20 +53,17 @@ module desnet::amm {
         fee_per_lp_supra: u128,
         fee_per_lp_token: u128,
         creator_pid: address,
-        locked: bool,                                 // flash loan reentrancy guard
-        swaps_enabled: bool,                          // IPO gate: false sampai IPO complete
+        locked: bool,
+        swaps_enabled: bool,
         extend_ref: ExtendRef,
     }
 
-    /// Flash loan hot-potato. No drop/store/key - must be consumed via flash_repay same tx.
     struct FlashReceipt {
         pool_addr: address,
         metadata_addr: address,
         amount: u64,
         fee: u64,
     }
-
-    // ============ EVENTS ============
 
     #[event]
     struct PoolCreated has drop, store {
@@ -163,8 +136,6 @@ module desnet::amm {
         repaid: u64,
     }
 
-    // ============ ADDR DERIVATION ============
-
     public fun pool_address_of_handle(handle: vector<u8>): address {
         let seed = pool_seed(&handle);
         object::create_object_address(&@desnet, seed)
@@ -174,7 +145,6 @@ module desnet::amm {
         exists<Pool>(pool_address_of_handle(handle))
     }
 
-    /// Darbitex-shape: check by addr instead of handle.
     public fun pool_exists_at(pool_addr: address): bool {
         exists<Pool>(pool_addr)
     }
@@ -184,8 +154,6 @@ module desnet::amm {
         vector::append(&mut s, *handle);
         s
     }
-
-    // ============ CREATE (FRIEND, called by factory at register_handle) ============
 
     public(friend) fun create_pool_atomic(
         handle: vector<u8>,
@@ -260,11 +228,6 @@ module desnet::amm {
         fungible_asset::create_store<Metadata>(&store_constructor, metadata)
     }
 
-    // ============ ADD LIQUIDITY (FRIEND, called by lp_staking) ============
-
-    /// M1 fix (audit R1): returns (lp_minted, supra_refund_fa, token_refund_fa).
-    /// Caller (lp_staking) deposits refund FAs back to user. Uniswap V2 pattern -
-    /// prevents naive callers from gifting surplus to existing LPs on ratio mismatch.
     public(friend) fun add_liquidity_internal(
         handle: vector<u8>,
         supra_in: FungibleAsset,
@@ -296,7 +259,6 @@ module desnet::amm {
         assert!(lp_minted > 0, E_INSUFFICIENT_LIQUIDITY);
         assert!(lp_minted >= (min_lp_out as u128), E_SLIPPAGE_EXCEEDED);
 
-        // M1: compute optimal pair from lp_minted; refund surplus from over-funded side.
         let optimal_supra = (lp_minted * (supra_reserve_amt as u128)) / pool.lp_supply;
         let optimal_token = (lp_minted * (token_reserve_amt as u128)) / pool.lp_supply;
         let supra_surplus = (supra_amount as u128) - optimal_supra;
@@ -330,8 +292,6 @@ module desnet::amm {
 
         (lp_minted, supra_refund, token_refund)
     }
-
-    // ============ REMOVE LIQUIDITY (FRIEND) ============
 
     public(friend) fun remove_liquidity_internal(
         handle: vector<u8>,
@@ -380,8 +340,6 @@ module desnet::amm {
         (supra_out_fa, token_out_fa)
     }
 
-    // ============ FEE EXTRACTION (FRIEND, called by lp_staking on claim) ============
-
     public(friend) fun extract_fees_for_claim(
         handle: vector<u8>,
         supra_amount: u64,
@@ -391,7 +349,6 @@ module desnet::amm {
         assert!(exists<Pool>(pool_addr), E_POOL_NOT_FOUND);
         let pool = borrow_global<Pool>(pool_addr);
 
-        // M1 (self-audit): defense-in-depth - gate fee extraction during flash window.
         assert!(!pool.locked, E_LOCKED);
         assert!(fungible_asset::balance(pool.supra_fees) >= supra_amount, E_INSUFFICIENT_FEE_BUCKET);
         assert!(fungible_asset::balance(pool.token_fees) >= token_amount, E_INSUFFICIENT_FEE_BUCKET);
@@ -410,10 +367,6 @@ module desnet::amm {
         (supra_fa, token_fa)
     }
 
-    // ============ SWAP (PUBLIC) ============
-
-    /// Generic swap by pool_addr - darbitex-shape composable entry for aggregators.
-    /// Detects direction from fa_in metadata: SUPRA_FA -> SUPRA-in, else -> TOKEN-in.
     public fun swap(
         pool_addr: address,
         _swapper: address,
@@ -441,7 +394,6 @@ module desnet::amm {
         let caller_addr = signer::address_of(caller);
         let supra_coin = coin::withdraw<SupraCoin>(caller, amount_in);
         let supra_fa = coin::coin_to_fungible_asset(supra_coin);
-        // v0.3.2 (F5): route through *_actor to populate event.actor with caller addr.
         let token_out_fa = swap_exact_supra_in_actor(handle, supra_fa, min_out, caller_addr);
         primary_fungible_store::deposit(caller_addr, token_out_fa);
     }
@@ -459,14 +411,10 @@ module desnet::amm {
         let token_meta = object::address_to_object<Metadata>(token_meta_addr);
 
         let token_fa = primary_fungible_store::withdraw(caller, token_meta, amount_in);
-        // v0.3.2 (F5): route through *_actor to populate event.actor with caller addr.
         let supra_out_fa = swap_exact_token_in_actor(handle, token_fa, min_out, caller_addr);
         primary_fungible_store::deposit(caller_addr, supra_out_fa);
     }
 
-    /// v0.3.2 (F5): backward-compat wrapper. Composable callers (aggregators/flash arbs)
-    /// that don't have the actor address available can still call this - event.actor stays
-    /// @0x0 sentinel. New code should prefer `swap_exact_supra_in_actor` to preserve attribution.
     public fun swap_exact_supra_in(
         handle: vector<u8>,
         supra_in: FungibleAsset,
@@ -475,8 +423,6 @@ module desnet::amm {
         swap_exact_supra_in_actor(handle, supra_in, min_out, @0x0)
     }
 
-    /// v0.3.2 (F5): actor-aware variant. `actor` is recorded in `Swapped` event for indexer
-    /// attribution. Pass `@0x0` for sentinel "actor unknown / multi-hop call".
     public fun swap_exact_supra_in_actor(
         handle: vector<u8>,
         supra_in: FungibleAsset,
@@ -532,7 +478,6 @@ module desnet::amm {
         token_out_fa
     }
 
-    /// v0.3.2 (F5): backward-compat wrapper for token-in direction.
     public fun swap_exact_token_in(
         handle: vector<u8>,
         token_in: FungibleAsset,
@@ -541,7 +486,6 @@ module desnet::amm {
         swap_exact_token_in_actor(handle, token_in, min_out, @0x0)
     }
 
-    /// v0.3.2 (F5): actor-aware variant for token-in direction.
     public fun swap_exact_token_in_actor(
         handle: vector<u8>,
         token_in: FungibleAsset,
@@ -597,11 +541,6 @@ module desnet::amm {
         supra_out_fa
     }
 
-    // ============ FLASH LOAN (PUBLIC, Aave-standard) ============
-
-    /// Flash borrow `amount` of `metadata` from pool. Returns FA + hot-potato receipt.
-    /// Pool LOCKED during borrow span - swap/LP/flash all abort until repay.
-    /// Flash fee: 9 bps of borrowed amount (matches darbitex).
     public fun flash_borrow(
         pool_addr: address,
         metadata: Object<Metadata>,
@@ -646,8 +585,6 @@ module desnet::amm {
         (fa_out, receipt)
     }
 
-    /// Repay flash loan. STRICT equality: fa_in.amount == receipt.amount + receipt.fee.
-    /// Borrow -> Reserve; fee -> Fee bucket (accumulates to LPs via fee_per_lp).
     public fun flash_repay(
         pool_addr: address,
         fa_in: FungibleAsset,
@@ -670,12 +607,10 @@ module desnet::amm {
             (pool.token_reserve, pool.token_fees, false)
         };
 
-        // Split: fee -> fee bucket, principal -> reserve
         let fee_fa = fungible_asset::extract(&mut fa_in, fee);
         fungible_asset::deposit(fee_store, fee_fa);
         fungible_asset::deposit(reserve_store, fa_in);
 
-        // Update fee accumulator
         if (pool.lp_supply > 0) {
             let fee_per_lp_delta = ((fee as u128) * FEE_ACC_SCALE) / pool.lp_supply;
             if (is_supra) {
@@ -694,10 +629,6 @@ module desnet::amm {
         });
     }
 
-    // ============ INTERNAL MATH ============
-
-    /// Pure quote - darbitex-shape signature. CPMM with 10 bps fee.
-    /// v0.3.2 (F4b): added #[view] so frontend can call gas-free via /v1/view.
     #[view]
     public fun compute_amount_out(
         reserve_in: u64,
@@ -718,8 +649,6 @@ module desnet::amm {
         let product = (supra as u128) * (token as u128);
         math128::sqrt(product)
     }
-
-    // ============ VIEWS - handle-based (internal) ============
 
     #[view]
     public fun reserves(handle: vector<u8>): (u64, u64) acquires Pool {
@@ -790,8 +719,6 @@ module desnet::amm {
         }
     }
 
-    // ============ VIEWS - addr-based (darbitex-shape composability) ============
-
     #[view]
     public fun reserves_at(pool_addr: address): (u64, u64) acquires Pool {
         assert!(exists<Pool>(pool_addr), E_POOL_NOT_FOUND);
@@ -829,10 +756,6 @@ module desnet::amm {
         assert!(exists<Pool>(pool_addr), E_POOL_NOT_FOUND);
         borrow_global<Pool>(pool_addr).locked
     }
-
-    // ============ v0.3.2 (F4c): handle/pool_addr companion view fns ============
-    // Some views take handle, others take pool_addr - caller convenience companions
-    // for the missing direction. Body delegates to existing variant.
 
     #[view]
     public fun lp_fee_per_share_by_handle(handle: vector<u8>): (u128, u128) acquires Pool {
@@ -883,22 +806,15 @@ module desnet::amm {
     #[view]
     public fun flash_fee_bps(): u64 { FLASH_FEE_BPS }
 
-    /// On-chain user-facing risk disclosure (matches darbitex AMM pattern).
     #[view]
     public fun read_warning(): vector<u8> { WARNING }
 
-    // ============ IPO GATE ============
-
-    /// Enable swaps on a pool. Friend-only (called by ipo::complete_ipo).
-    /// Permanently irreversible for a given pool - no disable counterpart.
     public(friend) fun enable_swaps(handle: vector<u8>) acquires Pool {
         let pool_addr = pool_address_of_handle(handle);
         assert!(exists<Pool>(pool_addr), E_POOL_NOT_FOUND);
         let pool = borrow_global_mut<Pool>(pool_addr);
         pool.swaps_enabled = true;
     }
-
-    // ============ TEST-ONLY HELPERS ============
 
     #[test_only]
     public fun calc_swap_out_for_test(amount_in: u64, reserve_in: u64, reserve_out: u64): u64 {
@@ -930,8 +846,6 @@ module desnet::amm {
     ): u128 acquires Pool {
         let (lp, supra_refund, token_refund) =
             add_liquidity_internal(handle, supra_in, token_in, min_lp_out);
-        // Tests may pass non-exact-ratio inputs, so refunds can be non-zero.
-        // Sink them at @desnet (test-only path; production caller receives the refund).
         if (fungible_asset::amount(&supra_refund) > 0) {
             primary_fungible_store::deposit(@desnet, supra_refund);
         } else { fungible_asset::destroy_zero(supra_refund) };
@@ -951,8 +865,6 @@ module desnet::amm {
         remove_liquidity_internal(handle, lp_amount, min_supra_out, min_token_out)
     }
 
-    // ============ UNIT TESTS ============
-
     #[test]
     fun test_pool_address_deterministic() {
         let h = b"alice";
@@ -966,21 +878,11 @@ module desnet::amm {
 
     #[test]
     fun test_compute_amount_out_known_values() {
-        // 100 in, 1000 reserve_in, 2000 reserve_out
-        // amount_after_fee = 100 * 9900 = 990000
-        // num = 990000 * 2000 = 1_980_000_000
-        // den = 1000 * 10000 + 990000 = 10_990_000
-        // out = 1_980_000_000 / 10_990_000 = 180
         assert!(compute_amount_out(1000, 2000, 100) == 180, 1);
     }
 
     #[test]
     fun test_compute_amount_out_with_fee() {
-        // 10000 in, 100k/200k reserves
-        // amount_after_fee = 10000 * 9900 = 99_000_000
-        // num = 99_000_000 * 200_000 = 19_800_000_000_000
-        // den = 100_000 * 10_000 + 99_000_000 = 1_099_000_000
-        // out = 19_800_000_000_000 / 1_099_000_000 = 18016
         assert!(compute_amount_out(100_000, 200_000, 10_000) == 18016, 1);
     }
 
@@ -991,9 +893,7 @@ module desnet::amm {
 
     #[test]
     fun test_compute_flash_fee() {
-        // 100 bps of 10000 = 100
         assert!(compute_flash_fee(10000) == 100, 1);
-        // 100 bps of 100M = 1_000_000
         assert!(compute_flash_fee(100_000_000) == 1_000_000, 2);
     }
 

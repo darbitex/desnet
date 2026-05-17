@@ -1,22 +1,3 @@
-/// LP Position NFT - V3-style position management + emission + fee claims (LOCKED 2026-05-02).
-///
-/// LP repr: each position = an Object (NFT-style). NO LP FA exists.
-/// Auth model: `object::owner(position)` - V3 NFT semantics. Position transferable.
-/// Three position kinds via `unlock_at_secs` marker on unified `Position` struct:
-///   1. **LockedPosition (creator atomic)** - unlock_at_secs = u64::MAX (never).
-///      Stored AT pid_addr. Recipient at claim = object::owner(pid_obj) [auto-follows NFT transfer].
-///   2. **FreePosition** - unlock_at_secs = 0 (anytime withdraw). Recipient = object::owner(position).
-///   3. **TimeLockedPosition** - unlock_at_secs > 0 (withdraw after t). Recipient = object::owner(position).
-///
-/// Universal yield (LOCKED 2026-05-02): ALL positions earn:
-///   - **Swap fees (SUPRA + TOKEN)** - proportional to shares / amm.lp_supply
-///   - **Emission ($TOKEN from 900M reserve)** - C-variant, 10/sec, denominator = amm.lp_supply
-///
-/// No "raw LP forfeits" mechanic. No staked-vs-unstaked distinction. Free, time-locked,
-/// locked all earn identically. The only difference is exit option (unlock_at).
-///
-/// Forever-lock invariant (structural): for unlock_at=u64::MAX, `unstake` aborts before
-/// calling `amm::remove_liquidity_internal`. LP reserves never returned. Forever-locked.
 module desnet::lp_staking {
     use std::signer;
     use std::vector;
@@ -33,19 +14,13 @@ module desnet::lp_staking {
 
     friend desnet::factory;
 
-    // ============ CONSTANTS ============
-
-    /// Default emission rate: 10 $TOKEN/sec at 8 dec = 1e9 raw/sec.
     const DEFAULT_RATE_PER_SEC: u64 = 1_000_000_000;
 
     const ACC_SCALE: u128 = 1_000_000_000_000_000_000;
 
-    /// Forever marker.
     const UNLOCK_FOREVER: u64 = 18446744073709551615;
 
     const SEED_STAKING_POOL: vector<u8> = b"desnet::lp_staking::pool::";
-
-    // ============ ERROR CODES ============
 
     const E_POOL_NOT_FOUND: u64 = 1;
     const E_POOL_ALREADY_EXISTS: u64 = 2;
@@ -58,11 +33,6 @@ module desnet::lp_staking {
     const E_LOCKED_POSITION_EXISTS: u64 = 9;
     const E_INVALID_PID_SIGNER: u64 = 10;
 
-    // ============ TYPES ============
-
-    /// Per-handle staking emission state. C-variant: rate fixed per pool,
-    /// accumulated_per_share advances on every stake/unstake/claim.
-    /// Denominator = amm::lp_supply(handle) (universal - all Position.shares contribute).
     struct StakingPool has key {
         handle: vector<u8>,
         token_metadata_addr: address,
@@ -73,20 +43,16 @@ module desnet::lp_staking {
         extend_ref: ExtendRef,
     }
 
-    /// Unified Position. NFT-style (Object with object::owner-based auth).
-    /// Stored at pid_addr (creator-locked) OR staker-derived addr (free/time-locked).
     struct Position has key {
         pool_addr: address,
         handle: vector<u8>,
-        shares: u128,                                 // logical LP units
-        last_acc_per_share: u128,                     // emission snapshot
-        last_fee_per_lp_supra: u128,                    // SUPRA fee snapshot
-        last_fee_per_lp_token: u128,                  // TOKEN fee snapshot
-        unlock_at_secs: u64,                          // 0=free, t=until-t, MAX=forever
-        recipient_pid: address,                       // @0x0 -> pay object::owner(position); else -> object::owner(pid)
+        shares: u128,
+        last_acc_per_share: u128,
+        last_fee_per_lp_supra: u128,
+        last_fee_per_lp_token: u128,
+        unlock_at_secs: u64,
+        recipient_pid: address,
     }
-
-    // ============ EVENTS ============
 
     #[event]
     struct StakingPoolCreated has drop, store {
@@ -105,7 +71,7 @@ module desnet::lp_staking {
         shares: u128,
         unlock_at_secs: u64,
         recipient_pid: address,
-        kind: u8,                                     // 1=locked-creator, 2=free, 3=time-locked
+        kind: u8,
     }
 
     #[event]
@@ -128,8 +94,6 @@ module desnet::lp_staking {
         token_fee_amount: u64,
     }
 
-    // ============ ADDR DERIVATION ============
-
     public fun staking_pool_address_of_handle(handle: vector<u8>): address {
         let seed = pool_seed(&handle);
         object::create_object_address(&@desnet, seed)
@@ -145,9 +109,6 @@ module desnet::lp_staking {
         s
     }
 
-    // ============ CREATE - friend-only (factory atomic at register) ============
-
-    /// Create StakingPool + LockedPosition at pid_addr with creator's initial LP.
     public(friend) fun create_pool_and_lock(
         handle: vector<u8>,
         token_metadata_addr: address,
@@ -189,7 +150,6 @@ module desnet::lp_staking {
             rate_per_sec: DEFAULT_RATE_PER_SEC,
         });
 
-        // Snapshot fee accumulators at creation
         let (fee_per_supra, fee_per_token) = amm::fee_per_lp(handle);
 
         move_to(pid_signer, Position {
@@ -216,11 +176,6 @@ module desnet::lp_staking {
         pool_addr
     }
 
-    // ============ ADD LIQUIDITY - public entries ============
-
-    /// Public add liquidity. Withdraws SUPRA + TOKEN from caller, calls amm::add_liquidity_internal,
-    /// creates Position (kind = free, unlock_at = 0). Returns nothing - Position is at caller-derived addr.
-    /// Frontend reads PositionCreated event for position_addr.
     public entry fun add_liquidity(
         caller: &signer,
         handle: vector<u8>,
@@ -232,7 +187,6 @@ module desnet::lp_staking {
         add_liquidity_with_lock_internal(caller, handle, supra_amount, token_amount, min_lp_out, unlock_at_secs);
     }
 
-    /// Public add liquidity with time-lock. Position cannot be removed until unlock_at_secs.
     public entry fun add_liquidity_with_lock(
         caller: &signer,
         handle: vector<u8>,
@@ -258,16 +212,13 @@ module desnet::lp_staking {
         let pool_addr = staking_pool_address_of_handle(handle);
         assert!(exists<StakingPool>(pool_addr), E_POOL_NOT_FOUND);
 
-        // Withdraw SUPRA (Coin -> FA)
         let supra_coin = coin::withdraw<SupraCoin>(caller, supra_amount);
         let supra_fa = coin::coin_to_fungible_asset(supra_coin);
 
-        // Withdraw TOKEN (FA from primary store)
         let pool = borrow_global<StakingPool>(pool_addr);
         let token_meta = object::address_to_object<Metadata>(pool.token_metadata_addr);
         let token_fa = primary_fungible_store::withdraw(caller, token_meta, token_amount);
 
-        // Mint LP shares via amm. M1 fix (audit R1): refund surplus on ratio mismatch.
         let (lp_minted, supra_refund, token_refund) =
             amm::add_liquidity_internal(handle, supra_fa, token_fa, min_lp_out);
         assert!(lp_minted > 0, E_ZERO_SHARES);
@@ -282,7 +233,6 @@ module desnet::lp_staking {
             fungible_asset::destroy_zero(token_refund);
         };
 
-        // Update emission accumulator BEFORE snapshotting position
         update_pool(pool_addr);
         let pool = borrow_global<StakingPool>(pool_addr);
         let snapshot_acc = pool.accumulated_per_share;
@@ -290,7 +240,6 @@ module desnet::lp_staking {
 
         let (fee_per_supra, fee_per_token) = amm::fee_per_lp(handle);
 
-        // Create Position object owned by caller (NFT-style)
         let constructor = object::create_object(caller_addr);
         let pos_signer = object::generate_signer(&constructor);
         let pos_addr = signer::address_of(&pos_signer);
@@ -318,10 +267,6 @@ module desnet::lp_staking {
         });
     }
 
-    // ============ REMOVE LIQUIDITY - public, gated by unlock_at ============
-
-    /// Caller must be Position object owner (NFT semantics - Position is transferable).
-    /// Forever-locked positions can NEVER unstake. Auto-claims pending before destroy.
     public entry fun remove_liquidity(
         caller: &signer,
         position_addr: address,
@@ -335,18 +280,14 @@ module desnet::lp_staking {
         let position_obj = object::address_to_object<Position>(position_addr);
         let position_owner = object::owner(position_obj);
 
-        // Auth: caller must be current owner of Position object
         assert!(signer::address_of(caller) == position_owner, E_NOT_POSITION_OWNER);
 
-        // Forever-lock check
         assert!(unlock_at != UNLOCK_FOREVER, E_LOCKED_FOREVER);
         let now = timestamp::now_seconds();
         assert!(now >= unlock_at, E_LOCKED_NOT_YET_UNLOCKED);
 
-        // Auto-claim before destroy
         claim_internal(position_addr);
 
-        // Now destroy position + return reserves
         let Position {
             pool_addr: _,
             handle: _,
@@ -376,11 +317,6 @@ module desnet::lp_staking {
         });
     }
 
-    // ============ CLAIM - permissionless triple-settle ============
-
-    /// Anyone can poke. Recipient resolved at claim:
-    /// - recipient_pid != @0x0 -> object::owner(pid) [auto-follows NFT transfer]
-    /// - recipient_pid == @0x0 -> object::owner(position) [Position transfer = recipient transfer]
     public entry fun claim(
         _caller: &signer,
         position_addr: address,
@@ -395,11 +331,6 @@ module desnet::lp_staking {
         let handle = position.handle;
         let shares_u128 = position.shares;
 
-        // Supra mode: token emission is sourced exclusively from the new
-        // multi-FA gauge owned by ipo::Position holders. lp_staking::Position
-        // is the legacy path and earns only AMM swap fees here. The pool's
-        // old emission accumulator is still advanced (cheap, keeps the field
-        // alive in case we wire a separate stream later) but no payout flows.
         update_pool(pool_addr);
         let pool = borrow_global<StakingPool>(pool_addr);
         let acc = pool.accumulated_per_share;
@@ -446,19 +377,14 @@ module desnet::lp_staking {
 
     fun resolve_recipient(recipient_pid: address, position_addr: address): address {
         if (recipient_pid == @0x0) {
-            // Free / time-locked: recipient = current Position object owner
             let pos_obj = object::address_to_object<Position>(position_addr);
             object::owner(pos_obj)
         } else {
-            // Locked-creator: recipient = current PID NFT owner
             let pid_obj = object::address_to_object<ObjectCore>(recipient_pid);
             object::owner(pid_obj)
         }
     }
 
-    // ============ INTERNAL - emission accumulator (C-variant) ============
-
-    /// Universal denominator: amm::lp_supply(handle) - ALL positions (locked + free + time-locked).
     fun update_pool(pool_addr: address) acquires StakingPool {
         let pool = borrow_global_mut<StakingPool>(pool_addr);
         let now = timestamp::now_seconds();
@@ -476,8 +402,6 @@ module desnet::lp_staking {
         pool.accumulated_per_share = pool.accumulated_per_share + delta_per_share;
         pool.last_update_secs = now;
     }
-
-    // ============ VIEWS ============
 
     #[view]
     public fun has_position(position_addr: address): bool {
@@ -508,16 +432,12 @@ module desnet::lp_staking {
         borrow_global<Position>(position_addr).recipient_pid
     }
 
-    /// NFT owner of position (= effective claimer for free/time-locked).
     #[view]
     public fun position_owner(position_addr: address): address {
         let pos_obj = object::address_to_object<Position>(position_addr);
         object::owner(pos_obj)
     }
 
-    // ============ DARBITEX-SHAPE COMPOSABILITY VIEWS (Object<Position>-based) ============
-
-    /// Pool addr containing this position. Matches darbitex `position_pool_addr(pos)`.
     #[view]
     public fun position_pool_addr(pos: Object<Position>): address acquires Position {
         let pos_addr = object::object_address(&pos);
@@ -525,8 +445,6 @@ module desnet::lp_staking {
         borrow_global<Position>(pos_addr).pool_addr
     }
 
-    /// Per-position fee snapshots (last claim point). Matches darbitex `position_fee_debt(pos)`.
-    /// Returns (last_fee_per_lp_supra, last_fee_per_lp_token).
     #[view]
     public fun position_fee_debt(pos: Object<Position>): (u128, u128) acquires Position {
         let pos_addr = object::object_address(&pos);
@@ -535,9 +453,6 @@ module desnet::lp_staking {
         (p.last_fee_per_lp_supra, p.last_fee_per_lp_token)
     }
 
-    /// Pending claimable LP fees only (excluding emission). Matches darbitex
-    /// `position_pending_fees(pos): (u64, u64)`.
-    /// For triple-settle (emission + fees), use `position_pending_all`.
     #[view]
     public fun position_pending_fees(pos: Object<Position>): (u64, u64) acquires Position {
         let pos_addr = object::object_address(&pos);
@@ -550,7 +465,6 @@ module desnet::lp_staking {
         (pending_supra, pending_token)
     }
 
-    /// Position shares as Object input (Object-shape for darbitex parity).
     #[view]
     public fun position_shares_obj(pos: Object<Position>): u128 acquires Position {
         let pos_addr = object::object_address(&pos);
@@ -558,7 +472,6 @@ module desnet::lp_staking {
         borrow_global<Position>(pos_addr).shares
     }
 
-    /// Returns (pending_emission, pending_supra_fee, pending_token_fee).
     #[view]
     public fun position_pending_all(position_addr: address): (u64, u64, u64)
         acquires Position, StakingPool
@@ -609,8 +522,6 @@ module desnet::lp_staking {
 
     #[view]
     public fun acc_scale(): u128 { ACC_SCALE }
-
-    // ============ UNIT TESTS ============
 
     #[test]
     fun test_unlock_forever_marker_is_u64_max() {

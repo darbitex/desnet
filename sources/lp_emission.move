@@ -1,18 +1,3 @@
-/// LP Rewards Gauge - multi-FA permissionless rewards pool for LP positions.
-///
-/// One pool per handle. Anyone can `notify_reward` with ANY FA. Each notify
-/// bumps a MasterChef-style `acc_per_share` accumulator for that reward token.
-/// Positions (held by `ipo::Position`) carry per-token reward debt and claim
-/// by walking the pool's reward-token list.
-///
-/// Total-share bookkeeping is push-driven: ipo calls `on_share_increase` /
-/// `on_share_decrease` whenever a Position is created or destroyed. This keeps
-/// the module dependency one-way (ipo -> lp_emission) - lp_emission never reads
-/// from ipo.
-///
-/// Replaces the v0.3 sealed-reserve design: Supra mode mints 100% supply into
-/// the IPO pool, so the old "deploy 90% reserve at registration" path is gone.
-/// The pool starts empty and is funded entirely by external topups.
 module desnet::lp_emission {
     use std::signer;
     use std::vector;
@@ -26,26 +11,11 @@ module desnet::lp_emission {
 
     friend desnet::ipo;
 
-    // ============ CONSTANTS ============
-
-    /// Fixed-point scale for acc_per_share - 1e12 (MasterChef standard).
-    /// Trade-off: lowered from 1e18 to stay clear of u128 overflow on
-    /// `shares * acc_per_share`. At extreme bounds (shares ~ 1e15 raw and
-    /// cumulative acc ~ 1e23 across many notifies), the product approaches
-    /// 1e38 which is still under u128_max (3.4e38). The cost is quantization:
-    /// a notify of 1 raw unit against a pool with total_share = 1e12 contributes
-    /// `delta = 1 * 1e12 / 1e12 = 1` raw unit per share - fine. Below 1e12
-    /// total_share, sub-unit rewards may quantize to 0; permissionless top-ups
-    /// of small amounts are encouraged to batch.
     const ACC_SCALE: u128 = 1_000_000_000_000;
 
-    /// Anti-bloat: each pool can register at most this many distinct reward
-    /// tokens. Once full, new tokens are rejected to keep iteration cheap.
     const MAX_REWARD_TOKENS: u64 = 32;
 
     const SEED_LP_REWARDS: vector<u8> = b"lp_rewards::";
-
-    // ============ ERROR CODES ============
 
     const E_POOL_NOT_FOUND: u64 = 1;
     const E_ZERO_AMOUNT: u64 = 2;
@@ -53,14 +23,7 @@ module desnet::lp_emission {
     const E_TOO_MANY_REWARD_TOKENS: u64 = 4;
     const E_REWARD_TOKEN_NOT_REGISTERED: u64 = 5;
     const E_SHARE_UNDERFLOW: u64 = 6;
-    /// Y-4 (2026-05-17 self-audit): rejects dispatchable FAs. A hook-bearing
-    /// FA registered here would let an attacker abort withdraw/deposit on
-    /// claim_lp_rewards (and transitively burn_for_refund, which calls claim
-    /// before destroying Position). That bricks IPO refunds entirely for any
-    /// holder of a Position whose gauge has the malicious token registered.
     const E_DISPATCHABLE_FA_REJECTED: u64 = 7;
-
-    // ============ TYPES ============
 
     struct LpRewardsPool has key {
         handle: vector<u8>,
@@ -71,12 +34,10 @@ module desnet::lp_emission {
     }
 
     struct RewardAccumulator has store, drop {
-        acc_per_share: u128,        // raw FA units * ACC_SCALE per LP share
+        acc_per_share: u128,
         total_topped_up: u128,
         total_distributed: u128,
     }
-
-    // ============ EVENTS ============
 
     #[event]
     struct PoolInitialized has drop, store {
@@ -116,8 +77,6 @@ module desnet::lp_emission {
         total_share_after: u128,
     }
 
-    // ============ ADDRESS DERIVATION ============
-
     public fun pool_address_of_handle(handle: vector<u8>): address {
         object::create_object_address(&@desnet, make_seed(&handle))
     }
@@ -127,8 +86,6 @@ module desnet::lp_emission {
         vector::append(&mut seed, *handle);
         seed
     }
-
-    // ============ INIT - lazy, auto-fires on first share increase or notify ============
 
     fun ensure_pool(handle: vector<u8>): address {
         let pool_addr = pool_address_of_handle(handle);
@@ -150,8 +107,6 @@ module desnet::lp_emission {
         };
         pool_addr
     }
-
-    // ============ FRIEND: share-tracking hooks from ipo ============
 
     public(friend) fun on_share_increase(handle: vector<u8>, delta: u128)
         acquires LpRewardsPool
@@ -183,15 +138,6 @@ module desnet::lp_emission {
         });
     }
 
-    // ============ NOTIFY - permissionless topup ============
-
-    /// Anyone deposits any FA into the pool. Caller funds, accumulator bumps,
-    /// existing positions earn pro-rata from this point forward.
-    ///
-    /// Aborts:
-    /// - amount == 0
-    /// - total_share == 0 (no positions to share with)
-    /// - pool already tracks MAX_REWARD_TOKENS and this token isn't one of them
     public entry fun notify_reward(
         depositor: &signer,
         handle: vector<u8>,
@@ -200,13 +146,6 @@ module desnet::lp_emission {
     ) acquires LpRewardsPool {
         assert!(amount > 0, E_ZERO_AMOUNT);
 
-        // Y-4: reject dispatchable FAs - see reaction_emission for the
-        // attacker model. Here the failure mode is even worse because
-        // ipo::burn_for_refund calls claim_lp_rewards_internal before
-        // destroying Position; a hook-aborting reward token strands the
-        // Position permanently (can never refund, NFT economic value
-        // trapped). Check on depositor's primary store which must already
-        // exist for the subsequent withdraw to succeed.
         let depositor_addr = signer::address_of(depositor);
         let depositor_store = primary_fungible_store::ensure_primary_store_exists(
             depositor_addr, reward_token_meta,
@@ -256,19 +195,11 @@ module desnet::lp_emission {
             acc_per_share_after: acc_after,
         });
 
-        // Feed governance's 30d rolling emission bucket for DESNET-denominated
-        // topups only. DAO threshold/quorum reads this in lieu of a manual
-        // multisig-bumped counter (v0.3.2 F6 design). Non-DESNET reward tokens
-        // are silent to governance.
         if (token_addr == governance::desnet_fa_addr()) {
             governance::record_emission_for_window(amount);
         };
     }
 
-    // ============ FRIEND: claim path called by ipo ============
-
-    /// Snapshot acc_per_share for a token (debt-init + pending calc).
-    /// Returns 0 if pool doesn't exist or token isn't registered.
     public fun acc_per_share_of(handle: vector<u8>, reward_token: address): u128
         acquires LpRewardsPool
     {
@@ -279,15 +210,12 @@ module desnet::lp_emission {
         smart_table::borrow(&pool.reward_tokens, reward_token).acc_per_share
     }
 
-    /// Token list for ipo claim iteration. Empty vec if pool doesn't exist.
     public fun reward_tokens_of(handle: vector<u8>): vector<address> acquires LpRewardsPool {
         let pool_addr = pool_address_of_handle(handle);
         if (!exists<LpRewardsPool>(pool_addr)) return vector::empty();
         borrow_global<LpRewardsPool>(pool_addr).reward_token_list
     }
 
-    /// Friend-only: ipo claim path computes `pending` and pulls that amount as
-    /// a hot-potato FA. ipo is responsible for depositing to the position owner.
     public(friend) fun withdraw_reward(
         handle: vector<u8>,
         reward_token_meta: Object<Metadata>,
@@ -315,8 +243,6 @@ module desnet::lp_emission {
         event::emit(RewardPulled { pool_addr, reward_token: token_addr, amount });
         fa
     }
-
-    // ============ VIEWS ============
 
     #[view]
     public fun pool_exists(handle: vector<u8>): bool {

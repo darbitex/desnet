@@ -1,5 +1,3 @@
-/// SupraFeeVault - handle reg fees: 10% deployer, 90% buy DESNET + burn.
-/// Destinations immutable. No admin.
 module desnet::supra_fee_vault {
     use supra_framework::event;
     use supra_framework::fungible_asset::{Self, Metadata};
@@ -16,32 +14,21 @@ module desnet::supra_fee_vault {
     const SEED_VAULT: vector<u8> = b"supra_fee_vault";
     const DESNET_HANDLE: vector<u8> = b"desnet";
 
-    /// 10% to deployer beneficiary, 90% to DESNET buyback-burn.
     const SPLIT_DEPLOYER_BPS: u64 = 1000;
     const SPLIT_BURN_BPS: u64 = 9000;
     const BPS_DENOM: u64 = 10000;
 
-    /// Min SUPRA balance for settle (anti-dust). 0.1 SUPRA.
     const SUPRA_SETTLE_THRESHOLD: u64 = 10_000_000;
 
     const E_BELOW_THRESHOLD: u64 = 1;
     const E_VAULT_NOT_INITIALIZED: u64 = 2;
-    /// v0.3.3 (G3): old single-tx settle deprecated for MEV-safety. Use two-phase.
     const E_USE_TWO_PHASE: u64 = 3;
     const E_PENDING_SETTLE_NOT_FOUND: u64 = 4;
     const E_PENDING_SETTLE_NOT_RIPE: u64 = 5;
     const E_PENDING_SETTLE_EXPIRED: u64 = 6;
     const E_PENDING_SETTLE_ALREADY_EXISTS: u64 = 7;
-    /// v0.3.3 (Qwen R6 M1): distinct from E_BELOW_THRESHOLD - semantic clarity for
-    /// off-chain monitors. Fires when execute_settle finds vault balance has shrunk
-    /// below the request-time snapshot (structurally impossible since vault has no
-    /// withdraw path, but kept as defensive guard).
     const E_VAULT_SHRUNK_BELOW_SNAPSHOT: u64 = 8;
 
-    /// v0.3.3 (G3): commit-reveal delay parameters mirror R3 H3 fix on supra_vault.
-    /// 60s delay defeats single-tx sandwich (atomic same-tx grief impossible);
-    /// cross-tx pre-positioning bounded by 5% slippage tolerance baked at request.
-    /// Grace window: 600s before request expires (prevents stale baseline exploit).
     const SETTLE_DELAY_SECS: u64 = 60;
     const SETTLE_REQUEST_GRACE_SECS: u64 = 600;
     const SETTLE_SLIPPAGE_BPS: u64 = 9500;
@@ -52,12 +39,6 @@ module desnet::supra_fee_vault {
         extend_ref: ExtendRef,
     }
 
-    /// v0.3.3 (G3 + S1 fix): two-phase commit-reveal settle state. Lives at `vault_addr()`.
-    /// All amounts LOCKED at request time - execute uses these (NOT current balance) so
-    /// (swap_amount, min_out) stay paired from same snapshot. Without this S1 fix, balance
-    /// growing during the 60s window would let attacker sandwich the larger swap with
-    /// trivially-satisfied stale min_out (anchored to smaller request-time amount).
-    /// Excess balance accrued during window stays in vault for next settle cycle.
     struct PendingSettle has key, drop {
         requested_at_secs: u64,
         supra_balance_at_request: u64,
@@ -73,8 +54,6 @@ module desnet::supra_fee_vault {
         desnet_burned: u64,
     }
 
-    /// Auto-fires on compat-upgrade publish since this module is new.
-    /// `account` is @desnet (resource account signer assembled by code::publish_package_txn).
     fun init_module(account: &signer) {
         let constructor = object::create_named_object(account, SEED_VAULT);
         let vault_signer = object::generate_signer(&constructor);
@@ -88,50 +67,31 @@ module desnet::supra_fee_vault {
         });
     }
 
-    /// v0.3.3 (G6, R5 Claude C8): added #[view] so frontend can call gas-free.
     #[view]
     public fun vault_addr(): address {
         object::create_object_address(&@desnet, SEED_VAULT)
     }
 
-    /// v0.3.3 (G6): added #[view].
     #[view]
     public fun vault_exists(): bool {
         exists<SupraFeeVault>(vault_addr())
     }
 
-    /// Friend-only: SUPRA FA -> vault primary store. Called by profile::register_handle.
     public(friend) fun deposit_supra_fa(fa: fungible_asset::FungibleAsset) {
         primary_fungible_store::deposit(vault_addr(), fa);
     }
 
-    /// Public top-up - anyone can deposit SUPRA to vault.
     public entry fun deposit_supra(depositor: &signer, amount: u64) {
         let supra_meta = object::address_to_object<Metadata>(governance::native_fa_metadata());
         let fa = primary_fungible_store::withdraw(depositor, supra_meta, amount);
         deposit_supra_fa(fa);
     }
 
-    /// v0.3.3 (G3, R5 CONV-1 MED-HIGH fix): old single-tx settle DEPRECATED for
-    /// MEV-safety. The original `min_out=0` swap was atomically sandwich-attackable;
-    /// any caller could front-run by skewing the AMM pool, trigger settle to swap
-    /// at unfavorable rate, then back-run to extract SUPRA and leak protocol revenue.
-    /// Replaced by two-phase commit-reveal: `request_settle()` (records reserves
-    /// snapshot + 5% slippage min_out) -> 60s delay -> `execute_settle()` (enforces
-    /// pre-recorded min_out). Single-tx sandwich now structurally impossible;
-    /// cross-tx pre-positioning bounded by 5% baked tolerance.
-    /// Body kept (with abort) for compat preservation of `acquires SupraFeeVault`
-    /// annotation parity. Callers MUST switch to two-phase flow.
     public entry fun settle(_caller: &signer) acquires SupraFeeVault {
         let _ = borrow_global<SupraFeeVault>(vault_addr());
         abort E_USE_TWO_PHASE
     }
 
-    /// v0.3.3 (G3): Phase 1 of MEV-safe settle. Records current pool quote +
-    /// 5% slippage tolerance. After SETTLE_DELAY_SECS, anyone can call
-    /// `execute_settle` to consume this snapshot. If cross-tx attacker shifts pool
-    /// >5% during the 60s window, execute_settle aborts (pool moved too far).
-    /// Pending settle expires after grace (cleanable via `cancel_pending_settle`).
     public entry fun request_settle(_caller: &signer) acquires SupraFeeVault {
         let v_addr = vault_addr();
         assert!(exists<SupraFeeVault>(v_addr), E_VAULT_NOT_INITIALIZED);
@@ -144,7 +104,6 @@ module desnet::supra_fee_vault {
         let to_deployer = (total * SPLIT_DEPLOYER_BPS) / BPS_DENOM;
         let to_burn = total - to_deployer;
 
-        // Quote DESNET-out for to_burn at current reserves; bake 5% slippage tolerance.
         let quoted_out = amm::quote_swap_exact_in(DESNET_HANDLE, to_burn, true);
         let min_out = (quoted_out * SETTLE_SLIPPAGE_BPS) / BPS_FULL;
 
@@ -159,10 +118,6 @@ module desnet::supra_fee_vault {
         });
     }
 
-    /// v0.3.3 (G3): Phase 2 of MEV-safe settle. Requires pending request from
-    /// at least SETTLE_DELAY_SECS ago, within grace window. Enforces baked min_out
-    /// - if pool moved >5% adversely since request, swap aborts (caller must
-    /// `cancel_pending_settle` and `request_settle` again at fresh reserves).
     public entry fun execute_settle(_caller: &signer) acquires SupraFeeVault, PendingSettle {
         let v_addr = vault_addr();
         assert!(exists<SupraFeeVault>(v_addr), E_VAULT_NOT_INITIALIZED);
@@ -174,8 +129,6 @@ module desnet::supra_fee_vault {
         assert!(now >= requested_at + SETTLE_DELAY_SECS, E_PENDING_SETTLE_NOT_RIPE);
         assert!(now <= requested_at + SETTLE_DELAY_SECS + SETTLE_REQUEST_GRACE_SECS, E_PENDING_SETTLE_EXPIRED);
 
-        // S1 fix: extract LOCKED amounts from snapshot - do NOT recompute from current balance.
-        // Excess balance (current - supra_balance_at_request) stays in vault for next cycle.
         let PendingSettle {
             requested_at_secs: _,
             supra_balance_at_request,
@@ -184,9 +137,6 @@ module desnet::supra_fee_vault {
             min_desnet_out,
         } = move_from<PendingSettle>(v_addr);
 
-        // Sanity check: vault must still have >= snapshot amount (vault has no withdraw path
-        // other than this fn, so balance can only grow via deposits - never shrink).
-        // v0.3.3 (Qwen R6 M1): distinct error from anti-dust threshold for monitor clarity.
         let supra_meta = object::address_to_object<Metadata>(governance::native_fa_metadata());
         let current_total = primary_fungible_store::balance(v_addr, supra_meta);
         assert!(current_total >= supra_balance_at_request, E_VAULT_SHRUNK_BELOW_SNAPSHOT);
@@ -197,9 +147,6 @@ module desnet::supra_fee_vault {
         let supra_for_deployer = primary_fungible_store::withdraw(&vault_signer, supra_meta, to_deployer_at_request);
         primary_fungible_store::deposit(vault.deployer_beneficiary, supra_for_deployer);
 
-        // 90% SUPRA swap with min_out enforcement - sandwich-safe per snapshot.
-        // Swap amount AND min_out paired from same request snapshot - slippage check
-        // properly bounds the actual swap size (S1 fix vs anchor-mismatch bug).
         let supra_for_burn_fa = primary_fungible_store::withdraw(&vault_signer, supra_meta, to_burn_at_request);
         let desnet_fa = amm::swap_exact_supra_in(DESNET_HANDLE, supra_for_burn_fa, min_desnet_out);
         let desnet_burned = fungible_asset::amount(&desnet_fa);
@@ -210,7 +157,6 @@ module desnet::supra_fee_vault {
         let desnet_supra_vault = object::create_object_address(&@desnet, vault_seed);
         supra_vault::burn_via_vault(desnet_supra_vault, desnet_fa);
 
-        // Settled.total_supra reflects snapshot amount actually settled (not current vault balance).
         event::emit(Settled {
             total_supra: supra_balance_at_request,
             to_deployer: to_deployer_at_request,
@@ -218,9 +164,6 @@ module desnet::supra_fee_vault {
         });
     }
 
-    /// v0.3.3 (G3): permissionless cancel of stale/grief'd pending settle. Cost = gas only.
-    /// Anyone can call to clear a stuck PendingSettle (e.g., griefer requested then
-    /// abandoned, blocking honest caller from new request_settle).
     public entry fun cancel_pending_settle(_caller: &signer) acquires PendingSettle {
         let v_addr = vault_addr();
         if (exists<PendingSettle>(v_addr)) {
@@ -245,9 +188,6 @@ module desnet::supra_fee_vault {
         borrow_global<PendingSettle>(v_addr).min_desnet_out
     }
 
-    /// One-time poke: migrate stranded pre-upgrade fees from @desnet primary store.
-    /// Pre-v0.3.1, register_handle deposited fees to `state.fee_receiver` (= @desnet
-    /// at init). This pulls those funds into the vault for proper 10/90 split.
     public entry fun migrate_legacy_fees(_caller: &signer) {
         let supra_meta = object::address_to_object<Metadata>(governance::native_fa_metadata());
         let balance = primary_fungible_store::balance(@desnet, supra_meta);
