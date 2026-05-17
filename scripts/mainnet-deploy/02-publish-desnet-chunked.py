@@ -121,7 +121,7 @@ def submit_chunk(fn_name: str, metadata: bytes, indices: list[int], code: list[b
         f'hex:[{",".join(c.hex() for c in code)}]',
         '--private-key', PRIVKEY,
         '--sender-account', ORIGIN,
-        '--rpc-url', RPC_URL,
+        '--url', RPC_URL,
         '--max-gas', MAX_GAS_PUB if fn_name == 'publish_chunked' else MAX_GAS_ENTRY,
         '--gas-unit-price', GAS_PRICE,
         '--assume-yes',

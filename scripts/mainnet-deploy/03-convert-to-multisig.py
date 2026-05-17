@@ -164,7 +164,7 @@ def main():
         'u64:0',
         '--private-key', PRIVKEY,
         '--sender-account', ORIGIN,
-        '--rpc-url', RPC_URL,
+        '--url', RPC_URL,
         '--max-gas', MAX_GAS,
         '--gas-unit-price', GAS_PRICE,
         '--assume-yes',

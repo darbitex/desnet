@@ -25,7 +25,7 @@ supra move tool publish \
   --named-addresses "$NAMED_ADDRESSES" \
   --private-key "$VANITY_PRIVKEY" \
   --sender-account "$ORIGIN_ADDR" \
-  --rpc-url "$RPC_URL" \
+  --url "$RPC_URL" \
   --max-gas "$MAX_GAS_PUBLISH" \
   --gas-unit-price "$GAS_UNIT_PRICE" \
   --included-artifacts none \
