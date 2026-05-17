@@ -322,7 +322,6 @@ module desnet::press {
 
         // Validation phase — check + bump counters in mut-borrow scope
         let press_order: u16;
-        let supply_cap: u16;        // captured for emission call below
         {
             let storage = borrow_global_mut<PidPressStorage>(author_pid);
             assert!(smart_table::contains(&storage.configs, mint_seq), E_PRESS_NOT_ENABLED);
@@ -340,7 +339,6 @@ module desnet::press {
             smart_table::add(&mut registry.pressed_by, presser_pid, true);
             config.pressed_count = config.pressed_count + 1;
             press_order = config.pressed_count;
-            supply_cap = config.supply_cap;
             let emission_amount_local = press_order as u64;
             config.emission_consumed_total = config.emission_consumed_total + emission_amount_local;
         };  // PidPressStorage borrow released here
@@ -383,23 +381,18 @@ module desnet::press {
         object::transfer(&pid_signer, token_object, presser_addr);
 
         // ============ Emission bonus ============
-        // Reaction gauge is keyed by the author's handle (profile::handle_of).
-        // For main-handle authors this is the canonical handle that owns the
-        // economy. For subdomain authors the gauge for their bare subdomain
-        // name starts empty; if nobody notifies it, distribute returns 0 and
-        // press still succeeds (graceful degradation).
+        // Reaction gauge is keyed by author_pid (not handle), so each PID —
+        // main or subdomain — has its own independent reaction pool. No
+        // handle-string collision between a main "alice" and a subdomain
+        // `alice@bob`.
         //
-        // Self-press is blocked: the per-actor uniqueness check above
-        // (presser_pid != author_pid path) doesn't apply when author presses
-        // own mint, but the gauge payout would let an author drain their own
-        // reaction pool with a single self-press. Suppress emission entirely
-        // in that case — NFT still mints to the author's wallet.
+        // Self-press blocked: NFT mint still happens (author can collect own
+        // work) but emission to author's own wallet is suppressed — would
+        // otherwise let author drain their own pool via a single self-press.
         let emission_amount = if (presser_pid == author_pid) {
             0u64
         } else {
-            let author_handle_str = profile::handle_of(author_pid);
-            let author_handle_bytes = *string::bytes(&author_handle_str);
-            reaction_emission::distribute_to_presser(author_handle_bytes, presser_addr)
+            reaction_emission::distribute_to_presser(author_pid, presser_addr)
         };
 
         let now_secs = timestamp::now_seconds();

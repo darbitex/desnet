@@ -28,9 +28,16 @@ module desnet::lp_emission {
 
     // ============ CONSTANTS ============
 
-    /// Fixed-point scale for acc_per_share — picked at 1e18 so even sub-microunit
-    /// rewards per share don't quantize to zero on a 1B-share total.
-    const ACC_SCALE: u128 = 1_000_000_000_000_000_000;
+    /// Fixed-point scale for acc_per_share — 1e12 (MasterChef standard).
+    /// Trade-off: lowered from 1e18 to stay clear of u128 overflow on
+    /// `shares × acc_per_share`. At extreme bounds (shares ≈ 1e15 raw and
+    /// cumulative acc ≈ 1e23 across many notifies), the product approaches
+    /// 1e38 which is still under u128_max (3.4e38). The cost is quantization:
+    /// a notify of 1 raw unit against a pool with total_share = 1e12 contributes
+    /// `delta = 1 × 1e12 / 1e12 = 1` raw unit per share — fine. Below 1e12
+    /// total_share, sub-unit rewards may quantize to 0; permissionless top-ups
+    /// of small amounts are encouraged to batch.
+    const ACC_SCALE: u128 = 1_000_000_000_000;
 
     /// Anti-bloat: each pool can register at most this many distinct reward
     /// tokens. Once full, new tokens are rejected to keep iteration cheap.

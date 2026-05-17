@@ -30,8 +30,6 @@ module desnet::lp_staking {
 
     use desnet::amm;
     use desnet::governance;
-    use desnet::lp_emission;
-    use desnet::voter_history;
 
     friend desnet::factory;
 
@@ -333,7 +331,6 @@ module desnet::lp_staking {
         assert!(exists<Position>(position_addr), E_POSITION_NOT_FOUND);
         let position = borrow_global<Position>(position_addr);
         let unlock_at = position.unlock_at_secs;
-        let pool_addr = position.pool_addr;
         let handle = position.handle;
         let position_obj = object::address_to_object<Position>(position_addr);
         let position_owner = object::owner(position_obj);

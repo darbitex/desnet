@@ -58,8 +58,12 @@ module desnet::ipo {
 
     /// Max cumulative deposit per address = 1% of target TVL (normal participant).
     const MAX_PER_ADDRESS_BPS: u64 = 100;
-    /// Creator's elevated cap = 10% of target TVL. Caller is creator iff
-    /// caller_addr == ipo.creator_wallet (set once at create_ipo).
+    /// Creator's elevated cap = 10% of target TVL. Caller qualifies for the
+    /// elevated cap iff `caller_addr == ipo.creator_wallet` (frozen at
+    /// create_ipo). The creator's LP shares themselves still ride on a
+    /// creator-chosen subdomain PID NFT — same lock-to-PID mechanics as every
+    /// other participant. The frozen `creator_wallet` only gates the 10% cap
+    /// eligibility, not where the LP lives.
     const MAX_CREATOR_BPS: u64 = 1000;
     const MIN_TARGET_TVL: u64 = 100_000_000_000_000;
 
@@ -80,9 +84,12 @@ module desnet::ipo {
         pool_addr: address,
         total_lp: u128,
         depositor_totals: SmartTable<address, u64>,
-        // Frozen at create_ipo time. Defines who gets the 10% cap (vs 1% for
-        // everyone else). Does NOT change if the main-handle PID is later
-        // transferred — creator privilege is a registrant property.
+        // Frozen at create_ipo. Cap-eligibility wallet only — the creator
+        // participates via the same participate_ipo path as anyone else, and
+        // their LP lives on a creator-chosen subdomain PID NFT (same
+        // lock-to-PID mechanics as all other participants). Transferring
+        // the main-handle PID does NOT migrate cap eligibility — it stays
+        // with the original registrant wallet.
         creator_wallet: address,
     }
 
@@ -292,9 +299,12 @@ module desnet::ipo {
         let addr_total = if (smart_table::contains(&ipo.depositor_totals, caller_addr)) {
             *smart_table::borrow(&ipo.depositor_totals, caller_addr)
         } else { 0 };
-        // Creator gets a 10% cap, everyone else 1%. Creator identity is
-        // frozen at create_ipo (registration time) — transferring the main
-        // handle PID later does NOT propagate the elevated cap.
+        // Creator gets a 10% cap, everyone else 1%. The wallet identity
+        // eligible for the elevated cap is frozen at create_ipo and does
+        // not migrate when the main-handle PID is transferred. The LP
+        // shares minted from the creator's deposit still lock onto a
+        // creator-chosen subdomain PID NFT — same path as every other
+        // participant — so the LP itself follows NFT transfer normally.
         let bps = if (caller_addr == ipo.creator_wallet) { MAX_CREATOR_BPS } else { MAX_PER_ADDRESS_BPS };
         let max_per_addr = (ipo.target_tvl * bps) / 10000;
         assert!(addr_total + amount <= max_per_addr, E_EXCEEDS_MAX_ALLOCATION);
@@ -470,7 +480,6 @@ module desnet::ipo {
         // Tell the gauge this share is leaving total_share before destruction.
         lp_emission::on_share_decrease(handle, lp_amount);
 
-        let sub_name = pos.subdomain;
         let Position {
             ipo_addr: _,
             depositor: _,

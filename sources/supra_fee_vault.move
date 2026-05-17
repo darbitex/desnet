@@ -171,7 +171,6 @@ module desnet::supra_fee_vault {
         let now = supra_framework::timestamp::now_seconds();
         let pending_ref = borrow_global<PendingSettle>(v_addr);
         let requested_at = pending_ref.requested_at_secs;
-        let min_out = pending_ref.min_desnet_out;
         assert!(now >= requested_at + SETTLE_DELAY_SECS, E_PENDING_SETTLE_NOT_RIPE);
         assert!(now <= requested_at + SETTLE_DELAY_SECS + SETTLE_REQUEST_GRACE_SECS, E_PENDING_SETTLE_EXPIRED);
 

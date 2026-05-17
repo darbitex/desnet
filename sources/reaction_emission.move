@@ -1,17 +1,21 @@
-/// Reaction Rewards Gauge — multi-FA permissionless rewards pool for pressers.
+/// Reaction Rewards Gauge — per-PID multi-FA permissionless rewards pool.
 ///
-/// One pool per handle. Anyone can `notify_reward` with any FA. On every press,
-/// the presser withdraws `BPS_PER_PRESS × current_balance / 10000` from every
-/// registered reward token. Pool is asymptotic — multiplicative decay never
-/// drives the balance to zero, so the gauge degrades gracefully and the
-/// "early presser farms entire reserve" failure mode of the v0.3 sealed-
-/// reserve design is gone.
+/// Keyed by author PID address (not handle string) — every Profile NFT, main
+/// or subdomain, gets its own independent reaction pool. Two reasons:
+///   1. Avoids the handle-collision hazard where main handle "alice" and
+///      subdomain "alice@bob" both resolve `profile::handle_of()` to "alice"
+///      and would otherwise share a gauge across unrelated authors.
+///   2. Subdomain authors get the same first-class fan-funding surface as
+///      main-handle authors — a `alice@bob` subdomain can be tipped/funded
+///      independently of bob's main pool.
 ///
-/// Replaces the v0.3 sealed-reserve emission (5% of supply at mint, linear-
-/// increasing payout × press_order). Supra mode mints 100% supply into the
-/// IPO pool, so no reserve is funded at registration. The pool starts empty
-/// and is funded entirely by external topups.
+/// On every press, the presser withdraws `BPS_PER_PRESS × current_balance /
+/// 10000` from every registered reward token. Pool is asymptotic —
+/// multiplicative decay never drives balance to zero, so the "early presser
+/// farms entire reserve" failure mode of the v0.3 sealed-reserve design is
+/// gone. Replaces v0.3's sealed 5%-of-supply reserve.
 module desnet::reaction_emission {
+    use std::bcs;
     use std::signer;
     use std::vector;
     use aptos_std::smart_table::{Self, SmartTable};
@@ -26,9 +30,9 @@ module desnet::reaction_emission {
 
     // ============ CONSTANTS ============
 
-    /// Per-press withdrawal rate against the current pool balance for each
-    /// registered reward token. 25 bps = 0.25%. Pool decays multiplicatively
-    /// across presses and never hits zero.
+    /// Per-press withdrawal rate against current pool balance for each
+    /// registered reward token. 25 bps = 0.25% per press. Multiplicative
+    /// decay — pool never hits zero.
     const BPS_PER_PRESS: u64 = 25;
     const BPS_DENOM: u64 = 10_000;
 
@@ -45,7 +49,7 @@ module desnet::reaction_emission {
     // ============ TYPES ============
 
     struct ReactionRewardsPool has key {
-        handle: vector<u8>,
+        author_pid: address,
         extend_ref: ExtendRef,
         reward_tokens: SmartTable<address, ReactionAccumulator>,
         reward_token_list: vector<address>,
@@ -61,7 +65,7 @@ module desnet::reaction_emission {
     #[event]
     struct PoolInitialized has drop, store {
         pool_addr: address,
-        handle: vector<u8>,
+        author_pid: address,
     }
 
     #[event]
@@ -74,6 +78,7 @@ module desnet::reaction_emission {
     #[event]
     struct RewardNotified has drop, store {
         pool_addr: address,
+        author_pid: address,
         depositor: address,
         reward_token: address,
         amount: u64,
@@ -83,6 +88,7 @@ module desnet::reaction_emission {
     #[event]
     struct PressDistributed has drop, store {
         pool_addr: address,
+        author_pid: address,
         presser: address,
         reward_token: address,
         amount: u64,
@@ -91,34 +97,34 @@ module desnet::reaction_emission {
 
     // ============ ADDRESS DERIVATION ============
 
-    public fun pool_address_of_handle(handle: vector<u8>): address {
-        object::create_object_address(&@desnet, make_seed(&handle))
+    public fun pool_address_of(author_pid: address): address {
+        object::create_object_address(&@desnet, make_seed(author_pid))
     }
 
-    fun make_seed(handle: &vector<u8>): vector<u8> {
+    fun make_seed(author_pid: address): vector<u8> {
         let seed = SEED_REACTION_REWARDS;
-        vector::append(&mut seed, *handle);
+        vector::append(&mut seed, bcs::to_bytes(&author_pid));
         seed
     }
 
     // ============ INIT — lazy on first notify ============
 
-    fun ensure_pool(handle: vector<u8>): address {
-        let pool_addr = pool_address_of_handle(handle);
+    fun ensure_pool(author_pid: address): address {
+        let pool_addr = pool_address_of(author_pid);
         if (!exists<ReactionRewardsPool>(pool_addr)) {
             let pkg_signer = governance::derive_pkg_signer();
-            let constructor_ref = object::create_named_object(&pkg_signer, make_seed(&handle));
+            let constructor_ref = object::create_named_object(&pkg_signer, make_seed(author_pid));
             let extend_ref = object::generate_extend_ref(&constructor_ref);
             let transfer_ref = object::generate_transfer_ref(&constructor_ref);
             object::disable_ungated_transfer(&transfer_ref);
             let pool_signer = object::generate_signer(&constructor_ref);
             move_to(&pool_signer, ReactionRewardsPool {
-                handle,
+                author_pid,
                 extend_ref,
                 reward_tokens: smart_table::new(),
                 reward_token_list: vector::empty(),
             });
-            event::emit(PoolInitialized { pool_addr, handle });
+            event::emit(PoolInitialized { pool_addr, author_pid });
         };
         pool_addr
     }
@@ -127,12 +133,12 @@ module desnet::reaction_emission {
 
     public entry fun notify_reward(
         depositor: &signer,
-        handle: vector<u8>,
+        author_pid: address,
         reward_token_meta: Object<Metadata>,
         amount: u64,
     ) acquires ReactionRewardsPool {
         assert!(amount > 0, E_ZERO_AMOUNT);
-        let pool_addr = ensure_pool(handle);
+        let pool_addr = ensure_pool(author_pid);
         let pool = borrow_global_mut<ReactionRewardsPool>(pool_addr);
         let token_addr = object::object_address(&reward_token_meta);
 
@@ -159,6 +165,7 @@ module desnet::reaction_emission {
         let new_balance = primary_fungible_store::balance(pool_addr, reward_token_meta);
         event::emit(RewardNotified {
             pool_addr,
+            author_pid,
             depositor: signer::address_of(depositor),
             reward_token: token_addr,
             amount,
@@ -168,18 +175,16 @@ module desnet::reaction_emission {
 
     // ============ FRIEND: distribute per press ============
 
-    /// Withdraw `BPS_PER_PRESS × balance / 10_000` from each registered reward
-    /// token's pool balance and deposit to the presser. Returns the total
-    /// amount distributed across all tokens. Tokens with zero balance or
-    /// zero-quantized payout are skipped.
-    ///
-    /// Safe to call when pool doesn't exist — returns 0 and is a no-op so
-    /// press still succeeds before anyone has funded the gauge.
+    /// Per-press payout = `BPS_PER_PRESS × balance / 10_000` from every
+    /// registered reward token. Returns total distributed (sum across
+    /// tokens). Tokens with zero balance or quantized-to-zero payouts
+    /// are skipped. Safe to call when pool doesn't exist — returns 0
+    /// so press still succeeds before anyone funds the gauge.
     public(friend) fun distribute_to_presser(
-        handle: vector<u8>,
+        author_pid: address,
         presser: address,
     ): u64 acquires ReactionRewardsPool {
-        let pool_addr = pool_address_of_handle(handle);
+        let pool_addr = pool_address_of(author_pid);
         if (!exists<ReactionRewardsPool>(pool_addr)) return 0;
 
         let pool = borrow_global_mut<ReactionRewardsPool>(pool_addr);
@@ -204,6 +209,7 @@ module desnet::reaction_emission {
                     total_distributed = total_distributed + payout;
                     event::emit(PressDistributed {
                         pool_addr,
+                        author_pid,
                         presser,
                         reward_token: token_addr,
                         amount: payout,
@@ -220,23 +226,23 @@ module desnet::reaction_emission {
     // ============ VIEWS ============
 
     #[view]
-    public fun pool_exists(handle: vector<u8>): bool {
-        exists<ReactionRewardsPool>(pool_address_of_handle(handle))
+    public fun pool_exists(author_pid: address): bool {
+        exists<ReactionRewardsPool>(pool_address_of(author_pid))
     }
 
     #[view]
-    public fun reward_tokens_of(handle: vector<u8>): vector<address> acquires ReactionRewardsPool {
-        let pool_addr = pool_address_of_handle(handle);
+    public fun reward_tokens_of(author_pid: address): vector<address> acquires ReactionRewardsPool {
+        let pool_addr = pool_address_of(author_pid);
         if (!exists<ReactionRewardsPool>(pool_addr)) return vector::empty();
         borrow_global<ReactionRewardsPool>(pool_addr).reward_token_list
     }
 
     #[view]
     public fun reward_balance(
-        handle: vector<u8>,
+        author_pid: address,
         reward_token_meta: Object<Metadata>,
     ): u64 {
-        let pool_addr = pool_address_of_handle(handle);
+        let pool_addr = pool_address_of(author_pid);
         primary_fungible_store::balance(pool_addr, reward_token_meta)
     }
 
