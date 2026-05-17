@@ -53,6 +53,12 @@ module desnet::lp_emission {
     const E_TOO_MANY_REWARD_TOKENS: u64 = 4;
     const E_REWARD_TOKEN_NOT_REGISTERED: u64 = 5;
     const E_SHARE_UNDERFLOW: u64 = 6;
+    /// Y-4 (2026-05-17 self-audit): rejects dispatchable FAs. A hook-bearing
+    /// FA registered here would let an attacker abort withdraw/deposit on
+    /// claim_lp_rewards (and transitively burn_for_refund, which calls claim
+    /// before destroying Position). That bricks IPO refunds entirely for any
+    /// holder of a Position whose gauge has the malicious token registered.
+    const E_DISPATCHABLE_FA_REJECTED: u64 = 7;
 
     // ============ TYPES ============
 
@@ -193,6 +199,24 @@ module desnet::lp_emission {
         amount: u64,
     ) acquires LpRewardsPool {
         assert!(amount > 0, E_ZERO_AMOUNT);
+
+        // Y-4: reject dispatchable FAs - see reaction_emission for the
+        // attacker model. Here the failure mode is even worse because
+        // ipo::burn_for_refund calls claim_lp_rewards_internal before
+        // destroying Position; a hook-aborting reward token strands the
+        // Position permanently (can never refund, NFT economic value
+        // trapped). Check on depositor's primary store which must already
+        // exist for the subsequent withdraw to succeed.
+        let depositor_addr = signer::address_of(depositor);
+        let depositor_store = primary_fungible_store::ensure_primary_store_exists(
+            depositor_addr, reward_token_meta,
+        );
+        assert!(
+            std::option::is_none(&fungible_asset::deposit_dispatch_function(depositor_store))
+                && std::option::is_none(&fungible_asset::withdraw_dispatch_function(depositor_store)),
+            E_DISPATCHABLE_FA_REJECTED,
+        );
+
         let pool_addr = ensure_pool(handle);
         let pool = borrow_global_mut<LpRewardsPool>(pool_addr);
         assert!(pool.total_share > 0, E_NO_SHARES);

@@ -45,6 +45,10 @@ module desnet::reaction_emission {
     const E_POOL_NOT_FOUND: u64 = 1;
     const E_ZERO_AMOUNT: u64 = 2;
     const E_TOO_MANY_REWARD_TOKENS: u64 = 3;
+    /// Y-4 (2026-05-17 self-audit): rejects dispatchable FAs. A hook-bearing
+    /// FA registered here would let an attacker abort distribute_to_presser
+    /// on every subsequent press, bricking press::press for the author.
+    const E_DISPATCHABLE_FA_REJECTED: u64 = 4;
 
     // ============ TYPES ============
 
@@ -138,6 +142,26 @@ module desnet::reaction_emission {
         amount: u64,
     ) acquires ReactionRewardsPool {
         assert!(amount > 0, E_ZERO_AMOUNT);
+
+        // Y-4: reject dispatchable FAs. supra-framework's
+        // dispatchable_fungible_asset lets an FA register custom
+        // withdraw/deposit hooks that run arbitrary code on every transfer.
+        // If a hook-bearing FA were registered into a reaction pool, the
+        // attacker could make its withdraw hook abort - subsequent
+        // distribute_to_presser would revert on that token, bricking
+        // press::press for the author (NFT mint and emission share the
+        // same tx). We check on the depositor's primary store which must
+        // already exist for the withdraw below to succeed.
+        let depositor_addr = signer::address_of(depositor);
+        let depositor_store = primary_fungible_store::ensure_primary_store_exists(
+            depositor_addr, reward_token_meta,
+        );
+        assert!(
+            std::option::is_none(&fungible_asset::deposit_dispatch_function(depositor_store))
+                && std::option::is_none(&fungible_asset::withdraw_dispatch_function(depositor_store)),
+            E_DISPATCHABLE_FA_REJECTED,
+        );
+
         let pool_addr = ensure_pool(author_pid);
         let pool = borrow_global_mut<ReactionRewardsPool>(pool_addr);
         let token_addr = object::object_address(&reward_token_meta);
