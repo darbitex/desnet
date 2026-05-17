@@ -1,20 +1,20 @@
-/// Giveaway — opt-in attached giveaway primitive (LOCKED 2026-05-01).
+/// Giveaway - opt-in attached giveaway primitive (LOCKED 2026-05-01).
 ///
 /// Two types: FA (fungible token, fixed amount per claim) + NFT (FCFS sequential).
-/// Token scope = AGNOSTIC (any FA, any NFT collection — NOT factory-only).
+/// Token scope = AGNOSTIC (any FA, any NFT collection - NOT factory-only).
 ///
 /// Three optional gates (independent opt-in):
 /// - follower_only: synced to sponsor
 /// - nft_gate: NFT collection holder
 /// - lp_stake_gate: LP staker in target_pid's pool (Endorse-tier integration)
 ///
-/// Default = PID-only claim (tier model enforces guest exclusion — claim = write action).
+/// Default = PID-only claim (tier model enforces guest exclusion - claim = write action).
 /// NO citizen_only / guest_allowed field (redundant).
 /// NO min_reputation field v1 (deferred until reputation primitive lands).
 ///
 /// Refund flow: post-deadline permissionless `settle_giveaway(mint_id)` destroys
 /// SmartTable, refunds unclaimed budget to sponsor, pays caller 5 bps bounty (FA mode)
-/// or no bounty (NFT mode — sponsor incentive enough).
+/// or no bounty (NFT mode - sponsor incentive enough).
 module desnet::giveaway {
     use std::option::{Self, Option};
     use std::signer;
@@ -79,7 +79,7 @@ module desnet::giveaway {
         follower_only: bool,
         nft_gate: Option<address>,
         lp_stake_gate: Option<address>,
-        // Per-actor dedup (PID Object addr → true)
+        // Per-actor dedup (PID Object addr -> true)
         claimers: SmartTable<address, bool>,
         // Object signer (escrow holds funds for FA mode at this Object's primary store)
         extend_ref: ExtendRef,
@@ -88,7 +88,7 @@ module desnet::giveaway {
     /// Per-PID giveaway storage. SmartTable<mint_seq, Giveaway addr>.
     /// Each Giveaway lives at its own Object addr (escrow holds funds).
     struct PidGiveawayStorage has key {
-        giveaways: SmartTable<u64, address>,  // mint_seq → giveaway Object addr
+        giveaways: SmartTable<u64, address>,  // mint_seq -> giveaway Object addr
     }
 
     // ============ EVENTS ============
@@ -121,7 +121,7 @@ module desnet::giveaway {
         timestamp_secs: u64,
     }
 
-    // ============ CREATE — FA mode ============
+    // ============ CREATE - FA mode ============
 
     /// Sponsor creates FA giveaway attached to their mint. Atomic: deposits
     /// total_budget into giveaway escrow, registers under PidGiveawayStorage.
@@ -191,7 +191,7 @@ module desnet::giveaway {
         });
     }
 
-    // ============ CREATE — NFT mode ============
+    // ============ CREATE - NFT mode ============
 
     /// Sponsor creates NFT giveaway. Sponsor passes pre-collected NFT Object addrs
     /// in FCFS order. Each claim transfers next NFT in vector to claimer.
@@ -338,7 +338,7 @@ module desnet::giveaway {
         });
     }
 
-    // ============ SETTLE — permissionless post-deadline ============
+    // ============ SETTLE - permissionless post-deadline ============
 
     /// Anyone can call after deadline. Refunds unclaimed budget to sponsor's wallet,
     /// pays caller 5 bps bounty (FA mode) or no bounty (NFT mode).
@@ -391,7 +391,7 @@ module desnet::giveaway {
         };
 
         // Note: giveaway resource NOT destroyed (preserves audit trail + claimers history).
-        // Storage refund deferred — minor cost, idempotent re-settle returns 0/0.
+        // Storage refund deferred - minor cost, idempotent re-settle returns 0/0.
 
         event::emit(GiveawaySettled {
             giveaway_addr,
@@ -403,9 +403,9 @@ module desnet::giveaway {
         });
     }
 
-    // ============ INTERNAL — gate checks ============
+    // ============ INTERNAL - gate checks ============
 
-    /// Three independent gates (LOCKED 2026-05-01: BUKAN unified ReferenceGate — different
+    /// Three independent gates (LOCKED 2026-05-01: BUKAN unified ReferenceGate - different
     /// scope: giveaway = sponsor-defined eligibility per-mint, ReferenceGate = sync/balance/LP
     /// for verb engagement. Kept separate intentionally).
     ///
@@ -418,7 +418,7 @@ module desnet::giveaway {
         claimer_nft_proof_addr: address,
         claimer_stake_position_addr: address,
     ) {
-        // 1. follower_only — claimer must be synced to sponsor's PID
+        // 1. follower_only - claimer must be synced to sponsor's PID
         if (giveaway.follower_only) {
             assert!(
                 link::is_synced(claimer_pid, giveaway.sponsor_pid),
@@ -426,7 +426,7 @@ module desnet::giveaway {
             );
         };
 
-        // 2. nft_gate — claimer must hold ≥1 NFT in the required collection
+        // 2. nft_gate - claimer must hold >=1 NFT in the required collection
         if (option::is_some(&giveaway.nft_gate)) {
             let required_collection = *option::borrow(&giveaway.nft_gate);
             assert!(claimer_nft_proof_addr != @0x0, E_NFT_GATE_FAILED);
@@ -444,8 +444,8 @@ module desnet::giveaway {
             );
         };
 
-        // 3. lp_stake_gate — claimer must hold a Position on the required pool with shares > 0.
-        // Ownership: free/time-locked → staker == claimer_addr; locked (creator's perma-lock) →
+        // 3. lp_stake_gate - claimer must hold a Position on the required pool with shares > 0.
+        // Ownership: free/time-locked -> staker == claimer_addr; locked (creator's perma-lock) ->
         // current PID owner of recipient_pid == claimer_addr.
         if (option::is_some(&giveaway.lp_stake_gate)) {
             let required_pool = *option::borrow(&giveaway.lp_stake_gate);
@@ -475,7 +475,7 @@ module desnet::giveaway {
         };
     }
 
-    // ============ LAZY-INIT — on-demand per-PID storage ============
+    // ============ LAZY-INIT - on-demand per-PID storage ============
 
     /// Lazy-create PidGiveawayStorage at PID addr. Called from create_*_giveaway
     /// on first-write. Idempotent. Cycle-safe via profile::derive_pid_signer.

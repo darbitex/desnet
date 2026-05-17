@@ -1,4 +1,4 @@
-/// Governance — DAO orchestrator for the DeSNet monolith package.
+/// Governance - DAO orchestrator for the DeSNet monolith package.
 ///
 /// All DeSNet modules (factory, profile, mint/pulse/press/...) share a single
 /// resource_account at @desnet. Governance is the SOLE holder of the resource_account
@@ -6,10 +6,10 @@
 /// `derive_pkg_signer()` (friend-only).
 ///
 /// Two upgrade paths:
-///   1. `multisig_upgrade(@origin signer, ...)` — bootstrap path, no DAO vote.
+///   1. `multisig_upgrade(@origin signer, ...)` - bootstrap path, no DAO vote.
 ///      Used pre-PMF while the team iterates rapidly. Off-chain: simply stop
 ///      calling this once DAO is trusted.
-///   2. `propose_upgrade` → `cast_vote` → `ratify` → `execute_proposal` —
+///   2. `propose_upgrade` -> `cast_vote` -> `ratify` -> `execute_proposal` -
 ///      full DAO flow with voting, quorum, approval threshold, and 30d timelock.
 ///      Calls `supra_framework::code::publish_package_txn` directly with the
 ///      derived package signer (no cross-package dispatch needed in monolith).
@@ -86,14 +86,14 @@ module desnet::governance {
     const E_ARGS_LEN_MISMATCH: u64 = 21;
     /// v0.3.1 Item 3b: setters NEUTERED post-hardcode of DESNET_FA_ADDR.
     const E_NEUTERED: u64 = 22;
-    /// v0.3.2 (F2): chunked-publish defense-in-depth — at least one module slot empty.
+    /// v0.3.2 (F2): chunked-publish defense-in-depth - at least one module slot empty.
     const E_INCOMPLETE_CHUNKS: u64 = 23;
     /// v0.3.3 (G2): caller is not the original DAO stager for this proposal.
     const E_NOT_STAGER: u64 = 24;
     /// v0.3.2 (F6): 30-day rolling emission tracker constants.
     const SECONDS_PER_DAY: u64 = 86400;
     const ROLLING_WINDOW_DAYS: u64 = 30;
-    /// v0.3.1 Item 3b: hardcoded DESNET FA addr — eliminates manipulation surface.
+    /// v0.3.1 Item 3b: hardcoded DESNET FA addr - eliminates manipulation surface.
     /// Computable as `factory::derive_token_metadata_addr(b"desnet")`.
     /// `desnet_fa_metadata` field in GovernanceState becomes vestigial (compat only).
     const DESNET_FA_ADDR: address = @0x44c1006d4d8dae79195fa396c71408514343a5c4b4627b6e7595f64d65b224e7;
@@ -150,7 +150,7 @@ module desnet::governance {
     }
 
     /// v0.3.3 (G2, R5 CONV-2 MED fix): isolated DAO chunked staging. Separate from
-    /// multisig `UpgradeStaging` — DAO + multisig paths can no longer collide.
+    /// multisig `UpgradeStaging` - DAO + multisig paths can no longer collide.
     /// `proposal_id` field binds staging to one proposal (stale staging for a
     /// different proposal auto-clears on next stage call). `stager` field locks
     /// further appends to original staging address (anti-grief).
@@ -228,14 +228,14 @@ module desnet::governance {
         timestamp_secs: u64,
     }
 
-    /// v0.3.2 (F3): emitted on cleanup_upgrade_staging — observability for indexers.
+    /// v0.3.2 (F3): emitted on cleanup_upgrade_staging - observability for indexers.
     #[event]
     struct UpgradeStagingCleanup has drop, store {
         multisig: address,
         timestamp_secs: u64,
     }
 
-    // ============ INIT — called by resource_account at deploy ============
+    // ============ INIT - called by resource_account at deploy ============
 
     fun init_module(account: &signer) {
         let signer_cap = publisher::take_cap_for_desnet(account);
@@ -356,7 +356,7 @@ module desnet::governance {
     }
 
     /// Stage one chunk for an upcoming chunked multisig upgrade. Permissionless of
-    /// chunks order — final chunk landed by `multisig_publish_chunked_upgrade`.
+    /// chunks order - final chunk landed by `multisig_publish_chunked_upgrade`.
     public entry fun multisig_stage_upgrade_chunk(
         multisig: &signer,
         metadata_chunk: vector<u8>,
@@ -387,7 +387,7 @@ module desnet::governance {
         let pkg_signer = derive_pkg_signer();
         stage_chunks_into_staging(&pkg_signer, metadata_chunk, code_indices, code_chunks);
         let UpgradeStaging { metadata, code } = move_from<UpgradeStaging>(@desnet);
-        // v0.3.2 (F2): defense-in-depth — reject incomplete staging (any empty slot).
+        // v0.3.2 (F2): defense-in-depth - reject incomplete staging (any empty slot).
         // Without this, out-of-order/missing chunk produces a generic framework error
         // at code::publish_package_txn instead of clear ours-error.
         let i = 0;
@@ -405,7 +405,7 @@ module desnet::governance {
 
     /// v0.3.3 (G5, R5 Claude C7 LOW defense-in-depth): hash-verifying multisig publish.
     /// Same as `multisig_publish_chunked_upgrade` but asserts assembled `(metadata, code)`
-    /// digest equals `expected_digest` parameter — pin the hash off-chain (e.g., from a
+    /// digest equals `expected_digest` parameter - pin the hash off-chain (e.g., from a
     /// signed multisig review summary), preventing a single rogue signer from substituting
     /// chunk bytes during multisig coordination.
     public entry fun multisig_publish_chunked_upgrade_with_digest(
@@ -496,7 +496,7 @@ module desnet::governance {
         let idx = day % ROLLING_WINDOW_DAYS;
         let stored_day = *vector::borrow(&tracker.daily_day_nums, idx);
         if (stored_day != day) {
-            // Stale entry from prior cycle — reset before adding.
+            // Stale entry from prior cycle - reset before adding.
             *vector::borrow_mut(&mut tracker.daily_amounts, idx) = 0;
             *vector::borrow_mut(&mut tracker.daily_day_nums, idx) = day;
         };
@@ -540,7 +540,7 @@ module desnet::governance {
     }
 
     /// v0.3.3 (G4, R5 Deepseek HIGH): now reads ONLY auto-tracker. Manual field
-    /// `state.total_30d_emission` permanently ignored — eliminates latent overflow
+    /// `state.total_30d_emission` permanently ignored - eliminates latent overflow
     /// vector where `(eff * BPS) / 10000` could abort if vestigial value was extreme.
     /// `update_total_30d_emission` already neutered (E_NEUTERED) in v0.3.2 F6b, so
     /// vestigial value is frozen at deploy-time state. Defense-in-depth for forks.
@@ -559,8 +559,8 @@ module desnet::governance {
 
     /// IMPORTANT: `new_module_bytes_hash` MUST be computed via
     /// `governance::compute_upgrade_digest(metadata, code_bytes)` (or its view
-    /// variant `compute_upgrade_digest_view`). Any other scheme — including the
-    /// natural BCS encoding of the tuple `(metadata, code_bytes)` — produces a
+    /// variant `compute_upgrade_digest_view`). Any other scheme - including the
+    /// natural BCS encoding of the tuple `(metadata, code_bytes)` - produces a
     /// different digest, and the proposal will fail at `execute_proposal` with
     /// `E_HASH_MISMATCH` after the timelock window has elapsed.
     public entry fun propose_upgrade(
@@ -568,7 +568,7 @@ module desnet::governance {
         target_package_addr: address,
         new_module_bytes_hash: vector<u8>,
     ) acquires GovernanceState, Emission30dRollingBucket {
-        // v0.3.2 (F14, R2 Kimi R2-N1): defense-in-depth — only @desnet pkg upgrades
+        // v0.3.2 (F14, R2 Kimi R2-N1): defense-in-depth - only @desnet pkg upgrades
         // are valid in monolith. Reject impossible proposals at submission time.
         assert!(target_package_addr == @desnet, E_INVALID_ADDRESS);
 
@@ -696,9 +696,9 @@ module desnet::governance {
     ///
     /// H1 fix (audit R1): the executor MUST submit metadata + code_bytes whose
     /// digest matches `proposal.new_module_bytes_hash` recorded at propose time.
-    /// Without this check, executor can ship arbitrary code post-timelock — full
+    /// Without this check, executor can ship arbitrary code post-timelock - full
     /// DAO bypass. Digest scheme: sha3_256(bcs(metadata) ++ concat(bcs(code_bytes[i])))
-    /// — `propose_upgrade` callers MUST use the same scheme to compute their hash.
+    /// - `propose_upgrade` callers MUST use the same scheme to compute their hash.
     public entry fun execute_proposal(
         caller: &signer,
         proposal_id: u64,
@@ -758,7 +758,7 @@ module desnet::governance {
     //
     // Flow:
     //   1. Anyone calls `dao_stage_upgrade_chunk(proposal_id, ...)` N-1 times to stage
-    //   2. Anyone calls `dao_publish_chunked_upgrade(proposal_id, last_chunk, ...)` —
+    //   2. Anyone calls `dao_publish_chunked_upgrade(proposal_id, last_chunk, ...)` -
     //      stages final + verifies digest + publishes + marks proposal executed
 
     /// v0.3.3 (G2): per-proposal staging via DaoUpgradeStaging. Auto-resets if
@@ -782,7 +782,7 @@ module desnet::governance {
             if (staging_ref.proposal_id != proposal_id) {
                 let _ = move_from<DaoUpgradeStaging>(@desnet);
             } else {
-                // Same proposal — must be original stager (anti-grief append).
+                // Same proposal - must be original stager (anti-grief append).
                 assert!(staging_ref.stager == caller_addr, E_NOT_STAGER);
             };
         };
@@ -841,7 +841,7 @@ module desnet::governance {
         code_indices: vector<u16>,
         code_chunks: vector<vector<u8>>,
     ) acquires GovernanceState, DaoUpgradeStaging {
-        // Re-verify (defense-in-depth — staging may span days; conditions can change).
+        // Re-verify (defense-in-depth - staging may span days; conditions can change).
         let target_package_addr;
         let stored_hash;
         {
@@ -865,7 +865,7 @@ module desnet::governance {
 
         let DaoUpgradeStaging { proposal_id: _, stager: _, metadata, code } = move_from<DaoUpgradeStaging>(@desnet);
 
-        // Defense-in-depth — same empty-slot check as multisig variant.
+        // Defense-in-depth - same empty-slot check as multisig variant.
         let i = 0;
         let n = vector::length(&code);
         while (i < n) {
@@ -875,7 +875,7 @@ module desnet::governance {
 
         // Verify assembled payload matches the hash voters approved.
         // v0.3.3 NOTE: on hash-fail, abort reverts entire tx including the move_from above
-        // → DaoUpgradeStaging stays UNTOUCHED (Move atomicity), so legitimate publisher can
+        // -> DaoUpgradeStaging stays UNTOUCHED (Move atomicity), so legitimate publisher can
         // retry without a separate cleanup call.
         let assembled_digest = compute_upgrade_digest(&metadata, &code);
         assert!(assembled_digest == stored_hash, E_HASH_MISMATCH);
@@ -920,7 +920,7 @@ module desnet::governance {
     /// callers compute this on the intended payload) and `execute_proposal` (verifies
     /// submitted bytes match). Scheme: sha3_256(bcs(metadata) || concat(bcs(code_bytes[i]))).
     /// Off-chain callers should prefer `compute_upgrade_digest_view` (owned-value
-    /// wrapper, callable via `/v1/view`) — this reference variant is for on-chain use.
+    /// wrapper, callable via `/v1/view`) - this reference variant is for on-chain use.
     public fun compute_upgrade_digest(
         metadata: &vector<u8>,
         code_bytes: &vector<vector<u8>>,
@@ -957,23 +957,23 @@ module desnet::governance {
     /// Object-exists guard: returns 0 pre-`register_handle("desnet")` (when DESNET FA
     /// hasn't been spawned yet at the deterministic addr).
     /// NOTE v0.3.1: `rewards_earned_30d` still mixed-token aggregate. Item 2 (per-token
-    /// rewards isolation) deferred to v0.3.2 — until then, voting power = min(LP-stake-
+    /// rewards isolation) deferred to v0.3.2 - until then, voting power = min(LP-stake-
     /// earned-mixed, DESNET balance). Cross-token reward claims still inflate first
     /// term but bound by DESNET balance.
     /// v0.3.3 (G1, R5 CONV-3 HIGH fix): per-USER fallback eliminates lazy-flip
     /// disenfranchisement. Previous v0.3.2 logic checked GLOBAL `has_per_token_registry`
-    /// — first claimer post-v0.3.2 flipped the flag for everyone, instantly zeroing
+    /// - first claimer post-v0.3.2 flipped the flag for everyone, instantly zeroing
     /// voting_power for all other pre-existing voters until they claimed themselves.
-    /// New logic: per-user — read per-token if THIS voter has a per-token entry; else
+    /// New logic: per-user - read per-token if THIS voter has a per-token entry; else
     /// fall back to legacy mixed for THIS voter. Each voter migrates individually
     /// when they next claim. No cross-voter flip event.
     ///
     /// v0.3.3 R6 NOTE (Qwen H1 vs Claude analysis): Qwen flagged that voter who
-    /// claims only non-DESNET (e.g., $alice) gets has_per_token_entry==true →
-    /// DESNET-only branch returns 0 → voting_power=0. Initial fix used per-token
+    /// claims only non-DESNET (e.g., $alice) gets has_per_token_entry==true ->
+    /// DESNET-only branch returns 0 -> voting_power=0. Initial fix used per-token
     /// DESNET-specific check, but Claude correctly identified this would re-open
     /// the F7 cross-token inflation surface (legacy includes mixed). REVERTED to
-    /// generic per-user check — F7-strict semantic preserved. A voter who claims
+    /// generic per-user check - F7-strict semantic preserved. A voter who claims
     /// any token post-v0.3.2 is "in the new system" and evaluated by F7 rules
     /// (DESNET-specific only).
     #[view]

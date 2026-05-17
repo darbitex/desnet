@@ -1,12 +1,12 @@
-/// Pulse — reactions umbrella event (Spark + Echo) (LOCKED 2026-05-01).
+/// Pulse - reactions umbrella event (Spark + Echo) (LOCKED 2026-05-01).
 ///
-/// Spark = like → reaction_kind=SPARK
-/// Echo = repost forward-as-is → reaction_kind=ECHO
+/// Spark = like -> reaction_kind=SPARK
+/// Echo = repost forward-as-is -> reaction_kind=ECHO
 /// Voice (reply) and Remix (quote) live in mint.move (they create new MintEvents).
 /// Press (NFT collectible) lives in press.move (different scope: NFT mint).
 ///
 /// State pattern: PulseEvent { reaction_kind, state: ADD/REMOVE }. Supra events
-/// are append-only on emit — un-action emits state=REMOVE same kind. Asymmetric
+/// are append-only on emit - un-action emits state=REMOVE same kind. Asymmetric
 /// "abort" pattern rejected (events immutable).
 ///
 /// Mint-level gate (ReferenceGate) checked here before allowing reaction.
@@ -46,10 +46,10 @@ module desnet::pulse {
     // ============ TYPES ============
 
     /// Per-PID reaction registry. Stored at actor's PID Object addr.
-    /// Keyed by (target_author, target_seq, reaction_kind) tuple → bool (ADD).
+    /// Keyed by (target_author, target_seq, reaction_kind) tuple -> bool (ADD).
     /// SmartTable key encoded as packed bytes for compound key.
     struct PidReactionRegistry has key {
-        // (target_author || target_seq || reaction_kind) bytes → true if currently active
+        // (target_author || target_seq || reaction_kind) bytes -> true if currently active
         active: SmartTable<vector<u8>, bool>,
         spark_count_given: u64,
         echo_count_given: u64,
@@ -58,7 +58,7 @@ module desnet::pulse {
     // ============ EVENTS ============
 
     /// Unified Pulse record for Spark + Echo. State ADD on first emit, REMOVE on un-action.
-    /// Replaces former #[event] — now BCS-encoded into history::Entry.payload.
+    /// Replaces former #[event] - now BCS-encoded into history::Entry.payload.
     /// Struct retained for canonical encoding; frontend / indexer decodes via this layout.
     struct PulseEvent has drop, store {
         actor_pid: address,
@@ -69,7 +69,7 @@ module desnet::pulse {
         timestamp_secs: u64,
     }
 
-    // ============ LAZY-INIT — on-demand per-PID storage ============
+    // ============ LAZY-INIT - on-demand per-PID storage ============
 
     /// Lazy-create PidReactionRegistry at PID addr. Called from spark/echo on first-write.
     /// Idempotent. Cycle-safe via profile::derive_pid_signer friend pattern.
@@ -146,11 +146,11 @@ module desnet::pulse {
         toggle_reaction(actor_pid, &key, REACTION_ECHO, target_author, target_seq, false);
     }
 
-    // ============ INTERNAL — gate + toggle ============
+    // ============ INTERNAL - gate + toggle ============
 
     /// Self-exempt comparison via PID (target_author is a PID addr).
     /// Sync check uses PID-space (link::is_synced takes PIDs).
-    /// reference_gate::check uses WALLET addr (actor_addr) — semantic locked 2026-05-01:
+    /// reference_gate::check uses WALLET addr (actor_addr) - semantic locked 2026-05-01:
     /// balance + LP-stake ownership both expected at wallet address that holds PID NFT.
     fun check_mint_gate_or_self_exempt(
         actor_addr: address,

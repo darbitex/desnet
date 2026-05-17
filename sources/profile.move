@@ -1,4 +1,4 @@
-/// Profile — PID Object NFT primitive (LOCKED 2026-05-01).
+/// Profile - PID Object NFT primitive (LOCKED 2026-05-01).
 ///
 /// PID = Profile ID. Supra Object NFT, deterministic addr from wallet:
 ///   pid_addr = derive_pid_address(wallet) = create_object_address(@desnet, bcs(wallet))
@@ -12,14 +12,14 @@
 /// Handle registry: bare `alice` lowercase, 1-64 chars, charset a-z/0-9/-.
 /// Length-tier D pricing (1-100 D), one-time, immutable post-registration.
 ///
-/// Atomic register_handle: derives PID Object → stores Profile → calls factory::create_token
+/// Atomic register_handle: derives PID Object -> stores Profile -> calls factory::create_token
 /// to spawn $TOKEN and dual-vault for this PID.
 ///
 /// sync_gate: opt-in `Profile.sync_gate: Option<ReferenceGate>` field. Gates incoming
-/// Sync requests. NOT a privacy primitive — mints stay public; only Sync action gated.
+/// Sync requests. NOT a privacy primitive - mints stay public; only Sync action gated.
 ///
-/// Implicit-then-named magic: mention 0xBOB while bob is guest → bob registers later
-/// → indexer auto-resolves historical mentions to @bob.
+/// Implicit-then-named magic: mention 0xBOB while bob is guest -> bob registers later
+/// -> indexer auto-resolves historical mentions to @bob.
 module desnet::profile {
     use std::bcs;
     use std::signer;
@@ -52,7 +52,7 @@ module desnet::profile {
     const HANDLE_MAX_LEN: u64 = 64;
 
     /// Length-tier SUPRA pricing (one-time, no renewal). Raw u64 (SUPRA has 8 decimals).
-    /// Tiers calibrated for SUPRA≈$1: 100/50/20/10/5/1 SUPRA.
+    /// Tiers calibrated for SUPRA~$1: 100/50/20/10/5/1 SUPRA.
     const PRICE_1_CHAR_SUPRA: u64 = 100_000_000_000_000;     // 1M SUPRA
     const PRICE_2_CHAR_SUPRA: u64 =  10_000_000_000_000;     // 100K SUPRA
     const PRICE_3_CHAR_SUPRA: u64 =   1_000_000_000_000;     // 10K SUPRA
@@ -61,8 +61,8 @@ module desnet::profile {
     const PRICE_6PLUS_CHAR_SUPRA: u64 =   1_000_000_000;     // 10 SUPRA
 
     /// Caps for inline metadata at registration.
-    const AVATAR_MAX_BYTES: u64 = 8192;       // ≤8KB inline (LOCKED)
-    const BIO_MAX_BYTES: u64 = 333;           // ≤333B inline (LOCKED)
+    const AVATAR_MAX_BYTES: u64 = 8192;       // <=8KB inline (LOCKED)
+    const BIO_MAX_BYTES: u64 = 333;           // <=333B inline (LOCKED)
 
     const SEED_PID: vector<u8> = b"pid::";
     const SEED_SUBPID: vector<u8> = b"subpid::";
@@ -118,11 +118,11 @@ module desnet::profile {
     struct Profile has key {
         handle: String,                            // bare lowercase, immutable post-reg
         controller: address,                       // hot wallet (delegated daily ops)
-        signers_: SmartTable<vector<u8>, SignerEntry>,  // Ed25519 pubkey → metadata
+        signers_: SmartTable<vector<u8>, SignerEntry>,  // Ed25519 pubkey -> metadata
         metadata_uri: String,                      // mutable, pointer to off-chain profile JSON
         avatar_blob_id: vector<u8>,                // mutable, Shelby/Walrus blob ref
         banner_blob_id: vector<u8>,                // mutable
-        bio: String,                               // mutable, inline ≤333B
+        bio: String,                               // mutable, inline <=333B
         sync_gate: Option<ReferenceGate>,          // opt-in node-membership policy
         extend_ref: ExtendRef,                     // for ExtendRef-derived signer (Opsi 1)
         registered_at_secs: u64,
@@ -136,7 +136,7 @@ module desnet::profile {
         last_used_secs: u64,
     }
 
-    /// PID NFT transferability vault — TransferRef stored separately so only
+    /// PID NFT transferability vault - TransferRef stored separately so only
     /// owner-initiated transfers go through (controller has profile signer but
     /// not transfer power). Stored at PID addr alongside Profile.
     struct TransferVault has key {
@@ -153,7 +153,7 @@ module desnet::profile {
     }
 
     /// Global handle registry singleton at @desnet.
-    /// handle (bare lowercase) → wallet (PID Object addr derivable from wallet).
+    /// handle (bare lowercase) -> wallet (PID Object addr derivable from wallet).
     struct HandleRegistry has key {
         handle_to_wallet: SmartTable<String, address>,
     }
@@ -225,7 +225,7 @@ module desnet::profile {
         timestamp_secs: u64,
     }
 
-    // ============ INIT — resource_account deploy pattern (mirror factory) ============
+    // ============ INIT - resource_account deploy pattern (mirror factory) ============
 
     /// SUPRA FA metadata addr (Supra paired-coin convention).
     const SUPRA_FA_METADATA: address = @0xa;
@@ -251,14 +251,14 @@ module desnet::profile {
         });
     }
 
-    // ============ ADMIN — config updates (multisig → governance later) ============
+    // ============ ADMIN - config updates (multisig -> governance later) ============
 
     /// Admin updates fee_receiver. Used pre-supra_fee_vault to point fees somewhere.
-    /// Post-vault upgrade, register_handle body bypasses this field — supra_fee_vault
+    /// Post-vault upgrade, register_handle body bypasses this field - supra_fee_vault
     /// is the immutable destination. Kept here for v0.3.0 baseline; body becomes
     /// `abort 0` in v0.3.1 compat upgrade.
     /// v0.3.2 (F10): NEUTERED. With supra_fee_vault (F9), `state.fee_receiver` field
-    /// is no longer read by `register_handle` body — fees route directly to the vault.
+    /// is no longer read by `register_handle` body - fees route directly to the vault.
     /// Field retained as vestigial (compat-only). Eliminates the last admin knob over
     /// fee destination once F9 is live.
     public entry fun update_fee_receiver(
@@ -286,7 +286,7 @@ module desnet::profile {
 
     // ============ ADDRESS DERIVATION ============
 
-    /// Pure fn — deterministic PID Object addr from wallet.
+    /// Pure fn - deterministic PID Object addr from wallet.
     /// Single canonical PID per wallet (constraint: same wallet cannot register multiple handles).
     #[view]
     public fun derive_pid_address(wallet: address): address {
@@ -335,17 +335,17 @@ module desnet::profile {
         else PRICE_6PLUS_CHAR_SUPRA
     }
 
-    // ============ REGISTER HANDLE — atomic with token spawn ============
+    // ============ REGISTER HANDLE - atomic with token spawn ============
 
     /// Atomic registration. Single-tx flow:
-    ///   1. Validate handle (charset + length) + sizes (avatar ≤8KB, bio ≤333B)
+    ///   1. Validate handle (charset + length) + sizes (avatar <=8KB, bio <=333B)
     ///   2. Check uniqueness (handle not taken, PID Object addr not occupied)
-    ///   3. Compute fee in D (length-tier 1-100), withdraw from wallet → fee_receiver
+    ///   3. Compute fee in D (length-tier 1-100), withdraw from wallet -> fee_receiver
     ///   4. Create PID Object via protocol_signer at deterministic addr derive(wallet)
     ///   5. Generate ExtendRef + TransferRef
     ///   6. move_to Profile (controller, signers SmartTable, metadata, sync_gate=none)
     ///   7. move_to TransferVault (transfer_ref isolated from Profile fields)
-    ///   8. Insert handle → wallet in HandleRegistry
+    ///   8. Insert handle -> wallet in HandleRegistry
     ///   9. Cross-package call factory::create_token(wallet, handle, pid_addr)
     ///       Factory atomically spawns $TOKEN FA + SUPRA/D vaults + reaction/LP reserves;
     ///       deposits 5% creator allocation (50M $TOKEN) to pid_addr's primary store.
@@ -354,7 +354,7 @@ module desnet::profile {
     /// Constraint: same wallet cannot register multiple handles. derive(wallet) is
     /// occupied for life. Multi-identity = multi-wallet (standard web3 hygiene).
     ///
-    /// Sibling storage (PidMintMeta, PidSyncSet, etc.) NOT initialized here — sibling
+    /// Sibling storage (PidMintMeta, PidSyncSet, etc.) NOT initialized here - sibling
     /// modules lazy-init on first-write via `derive_pid_signer` friend helper.
     /// Cycle prevention: profile.move doesn't depend on sibling modules.
     public entry fun register_handle(
@@ -371,11 +371,11 @@ module desnet::profile {
 
         let wallet_addr = signer::address_of(wallet);
 
-        // Reserved handles — each bound to one specific claimer address (per-handle).
+        // Reserved handles - each bound to one specific claimer address (per-handle).
         // Prevents front-run squatting between package publish and project's claim tx.
         // Once claimed by the authorized addr, E_HANDLE_TAKEN takes over for any
         // subsequent attempt regardless of caller. PID-per-wallet constraint preserved
-        // (each reserved handle has a different claimer addr → no PID collision).
+        // (each reserved handle has a different claimer addr -> no PID collision).
         let claimer_opt = reserved_handle_claimer(&handle);
         if (option::is_some(&claimer_opt)) {
             let required_claimer = *option::borrow(&claimer_opt);
@@ -392,7 +392,7 @@ module desnet::profile {
         );
         assert!(!exists<Profile>(pid_addr), E_PID_ALREADY_EXISTS);
 
-        // 3. Fee in SUPRA — route directly to supra_fee_vault
+        // 3. Fee in SUPRA - route directly to supra_fee_vault
         let _state = borrow_global<ProtocolState>(@desnet);
         let fee_raw = handle_fee_supra(vector::length(&handle));
         let supra_metadata = object::address_to_object<Metadata>(SUPRA_FA_METADATA);
@@ -427,14 +427,14 @@ module desnet::profile {
             pre_ipo_cohort: false,
         });
 
-        // 7. TransferVault — transfer_ref isolated (controller cannot transfer NFT)
+        // 7. TransferVault - transfer_ref isolated (controller cannot transfer NFT)
         move_to(&pid_signer, TransferVault { transfer_ref });
 
         // 7.5 Transfer Object ownership to wallet (NFT-style).
         let pid_object = object::address_to_object<Profile>(pid_addr);
         object::transfer(&protocol_signer, pid_object, wallet_addr);
 
-        // 8. Register handle → wallet mapping
+        // 8. Register handle -> wallet mapping
         smart_table::add(&mut registry.handle_to_wallet, string::utf8(handle), wallet_addr);
 
         // 9. Emit
@@ -447,15 +447,15 @@ module desnet::profile {
         });
     }
 
-    /// Reserved handle → authorized claimer. Each reserved handle has its OWN claimer
+    /// Reserved handle -> authorized claimer. Each reserved handle has its OWN claimer
     /// address (different per handle to preserve PID-per-wallet uniqueness). Returns
     /// `Option::none` if handle is not reserved (= public registration).
     ///
-    /// - "desnet" → @desnet_claimer (= @origin = deployer multisig)
-    /// - "darbitex" → Darbitex Final publisher multisig 3/5 (cross-project)
-    /// - "d" → D Supra pkg (sealed resource_account, no signer ever — permanent burn)
-    /// - "supra" → Darbitex treasury multisig 3/5
-    /// - "supra" → dedicated supra-claimer multisig
+    /// - "desnet" -> @desnet_claimer (= @origin = deployer multisig)
+    /// - "darbitex" -> Darbitex Final publisher multisig 3/5 (cross-project)
+    /// - "d" -> D Supra pkg (sealed resource_account, no signer ever - permanent burn)
+    /// - "supra" -> Darbitex treasury multisig 3/5
+    /// - "supra" -> dedicated supra-claimer multisig
     fun reserved_handle_claimer(handle: &vector<u8>): option::Option<address> {
         let h = *handle;
         if (h == b"desnet")        option::some(@desnet_claimer)
@@ -490,7 +490,10 @@ module desnet::profile {
     ) {
         let pid_addr = derive_subdomain_pid_address(handle, subdomain);
         assert!(!exists<Profile>(pid_addr), E_PID_ALREADY_EXISTS);
-        let _state = borrow_global<ProtocolState>(@desnet);
+        // (ProtocolState existence is implicit: protocol_signer can only be
+        //  produced by governance::derive_pkg_signer, which itself requires
+        //  ProtocolState. So we drop the explicit borrow that older Move
+        //  compilers want declared in `acquires`.)
 
         let seed = vector::empty<u8>();
         vector::append(&mut seed, SEED_SUBPID);
@@ -611,7 +614,7 @@ module desnet::profile {
         new_metadata_uri: vector<u8>,
     ) acquires Profile {
         assert_controller(controller, pid_addr);
-        // Mirror register_handle's validation — caps must apply on both initial-set and update.
+        // Mirror register_handle's validation - caps must apply on both initial-set and update.
         // banner uses same 8KB cap as avatar (both inline media of similar nature).
         assert!(vector::length(&new_avatar_blob) <= AVATAR_MAX_BYTES, E_AVATAR_TOO_LARGE);
         assert!(vector::length(&new_banner_blob) <= AVATAR_MAX_BYTES, E_AVATAR_TOO_LARGE);
@@ -633,7 +636,7 @@ module desnet::profile {
     /// Controller attaches sync_gate. Gates who can Sync to this PID.
     /// IMMUTABLE post-attach (rugpull-engagement-rules prevention).
     /// To clear, call clear_sync_gate (also one-way to none).
-    /// Args flattened to primitives — Supra entry fns can't take struct params.
+    /// Args flattened to primitives - Supra entry fns can't take struct params.
     public entry fun attach_sync_gate(
         controller: &signer,
         pid_addr: address,
@@ -663,16 +666,16 @@ module desnet::profile {
     /// register_handle time) + future donations + governance treasury that lands at PID.
     ///
     /// Auth: PID NFT OWNER ONLY (cold wallet). Treasury access is high-value and
-    /// must NOT be reachable from controller (hot wallet) — controller compromise
+    /// must NOT be reachable from controller (hot wallet) - controller compromise
     /// limited to social ops (Spark/Voice/etc), not financial drain. This is the
     /// inverse of the daily-ops-via-controller pattern: TREASURY = OWNER ALWAYS.
     ///
     /// Note: D vault dispurse goes directly to current NFT owner's WALLET (auto-resolved
-    /// at settle), not to PID's primary store — so D dispurse income doesn't need
+    /// at settle), not to PID's primary store - so D dispurse income doesn't need
     /// withdraw_pid_token. This fn is for: creator allocation, donations, governance
     /// treasury, anything else accumulated at PID's primary store.
     ///
-    /// Buyback-burn safety: structural — buyback portion lives at vault, never deposits
+    /// Buyback-burn safety: structural - buyback portion lives at vault, never deposits
     /// to PID. This withdraw cannot reach it.
     public entry fun withdraw_pid_token(
         owner: &signer,
@@ -733,7 +736,7 @@ module desnet::profile {
     }
 
     /// Caller must be controller OR current NFT owner. Used for signer-key revocation
-    /// (owner emergency override path) — owner can revoke any signer even if controller
+    /// (owner emergency override path) - owner can revoke any signer even if controller
     /// is compromised.
     fun assert_controller_or_owner(caller: &signer, pid_addr: address) acquires Profile {
         assert!(exists<Profile>(pid_addr), E_PROFILE_NOT_FOUND);
@@ -744,7 +747,7 @@ module desnet::profile {
         assert!(object::owner(pid_object) == caller_addr, E_NOT_CONTROLLER_OR_OWNER);
     }
 
-    /// Internal — friend access for other DeSNet modules to assert PID exists at addr.
+    /// Internal - friend access for other DeSNet modules to assert PID exists at addr.
     public(friend) fun assert_pid_exists(pid_addr: address) {
         assert!(exists<Profile>(pid_addr), E_PROFILE_NOT_FOUND);
     }
@@ -752,7 +755,7 @@ module desnet::profile {
     /// Verb-auth gate. Caller is allowed to act AS this PID if they are either the
     /// current NFT owner or the configured controller. Used by every verb entry
     /// (mint/pulse/link/press/opinion/giveaway) so that subdomain-PID holders and
-    /// main-handle holders are treated identically — the verb modules never derive
+    /// main-handle holders are treated identically - the verb modules never derive
     /// pid_addr from the caller's wallet, the caller passes it in.
     public(friend) fun assert_authorized(caller: &signer, pid_addr: address) acquires Profile {
         assert!(exists<Profile>(pid_addr), E_PROFILE_NOT_FOUND);
@@ -763,17 +766,17 @@ module desnet::profile {
         assert!(object::owner(pid_object) == caller_addr, E_NOT_CONTROLLER_OR_OWNER);
     }
 
-    /// Internal — friend access for sync_gate evaluation in link.move.
+    /// Internal - friend access for sync_gate evaluation in link.move.
     public(friend) fun get_sync_gate(pid_addr: address): Option<ReferenceGate> acquires Profile {
         if (!exists<Profile>(pid_addr)) return option::none();
         borrow_global<Profile>(pid_addr).sync_gate
     }
 
-    /// Internal — friend helper for sibling modules' lazy-init pattern.
+    /// Internal - friend helper for sibling modules' lazy-init pattern.
     /// Returns ExtendRef-derived signer of the PID Object so siblings can
     /// move_to their own storage resources at PID addr.
     /// Cycle prevention: profile.move doesn't `use` siblings; siblings declare
-    /// no friend back. One-way dep: siblings → profile only.
+    /// no friend back. One-way dep: siblings -> profile only.
     public(friend) fun derive_pid_signer(pid_addr: address): signer acquires Profile {
         assert!(exists<Profile>(pid_addr), E_PROFILE_NOT_FOUND);
         let p = borrow_global<Profile>(pid_addr);
@@ -813,9 +816,9 @@ module desnet::profile {
         borrow_global<Profile>(pid_addr).handle
     }
 
-    /// v0.3.2 (F1b): wallet→handle convenience. Derives PID from wallet, looks up
+    /// v0.3.2 (F1b): wallet->handle convenience. Derives PID from wallet, looks up
     /// handle. Aborts E_PROFILE_NOT_FOUND if wallet has no registered PID.
-    /// (Lives here, not in factory.move, because profile→factory but not the reverse.)
+    /// (Lives here, not in factory.move, because profile->factory but not the reverse.)
     #[view]
     public fun handle_of_wallet(wallet_addr: address): String acquires Profile {
         let pid_addr = derive_pid_address(wallet_addr);
@@ -908,4 +911,4 @@ module desnet::profile {
     }
 }
 
-// Suppress unused signature reference in skeleton — TransferVault wired during impl pass.
+// Suppress unused signature reference in skeleton - TransferVault wired during impl pass.

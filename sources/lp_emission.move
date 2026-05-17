@@ -1,4 +1,4 @@
-/// LP Rewards Gauge — multi-FA permissionless rewards pool for LP positions.
+/// LP Rewards Gauge - multi-FA permissionless rewards pool for LP positions.
 ///
 /// One pool per handle. Anyone can `notify_reward` with ANY FA. Each notify
 /// bumps a MasterChef-style `acc_per_share` accumulator for that reward token.
@@ -7,7 +7,7 @@
 ///
 /// Total-share bookkeeping is push-driven: ipo calls `on_share_increase` /
 /// `on_share_decrease` whenever a Position is created or destroyed. This keeps
-/// the module dependency one-way (ipo → lp_emission) — lp_emission never reads
+/// the module dependency one-way (ipo -> lp_emission) - lp_emission never reads
 /// from ipo.
 ///
 /// Replaces the v0.3 sealed-reserve design: Supra mode mints 100% supply into
@@ -28,13 +28,13 @@ module desnet::lp_emission {
 
     // ============ CONSTANTS ============
 
-    /// Fixed-point scale for acc_per_share — 1e12 (MasterChef standard).
+    /// Fixed-point scale for acc_per_share - 1e12 (MasterChef standard).
     /// Trade-off: lowered from 1e18 to stay clear of u128 overflow on
-    /// `shares × acc_per_share`. At extreme bounds (shares ≈ 1e15 raw and
-    /// cumulative acc ≈ 1e23 across many notifies), the product approaches
+    /// `shares * acc_per_share`. At extreme bounds (shares ~ 1e15 raw and
+    /// cumulative acc ~ 1e23 across many notifies), the product approaches
     /// 1e38 which is still under u128_max (3.4e38). The cost is quantization:
     /// a notify of 1 raw unit against a pool with total_share = 1e12 contributes
-    /// `delta = 1 × 1e12 / 1e12 = 1` raw unit per share — fine. Below 1e12
+    /// `delta = 1 * 1e12 / 1e12 = 1` raw unit per share - fine. Below 1e12
     /// total_share, sub-unit rewards may quantize to 0; permissionless top-ups
     /// of small amounts are encouraged to batch.
     const ACC_SCALE: u128 = 1_000_000_000_000;
@@ -65,7 +65,7 @@ module desnet::lp_emission {
     }
 
     struct RewardAccumulator has store, drop {
-        acc_per_share: u128,        // raw FA units × ACC_SCALE per LP share
+        acc_per_share: u128,        // raw FA units * ACC_SCALE per LP share
         total_topped_up: u128,
         total_distributed: u128,
     }
@@ -122,7 +122,7 @@ module desnet::lp_emission {
         seed
     }
 
-    // ============ INIT — lazy, auto-fires on first share increase or notify ============
+    // ============ INIT - lazy, auto-fires on first share increase or notify ============
 
     fun ensure_pool(handle: vector<u8>): address {
         let pool_addr = pool_address_of_handle(handle);
@@ -177,7 +177,7 @@ module desnet::lp_emission {
         });
     }
 
-    // ============ NOTIFY — permissionless topup ============
+    // ============ NOTIFY - permissionless topup ============
 
     /// Anyone deposits any FA into the pool. Caller funds, accumulator bumps,
     /// existing positions earn pro-rata from this point forward.

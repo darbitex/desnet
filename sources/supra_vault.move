@@ -1,4 +1,4 @@
-/// Vault — receives SUPRA revenue, splits 50% buyback-burn / 50% to PID owner.
+/// Vault - receives SUPRA revenue, splits 50% buyback-burn / 50% to PID owner.
 ///
 /// One Vault per spawned token. Sealed at mint. Holds BurnRef (no extraction).
 /// AMM pool is always seeded atomically at register_handle, so settle is always 50/50.
@@ -10,7 +10,7 @@
 ///
 /// Outputs:
 ///   - 50% SUPRA to current PID owner = object::owner(pid_object) [auto-follows NFT transfer]
-///   - 50% SUPRA → $TOKEN via in-house desnet::amm 10 bps swap, then BURN via BurnRef
+///   - 50% SUPRA -> $TOKEN via in-house desnet::amm 10 bps swap, then BURN via BurnRef
 module desnet::supra_vault {
     use std::signer;
     use std::vector;
@@ -37,7 +37,7 @@ module desnet::supra_vault {
     const SEED_VAULT: vector<u8> = b"vault::";
 
     /// H3 fix (audit R3): two-phase commit-reveal settle.
-    /// `request_settle` records timestamp; `execute_settle` requires ≥ delay elapsed.
+    /// `request_settle` records timestamp; `execute_settle` requires >= delay elapsed.
     /// Same-tx sandwich is impossible because manipulator must hold position across
     /// blocks under arbitrage exposure (~200 blocks at Supra ~0.3s block time).
     const SETTLE_DELAY_SECS: u64 = 60;
@@ -102,7 +102,7 @@ module desnet::supra_vault {
         executable_at_secs: u64,
     }
 
-    // ============ DEPLOY — friend, called by factory at token spawn ============
+    // ============ DEPLOY - friend, called by factory at token spawn ============
 
     public(friend) fun deploy(
         factory_signer: &signer,
@@ -143,7 +143,7 @@ module desnet::supra_vault {
         seed
     }
 
-    // ============ DEPOSIT — permissionless ============
+    // ============ DEPOSIT - permissionless ============
 
     public entry fun deposit_supra(
         depositor: &signer,
@@ -161,7 +161,7 @@ module desnet::supra_vault {
         });
     }
 
-    // ============ SETTLE — two-phase (R3 H3 fix) ============
+    // ============ SETTLE - two-phase (R3 H3 fix) ============
 
     /// Phase 1: record request timestamp. Permissionless.
     /// `execute_settle` becomes callable after SETTLE_DELAY_SECS elapses.
@@ -230,7 +230,7 @@ module desnet::supra_vault {
         let supra_for_buyback = coin::extract(&mut vault.supra_balance, buyback_amount);
         let supra_for_owner = coin::extract(&mut vault.supra_balance, owner_amount);
 
-        // Buyback path: SUPRA → $TOKEN via in-house AMM 10 bps, then BURN.
+        // Buyback path: SUPRA -> $TOKEN via in-house AMM 10 bps, then BURN.
         let supra_fa_buyback = coin::coin_to_fungible_asset(supra_for_buyback);
         let token_received = amm::swap_exact_supra_in(
             vault.handle,
@@ -296,12 +296,12 @@ module desnet::supra_vault {
         if (pending == 0) 0 else pending + SETTLE_DELAY_SECS
     }
 
-    // ============ DELEGATE BURN — friend (supra_fee_vault, v0.3.2 F9) ============
+    // ============ DELEGATE BURN - friend (supra_fee_vault, v0.3.2 F9) ============
 
-    /// supra_fee_vault swaps SUPRA → DESNET via amm, then asks the DESNET per-token
+    /// supra_fee_vault swaps SUPRA -> DESNET via amm, then asks the DESNET per-token
     /// vault to burn the FA via its held BurnRef. Direction-locked: caller hands a FA
     /// whose metadata MUST match `vault.token_metadata_addr` (the fungible_asset::burn
-    /// check enforces this — wrong-token FA aborts).
+    /// check enforces this - wrong-token FA aborts).
     /// No state mutation, no event (supra_fee_vault::Settled covers it).
     public(friend) fun burn_via_vault(
         vault_addr: address,

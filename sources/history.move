@@ -1,4 +1,4 @@
-/// History — per-PID append-only on-chain log (LOCKED 2026-05-01).
+/// History - per-PID append-only on-chain log (LOCKED 2026-05-01).
 ///
 /// Replaces event::emit for the 7-verb palette (Mint/Spark/Voice/Echo/Remix/Press/Sync).
 /// Class-B primitive: Move runtime CAN read entries via view fns for gating logic
@@ -8,7 +8,7 @@
 /// Entries grouped into HistoryChunks (separate Objects owned by PID); current chunk
 /// rotates when ~30KB threshold reached. Sealed chunks immutable from this module.
 ///
-/// Cached counters per verb (O(1) view) — count_verb(pid, verb) for gating.
+/// Cached counters per verb (O(1) view) - count_verb(pid, verb) for gating.
 ///
 /// Encoding: Entry.payload = BCS-encoded verb-specific data (e.g., bcs::to_bytes(&MintEvent{..})).
 /// Frontend / indexer decodes payload via Move struct definitions in respective modules.
@@ -39,13 +39,13 @@ module desnet::history {
     const VERB_OPINION: u8 = 7;
 
     /// Chunk rotation threshold: when current chunk's tracked size exceeds this,
-    /// seal it and allocate a new one. ~30KB ≈ 375 small entries.
+    /// seal it and allocate a new one. ~30KB ~ 375 small entries.
     const CHUNK_ROTATE_THRESHOLD: u64 = 30000;
 
     /// Per-Entry payload hard cap (BCS bytes only; Entry.asset is separate ref).
     /// Sized to fit worst-case BCS-encoded MintEvent: inline media (8192) + content (333) +
-    /// 5 tags + 10 mentions + 5 tickers + 10 tips + Option overhead ≈ 10075 bytes. 12000
-    /// gives 1925-byte headroom. CHUNK_ROTATE_THRESHOLD (30000) still > 2× this so chunk
+    /// 5 tags + 10 mentions + 5 tickers + 10 tips + Option overhead ~ 10075 bytes. 12000
+    /// gives 1925-byte headroom. CHUNK_ROTATE_THRESHOLD (30000) still > 2* this so chunk
     /// rotation calculus remains sane.
     const MAX_PAYLOAD_BYTES: u64 = 12000;
 
@@ -56,7 +56,7 @@ module desnet::history {
     // ============ ERROR CODES ============
 
     const E_PAYLOAD_TOO_LARGE: u64 = 1;
-    // E_PID_NOT_FOUND removed (was unused — profile module owns PID-existence checks).
+    // E_PID_NOT_FOUND removed (was unused - profile module owns PID-existence checks).
     const E_HISTORY_NOT_INITIALIZED: u64 = 3;
     const E_CHUNK_NOT_FOUND: u64 = 4;
     const E_INVALID_VERB: u64 = 5;
@@ -95,7 +95,7 @@ module desnet::history {
         verb: u8,
         timestamp_secs: u64,
         target: Option<address>,           // referenced PID/post for Echo/Sync/Voice/Remix
-        payload: vector<u8>,               // BCS-encoded verb-specific data, ≤MAX_PAYLOAD_BYTES
+        payload: vector<u8>,               // BCS-encoded verb-specific data, <=MAX_PAYLOAD_BYTES
         asset: Option<address>,            // optional desnet::assets::Master ref (>8KB media)
     }
 
@@ -273,7 +273,7 @@ module desnet::history {
         (e.verb, e.timestamp_secs, e.target, e.payload, e.asset)
     }
 
-    /// Cached per-verb counter — O(1) for gating logic.
+    /// Cached per-verb counter - O(1) for gating logic.
     /// E.g., Endorse gate: count_verb(target_pid, VERB_SPARK) >= threshold.
     #[view]
     public fun count_verb(pid_addr: address, verb: u8): u64 acquires HistoryLog {
@@ -424,7 +424,7 @@ module desnet::history {
         let pid_addr = profile::setup_test_pid(creator);
 
         // Each entry: 8000B payload + 64B overhead = 8064B. Threshold = 30000B.
-        // 3 entries: 24192B (under). 4th append: would-be 32256B > 30000 → rotate fires.
+        // 3 entries: 24192B (under). 4th append: would-be 32256B > 30000 -> rotate fires.
         let big_payload = vector::empty<u8>();
         let i = 0;
         while (i < 8000) { vector::push_back(&mut big_payload, 0xAA); i = i + 1; };

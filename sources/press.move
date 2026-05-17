@@ -1,6 +1,6 @@
-/// Press — NFT collectible wrapping a Mint (LOCKED 2026-05-01).
+/// Press - NFT collectible wrapping a Mint (LOCKED 2026-05-01).
 ///
-/// Vinyl-pressing metaphor: original recording (Mint) → physical vinyl (Press NFT).
+/// Vinyl-pressing metaphor: original recording (Mint) -> physical vinyl (Press NFT).
 /// Press IS technically a mint, but at NFT layer (different scope from Mint event).
 ///
 /// Per-mint opt-in PressConfig (LOCKED):
@@ -8,7 +8,7 @@
 ///   - window_days: u8 (1-7, no permanent open)
 ///   - emission curve: linear INCREASING per press order (anti-FOMO design):
 ///       emission(n) = n  (press #1 = 1 token, press #1000 = 1000 tokens)
-///       Total per post: cap × (cap+1) / 2 (= 500,500 at cap=1000)
+///       Total per post: cap * (cap+1) / 2 (= 500,500 at cap=1000)
 ///
 /// Per-actor uniqueness: each wallet can press a given mint ONLY once.
 /// Author may self-press own mint, max 1 (same one-per-actor rule).
@@ -74,7 +74,7 @@ module desnet::press {
     /// Per-mint pressed registry (per-actor uniqueness check).
     /// Lives at author_pid, keyed by mint seq.
     struct PressedRegistry has store {
-        pressed_by: SmartTable<address, bool>,  // actor → true after press
+        pressed_by: SmartTable<address, bool>,  // actor -> true after press
     }
 
     /// Per-author Press storage. SmartTable<seq, (PressConfig, PressedRegistry)>.
@@ -84,7 +84,7 @@ module desnet::press {
     }
 
     /// Per-author Press NFT Collection. Lazy-init at first press of any of author's mints.
-    /// β-pattern (LOCKED 2026-04-30): "<handle>'s Presses" collection, all of author's
+    /// beta-pattern (LOCKED 2026-04-30): "<handle>'s Presses" collection, all of author's
     /// Press NFTs minted into this single collection. Marketplaces auto-list them
     /// under author's brand.
     struct PressCollection has key {
@@ -105,7 +105,7 @@ module desnet::press {
         timestamp_secs: u64,
     }
 
-    /// Press record. Replaces former #[event] — now BCS-encoded into
+    /// Press record. Replaces former #[event] - now BCS-encoded into
     /// history::Entry.payload at presser's PID. Struct retained for canonical encoding.
     struct PressMinted has drop, store {
         presser_pid: address,
@@ -117,7 +117,7 @@ module desnet::press {
         timestamp_secs: u64,
     }
 
-    // ============ LAZY-INIT — on-demand per-PID storage ============
+    // ============ LAZY-INIT - on-demand per-PID storage ============
 
     /// Lazy-create PidPressStorage at PID addr. Called from enable_press on first-write.
     /// Idempotent. Cycle-safe via profile::derive_pid_signer friend pattern.
@@ -143,7 +143,7 @@ module desnet::press {
         let handle = profile::handle_of(author_pid);
         let collection_name = build_collection_name(&handle);
 
-        // 5% royalty payee = author's Vault addr → marketplace royalties land at vault,
+        // 5% royalty payee = author's Vault addr -> marketplace royalties land at vault,
         // triggering the 50/50 buyback-burn + PID-owner split flow on settle.
         let payee = factory::vault_addr_of_pid(author_pid);
         let r = royalty::create(ROYALTY_BPS, 10000, payee);
@@ -183,7 +183,7 @@ module desnet::press {
     }
 
     fun build_collection_uri(_handle: &String): String {
-        // Empty URI — frontend constructs at render time. No hardcoded domain in source.
+        // Empty URI - frontend constructs at render time. No hardcoded domain in source.
         string::utf8(b"")
     }
 
@@ -208,11 +208,11 @@ module desnet::press {
     }
 
     fun build_token_uri(_handle: &String, _mint_seq: u64): String {
-        // Empty URI — frontend constructs at render time. No hardcoded domain in source.
+        // Empty URI - frontend constructs at render time. No hardcoded domain in source.
         string::utf8(b"")
     }
 
-    /// Simple u64 → decimal String. Supra stdlib doesn't have utoa, hand-roll.
+    /// Simple u64 -> decimal String. Supra stdlib doesn't have utoa, hand-roll.
     fun u64_to_string(n: u64): String {
         if (n == 0) return string::utf8(b"0");
         let buf = std::vector::empty<u8>();
@@ -225,7 +225,7 @@ module desnet::press {
         string::utf8(buf)
     }
 
-    // ============ ENABLE PRESS — author opt-in per mint ============
+    // ============ ENABLE PRESS - author opt-in per mint ============
 
     /// Author opts in to Press for a specific mint. Sets supply_cap + window.
     /// One-time per mint; cannot reconfigure after first press.
@@ -277,20 +277,20 @@ module desnet::press {
         });
     }
 
-    // ============ PRESS — anyone can press, gates checked ============
+    // ============ PRESS - anyone can press, gates checked ============
 
     /// Press a mint. Mints Supra NFT v2 collectible to presser's wallet.
-    /// Atomic: register press → mint NFT → emit event → emission bonus (if pool seeded).
+    /// Atomic: register press -> mint NFT -> emit event -> emission bonus (if pool seeded).
     ///
     /// Validation chain:
-    /// 1. PressConfig exists for (author_pid, mint_seq) — author opted in
+    /// 1. PressConfig exists for (author_pid, mint_seq) - author opted in
     /// 2. Window not expired
     /// 3. Supply not exhausted
-    /// 4. Per-actor uniqueness — presser hasn't pressed this mint before
+    /// 4. Per-actor uniqueness - presser hasn't pressed this mint before
     /// 5. Mint-level ReferenceGate (if any) passes for presser
     ///
-    /// Emission bonus path: if author's $TOKEN/D pool seeded → mint emission(n) tokens
-    /// to presser. If pool not seeded → press succeeds without emission. (LOCKED.)
+    /// Emission bonus path: if author's $TOKEN/D pool seeded -> mint emission(n) tokens
+    /// to presser. If pool not seeded -> press succeeds without emission. (LOCKED.)
     public entry fun press(
         presser: &signer,
         presser_pid: address,
@@ -320,7 +320,7 @@ module desnet::press {
             };
         };
 
-        // Validation phase — check + bump counters in mut-borrow scope
+        // Validation phase - check + bump counters in mut-borrow scope
         let press_order: u16;
         {
             let storage = borrow_global_mut<PidPressStorage>(author_pid);
@@ -339,13 +339,13 @@ module desnet::press {
             smart_table::add(&mut registry.pressed_by, presser_pid, true);
             config.pressed_count = config.pressed_count + 1;
             press_order = config.pressed_count;
-            let emission_amount_local = press_order as u64;
+            let emission_amount_local = (press_order as u64);
             config.emission_consumed_total = config.emission_consumed_total + emission_amount_local;
         };  // PidPressStorage borrow released here
 
         // ============ NFT v2 mint ============
 
-        // Lazy-init "<handle>'s Presses" Collection (β-pattern locked 2026-04-30).
+        // Lazy-init "<handle>'s Presses" Collection (beta-pattern locked 2026-04-30).
         // Collection is created with pid_signer (= creator addr = author_pid).
         let _collection_addr = ensure_press_collection(author_pid);
 
@@ -359,7 +359,7 @@ module desnet::press {
 
         // CRITICAL: token::create derives Collection address from (creator_addr, name).
         // Must use pid_signer (the SAME signer that created the Collection in
-        // ensure_press_collection), not collection_signer — otherwise derivation
+        // ensure_press_collection), not collection_signer - otherwise derivation
         // mismatches and aborts EOBJECT_DOES_NOT_EXIST.
         let pid_signer = profile::derive_pid_signer(author_pid);
 
@@ -376,18 +376,18 @@ module desnet::press {
         let nft_object_addr = object::address_from_constructor_ref(&token_constructor_ref);
         let token_object = object::object_from_constructor_ref<token::Token>(&token_constructor_ref);
 
-        // Transfer to presser. token::create with pid_signer → token owned by author_pid.
+        // Transfer to presser. token::create with pid_signer -> token owned by author_pid.
         // pid_signer authorizes transfer to presser.
         object::transfer(&pid_signer, token_object, presser_addr);
 
         // ============ Emission bonus ============
-        // Reaction gauge is keyed by author_pid (not handle), so each PID —
-        // main or subdomain — has its own independent reaction pool. No
+        // Reaction gauge is keyed by author_pid (not handle), so each PID -
+        // main or subdomain - has its own independent reaction pool. No
         // handle-string collision between a main "alice" and a subdomain
         // `alice@bob`.
         //
         // Self-press blocked: NFT mint still happens (author can collect own
-        // work) but emission to author's own wallet is suppressed — would
+        // work) but emission to author's own wallet is suppressed - would
         // otherwise let author drain their own pool via a single self-press.
         let emission_amount = if (presser_pid == author_pid) {
             0u64

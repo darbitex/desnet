@@ -1,4 +1,4 @@
-/// Mint — the creation primitive (LOCKED 2026-05-01).
+/// Mint - the creation primitive (LOCKED 2026-05-01).
 ///
 /// MintEvent is the single emission for: Mint (original), Voice (reply), Remix (quote).
 /// Mode determined by parent_mint_id + quote_mint_id fields:
@@ -9,12 +9,12 @@
 ///
 /// Validation rules (LOCKED, on-chain enforced):
 /// - author MUST have Profile (Named tier; guests can't mint)
-/// - content_text ≤ 333 bytes
-/// - media: if Inline, data ≤ 8KB hard cap
-/// - mentions ≤ 10 (any Supra addr — flexible: PID/hex/ANS-resolved)
-/// - tags ≤ 5, each 1-32 bytes lowercase a-z/0-9/-
-/// - tickers ≤ 5, each MUST be factory-spawned FA (factory::is_factory_token assert)
-/// - tips ≤ 10, each token MUST be FA-standard (no legacy coin)
+/// - content_text <= 333 bytes
+/// - media: if Inline, data <= 8KB hard cap
+/// - mentions <= 10 (any Supra addr - flexible: PID/hex/ANS-resolved)
+/// - tags <= 5, each 1-32 bytes lowercase a-z/0-9/-
+/// - tickers <= 5, each MUST be factory-spawned FA (factory::is_factory_token assert)
+/// - tips <= 10, each token MUST be FA-standard (no legacy coin)
 ///
 /// Tags = ownerless folksonomy permanently. Tickers = factory-only scope (every $X
 /// resolves to a PID). Mentions = flexible (implicit-then-named magic preserved).
@@ -44,7 +44,7 @@ module desnet::mint {
     friend desnet::press;
     friend desnet::giveaway;
 
-    // ============ CONSTANTS — caps locked 2026-05-01 ============
+    // ============ CONSTANTS - caps locked 2026-05-01 ============
 
     const CONTENT_TEXT_MAX_BYTES: u64 = 333;
     const MEDIA_INLINE_MAX_BYTES: u64 = 8192;     // 8KB hard cap
@@ -129,7 +129,7 @@ module desnet::mint {
         kind: u8,                          // MEDIA_KIND_INLINE | MEDIA_KIND_REF
         mime: u8,                          // MIME_PNG | MIME_JPEG | MIME_GIF | MIME_WEBP
         // Inline path
-        inline_data: vector<u8>,           // if kind=Inline, ≤8KB
+        inline_data: vector<u8>,           // if kind=Inline, <=8KB
         // Ref path
         ref_backend: u8,                   // if kind=Ref, BACKEND_*
         ref_blob_id: vector<u8>,
@@ -147,22 +147,22 @@ module desnet::mint {
 
     /// THE creation record (LOCKED).
     /// Modes: Mint (parent=None, quote=None) | Voice (parent=Some) | Remix (quote=Some).
-    /// Replaces former #[event] — now BCS-encoded into history::Entry.payload.
+    /// Replaces former #[event] - now BCS-encoded into history::Entry.payload.
     /// Struct retained for canonical encoding; frontend / indexer decodes via this layout.
     struct MintEvent has drop, store {
         author: address,                            // PID Object addr
         seq: u64,
         timestamp_us: u64,
         content_kind: u8,                           // type discriminator (text/etc)
-        content_text: vector<u8>,                   // ≤333 bytes
+        content_text: vector<u8>,                   // <=333 bytes
         media: Option<MintMedia>,                   // optional inline OR ref
         parent_mint_id: Option<MintId>,             // Voice mode if Some
         root_mint_id: Option<MintId>,               // thread-head jump optimization
         quote_mint_id: Option<MintId>,              // Remix mode if Some
-        mentions: vector<address>,                  // ≤10
-        tags: vector<vector<u8>>,                   // ≤5, lowercase a-z/0-9/-
-        tickers: vector<address>,                   // ≤5 factory-spawned FA addrs
-        tips: vector<Tip>,                          // ≤10 atomic transfers
+        mentions: vector<address>,                  // <=10
+        tags: vector<vector<u8>>,                   // <=5, lowercase a-z/0-9/-
+        tickers: vector<address>,                   // <=5 factory-spawned FA addrs
+        tips: vector<Tip>,                          // <=10 atomic transfers
     }
 
     /// Atomic tip executed during mint creation (paired with MintEvent).
@@ -176,7 +176,7 @@ module desnet::mint {
         timestamp_secs: u64,
     }
 
-    // ============ LAZY-INIT — on-demand per-PID storage ============
+    // ============ LAZY-INIT - on-demand per-PID storage ============
 
     /// Lazy-create PidMintMeta + PidMintExtras at PID addr.
     /// Called from entry fns on first-write per PID. Idempotent.
@@ -192,17 +192,17 @@ module desnet::mint {
         };
     }
 
-    // ============ CREATE MINT — main entry ============
+    // ============ CREATE MINT - main entry ============
 
     /// Atomic mint creation with all optional extensions.
     /// Mode determined by parent_mint_id + quote_mint_id (caller passes None for unused).
     ///
     /// Tips (if any): each tip transfers from author's primary store to recipient
-    /// in same tx. Tx aborts if any tip lacks balance — atomic all-or-nothing.
+    /// in same tx. Tx aborts if any tip lacks balance - atomic all-or-nothing.
     public entry fun create_mint(
         author: &signer,
         // PID to post as. Caller is authorized iff signer is the PID's NFT owner OR
-        // its configured controller. Subdomain PIDs work transparently here — the
+        // its configured controller. Subdomain PIDs work transparently here - the
         // wallet that owns `alice@bob` passes that PID's address as `author_pid`.
         author_pid: address,
         content_kind: u8,
@@ -241,7 +241,7 @@ module desnet::mint {
     }
 
     /// Atomic create_mint + bootstrap an OpinionMarket on the new mint.
-    /// Single entry, single tx — frontend issues one click. opinion module
+    /// Single entry, single tx - frontend issues one click. opinion module
     /// validates `initial_mc` bounds and creator-token presence internally.
     public entry fun create_opinion_mint(
         author: &signer,
@@ -285,7 +285,7 @@ module desnet::mint {
         opinion::bootstrap_market_for_mint(author, author_pid, seq, opinion_initial_mc);
     }
 
-    /// Shared mint body — returns allocated seq so create_opinion_mint can pin
+    /// Shared mint body - returns allocated seq so create_opinion_mint can pin
     /// the OpinionMarket at (author_pid, seq).
     fun do_create_mint(
         author: &signer,
@@ -321,7 +321,7 @@ module desnet::mint {
         assert!(vector::length(&content_text) <= CONTENT_TEXT_MAX_BYTES, E_CONTENT_TOO_LONG);
 
         let media: Option<MintMedia> = if (asset_master_set) {
-            // desnet::assets path — Master must be sealed (immutable). MIME read from Master.
+            // desnet::assets path - Master must be sealed (immutable). MIME read from Master.
             assert!(assets::is_sealed(asset_master_addr), E_ASSET_NOT_SEALED);
             let asset_mime = assets::mime_of(asset_master_addr);
             assert_valid_mime(asset_mime);
@@ -401,7 +401,7 @@ module desnet::mint {
         meta.next_seq = seq + 1;
         meta.mint_count = meta.mint_count + 1;
 
-        // Execute tips atomically — abort whole mint if any fails
+        // Execute tips atomically - abort whole mint if any fails
         let tips_vec = execute_tips(author, author_pid, &tip_recipients, &tip_tokens, &tip_amounts, seq);
 
         // ============ Build canonical MintEvent + write to history ============
@@ -456,7 +456,7 @@ module desnet::mint {
         seq
     }
 
-    // ============ INTERNAL — tip execution ============
+    // ============ INTERNAL - tip execution ============
 
     fun execute_tips(
         author: &signer,
@@ -499,7 +499,7 @@ module desnet::mint {
         tips
     }
 
-    // ============ INTERNAL — validators ============
+    // ============ INTERNAL - validators ============
 
     fun validate_tags(tags: &vector<vector<u8>>) {
         assert!(vector::length(tags) <= TAGS_MAX, E_TOO_MANY_TAGS);
@@ -557,7 +557,7 @@ module desnet::mint {
 
     /// Attach ReferenceGate to a specific mint. Gates Voice/Spark/Echo/Remix/Press
     /// of this mint. Immutable post-attach.
-    /// Args flattened to primitives — Supra entry fns can't take struct params.
+    /// Args flattened to primitives - Supra entry fns can't take struct params.
     public entry fun attach_mint_gate(
         author: &signer,
         author_pid: address,
@@ -585,7 +585,7 @@ module desnet::mint {
         };
     }
 
-    // ============ INTERNAL — gate evaluation for friend modules ============
+    // ============ INTERNAL - gate evaluation for friend modules ============
 
     /// Friend access for pulse/press/giveaway to check mint-level gate before
     /// allowing engagement.

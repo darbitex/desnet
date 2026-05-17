@@ -1,19 +1,19 @@
-/// Assets — fractal-tree on-chain storage for media >8KB (LOCKED 2026-05-01).
+/// Assets - fractal-tree on-chain storage for media >8KB (LOCKED 2026-05-01).
 ///
 /// Class-A primitive: bytes are stored on-chain so client loaders can reassemble,
 /// but Move runtime never reads payload bytes (only references via Master addr).
 ///
-/// Storage model: file split into ≤30KB Chunks. Single chunk → depth=0, root=chunk_addr.
-/// Multiple chunks → grouped under Node(s), recursively until single root Node.
+/// Storage model: file split into <=30KB Chunks. Single chunk -> depth=0, root=chunk_addr.
+/// Multiple chunks -> grouped under Node(s), recursively until single root Node.
 /// Master records (root, depth, total_size, mime). After finalize() Master.sealed=true,
 /// no further mutation allowed via this module.
 ///
 /// MIME whitelist (aligned with mint.move): PNG/JPEG/GIF/WebP/SVG. SVG INCLUDED
-/// 2026-05-01 for on-chain generative art — XSS = frontend responsibility via
+/// 2026-05-01 for on-chain generative art - XSS = frontend responsibility via
 /// <img>-tag sandbox.
 /// MAX_TOTAL_SIZE = 5MB hard cap. CHUNK_SIZE_MAX = 30000 bytes.
 ///
-/// Asset ownership = anyone-can-reference (sealed Master is public good — Echo/Remix
+/// Asset ownership = anyone-can-reference (sealed Master is public good - Echo/Remix
 /// can attach any sealed Master regardless of creator). Defamation/illegal-content
 /// moderation = frontend responsibility, not protocol.
 module desnet::assets {
@@ -31,7 +31,7 @@ module desnet::assets {
 
     // v0.3.4 Tier-3 deterministic-addr seeds. Seeds are domain-separated by
     // a constant prefix so master/chunk/node namespaces never collide. Two
-    // uploaders cannot collide either — `create_named_object` mixes the
+    // uploaders cannot collide either - `create_named_object` mixes the
     // uploader's address into the hash before the seed bytes.
     const SEED_PREFIX_MASTER: vector<u8> = b"desnet/asset/master/";
     const SEED_PREFIX_CHUNK: vector<u8>  = b"desnet/asset/chunk/";
@@ -60,7 +60,7 @@ module desnet::assets {
     /// v0.3.4 Tier-3: caller's chosen nonce/index already used. Pick a fresh value.
     const E_SEED_TAKEN: u64 = 12;
     /// v0.3.4 Tier-3 finalize_v2: the depth/root pair caller passed doesn't match
-    /// what the deterministic addresses prove. Fail-fast — callers should use the
+    /// what the deterministic addresses prove. Fail-fast - callers should use the
     /// `derive_*_addr_v2` views to build a consistent root.
     const E_ROOT_MISMATCH: u64 = 13;
 
@@ -70,7 +70,7 @@ module desnet::assets {
     /// After finalize(), sealed=true and root/depth set; module mutators abort.
     /// **anyone-can-REFERENCE** semantic applies POST-FINALIZE only (sealed Master is
     /// public good for Echo/Remix). DURING upload, only `creator_addr` may deploy
-    /// chunks/nodes and finalize — prevents asymmetric DoS griefing where an attacker
+    /// chunks/nodes and finalize - prevents asymmetric DoS griefing where an attacker
     /// finalizes another's unsealed master with bogus root.
     struct Master has key {
         root: address,                // 0x0 until finalize; then chunk_addr (depth=0) or node_addr (depth>=1)
@@ -83,12 +83,12 @@ module desnet::assets {
         created_at_secs: u64,
     }
 
-    /// Leaf chunk — bytes payload ≤30KB. Created via deploy_chunk.
+    /// Leaf chunk - bytes payload <=30KB. Created via deploy_chunk.
     struct Chunk has key {
         data: vector<u8>,
     }
 
-    /// Internal node (tree depth ≥1) — vector of child addresses (chunks or sub-nodes).
+    /// Internal node (tree depth >=1) - vector of child addresses (chunks or sub-nodes).
     struct Node has key {
         children: vector<address>,
     }
@@ -197,7 +197,7 @@ module desnet::assets {
 
     // ============ ENTRY: deploy_chunk ============
 
-    /// Deploy a leaf chunk (≤30KB). Master must exist and not be sealed.
+    /// Deploy a leaf chunk (<=30KB). Master must exist and not be sealed.
     /// Returns chunk_addr via emitted event. v0.3.4 delegates body to
     /// `deploy_chunk_internal`.
     public entry fun deploy_chunk(
@@ -251,7 +251,7 @@ module desnet::assets {
     // ============ ENTRY: deploy_node ============
 
     /// Deploy an internal Node pointing to children (chunk addrs or sub-node addrs).
-    /// Used for tree depth ≥1. Master must not be sealed.
+    /// Used for tree depth >=1. Master must not be sealed.
     /// Returns node_addr via emitted event. v0.3.4 delegates to
     /// `deploy_node_internal`.
     public entry fun deploy_node(
@@ -339,7 +339,7 @@ module desnet::assets {
         let master = borrow_global_mut<Master>(master_addr);
         assert!(!master.sealed, E_MASTER_SEALED);
         // CRITICAL auth: only the master's creator may finalize. Without this check,
-        // any address could seal another's unsealed master with bogus root → permanent
+        // any address could seal another's unsealed master with bogus root -> permanent
         // grief (asymmetric DoS, low-cost-attacker vs high-cost-victim).
         assert!(master.creator_addr == signer::address_of(uploader), E_NOT_CREATOR);
 
@@ -362,12 +362,12 @@ module desnet::assets {
         });
     }
 
-    // ============ v0.3.4 TIER-3 — deterministic-address `*_v2` entries ============
+    // ============ v0.3.4 TIER-3 - deterministic-address `*_v2` entries ============
     //
     // These mirror the v1 entries but use `object::create_named_object` with
     // caller-supplied indices, so the resulting addresses are predictable
     // off-chain via `derive_*_addr_v2` views. JS can pre-compute every chunk
-    // address before submitting any tx — the entire upload + the final
+    // address before submitting any tx - the entire upload + the final
     // `create_mint` collapse into one Move script transaction.
     //
     // Compat: v1 entries are untouched. Existing uploads via the v1 path keep
@@ -378,7 +378,7 @@ module desnet::assets {
     // different uploaders cannot collide even with the same nonce.
 
     /// v0.3.4 (Tier-3): deterministic-addr Master allocation. Caller picks
-    /// any u64 nonce — addr = sha3(uploader || SEED_PREFIX_MASTER || bcs(nonce) || 0xFE).
+    /// any u64 nonce - addr = sha3(uploader || SEED_PREFIX_MASTER || bcs(nonce) || 0xFE).
     /// Aborts E_SEED_TAKEN if (uploader, nonce) was used before. Common pattern:
     /// nonce = `timestamp::now_microseconds()` to make collisions impossible
     /// in practice; or a per-uploader counter the frontend tracks locally.
@@ -393,7 +393,7 @@ module desnet::assets {
         assert!(total_size > 0, E_TOTAL_SIZE_ZERO);
         assert!(total_size <= MAX_TOTAL_SIZE, E_TOTAL_SIZE_EXCEEDED);
 
-        // R3 audit L1 — explicit pre-check is BELT + SUSPENDERS. Aptos
+        // R3 audit L1 - explicit pre-check is BELT + SUSPENDERS. Aptos
         // `create_named_object` aborts on collision (EOBJECT_EXISTS),
         // so this exists<Master> assertion is technically redundant.
         // Kept because: (a) we get a domain-specific error code
@@ -516,10 +516,10 @@ module desnet::assets {
     /// JS-side and want belt-and-suspenders confidence the addr they pass
     /// matches an `*_v2`-deployed object.
     ///
-    /// `root_index_opt = none` → caller passes the raw root addr and we just
+    /// `root_index_opt = none` -> caller passes the raw root addr and we just
     /// verify resource existence (same as v1 finalize, but reachable from
     /// scripts without `entry`).
-    /// `root_index_opt = some(idx)` → we recompute the seed and assert the
+    /// `root_index_opt = some(idx)` -> we recompute the seed and assert the
     /// hash matches `root` before sealing.
     public fun finalize_v2(
         uploader: &signer,
@@ -569,7 +569,7 @@ module desnet::assets {
 
     /// JS-callable: pre-compute a Tier-3 master addr for (uploader, nonce)
     /// before any tx is signed. Lets the frontend bundle start_upload_v2 +
-    /// deploy_chunk_v2 × N + finalize_v2 in one Move script with all addrs
+    /// deploy_chunk_v2 * N + finalize_v2 in one Move script with all addrs
     /// known up front.
     #[view]
     public fun derive_master_addr_v2(uploader: address, nonce: u64): address {
@@ -670,7 +670,7 @@ module desnet::assets {
     ///   3 = deterministic-address `*_v2` entries live (B3 single-tx upload)
     /// Frontend calls this to auto-enable higher tiers in the picker. v0.3.3
     /// did NOT have this view, so frontends fall back to tier 1 on the call
-    /// failing — no breakage. v0.3.4 ships BOTH B2 (`*_pub` mirrors) AND B3
+    /// failing - no breakage. v0.3.4 ships BOTH B2 (`*_pub` mirrors) AND B3
     /// (`*_v2` deterministic-addr entries) so this returns 3.
     #[view]
     public fun orchestrator_tier(): u8 { 3 }
@@ -819,7 +819,7 @@ module desnet::assets {
         supra_framework::account::create_account_for_test(signer::address_of(attacker));
 
         let master_addr = start_upload_for_test(uploader, MIME_JPEG, 100, @0xfeed);
-        // Attacker tries to finalize with bogus root — must fail per A2 fix.
+        // Attacker tries to finalize with bogus root - must fail per A2 fix.
         finalize(attacker, master_addr, @0xdeadbeef, 0);
     }
 
@@ -836,7 +836,7 @@ module desnet::assets {
         let master_addr = start_upload_for_test(uploader, MIME_GIF, 100, @0xfeed);
         let data = vector::empty<u8>();
         vector::push_back(&mut data, 0x42);
-        // Attacker deploys chunk for victim's master — must fail.
+        // Attacker deploys chunk for victim's master - must fail.
         deploy_chunk_for_test(attacker, master_addr, data);
     }
 
@@ -862,7 +862,7 @@ module desnet::assets {
     #[test(uploader = @0xa11ce)]
     #[expected_failure(abort_code = E_TOTAL_SIZE_EXCEEDED, location = Self)]
     fun test_start_upload_total_size_cap(uploader: &signer) {
-        // 5MB+1 byte → reject
+        // 5MB+1 byte -> reject
         start_upload_for_test(uploader, MIME_SVG, 5_000_001, @0xfeed);
     }
 
@@ -952,7 +952,7 @@ module desnet::assets {
     #[expected_failure(abort_code = E_SEED_TAKEN, location = Self)]
     fun test_b3_master_nonce_collision_aborts(framework: &signer, uploader: &signer) {
         setup_test_env(framework, uploader);
-        // Same nonce twice from same uploader → collision → abort.
+        // Same nonce twice from same uploader -> collision -> abort.
         start_upload_v2(uploader, MIME_PNG, 100, @0xfeed, 7);
         start_upload_v2(uploader, MIME_PNG, 100, @0xfeed, 7);
     }
@@ -967,7 +967,7 @@ module desnet::assets {
         let d1 = vector::empty<u8>(); vector::push_back(&mut d1, 0x11);
         let d2 = vector::empty<u8>(); vector::push_back(&mut d2, 0x22);
         deploy_chunk_v2(uploader, master, d1, 0);
-        // Same chunk_index → collision.
+        // Same chunk_index -> collision.
         deploy_chunk_v2(uploader, master, d2, 0);
     }
 
@@ -980,7 +980,7 @@ module desnet::assets {
         let master = start_upload_v2(uploader, MIME_PNG, 100, @0xfeed, 9);
         let d = vector::empty<u8>(); vector::push_back(&mut d, 0x33);
         let c = deploy_chunk_v2(uploader, master, d, 0);
-        // Pass a bogus root with verify_seed=true → must abort.
+        // Pass a bogus root with verify_seed=true -> must abort.
         let _ = c;
         finalize_v2(uploader, master, @0xdeadbeef, 0, 0, true);
     }
@@ -994,7 +994,7 @@ module desnet::assets {
         setup_test_env(framework, alice);
         supra_framework::account::create_account_for_test(signer::address_of(bob));
 
-        // Same nonce across different uploaders → distinct addresses, both succeed.
+        // Same nonce across different uploaders -> distinct addresses, both succeed.
         let master_alice = start_upload_v2(alice, MIME_PNG, 100, @0xfeed, 5);
         let master_bob = start_upload_v2(bob, MIME_PNG, 100, @0xfeed, 5);
         assert!(master_alice != master_bob, 1);

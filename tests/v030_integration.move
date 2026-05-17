@@ -62,7 +62,7 @@ module desnet::v030_integration {
         assert!(supra_r == 500_000_000, 1);
         assert!(token_r == 5_000_000_000_000_000, 2);
 
-        // Initial LP = sqrt(5e8 × 5e15) = 1.58e12 (V3 returns u128 shares directly, not FA)
+        // Initial LP = sqrt(5e8 * 5e15) = 1.58e12 (V3 returns u128 shares directly, not FA)
         assert!(initial_shares == 1_581_138_830_084, 3);
         assert!(amm::lp_supply(b"alicecoin") == initial_shares, 4);
 
@@ -251,7 +251,7 @@ module desnet::v030_integration {
         let out = amm::swap_exact_supra_in(b"acccoin", bob_supra, 0);
         primary_fungible_store::deposit(signer::address_of(bob), out);
 
-        // Universal: lp_supply > 0 → accumulator advances on swap
+        // Universal: lp_supply > 0 -> accumulator advances on swap
         let (acc_supra, acc_token) = amm::fee_per_lp(b"acccoin");
         assert!(acc_supra > 0, 1);
         assert!(acc_token == 0, 2);
@@ -365,7 +365,7 @@ module desnet::v030_integration {
         let supra_meta = object::address_to_object<Metadata>(@0xa);
 
         let (borrowed, receipt) = amm::flash_borrow(pool_addr, supra_meta, 100_000_000);
-        // Try to repay WITHOUT fee → E_K_VIOLATED (14)
+        // Try to repay WITHOUT fee -> E_K_VIOLATED (14)
         amm::flash_repay(pool_addr, borrowed, receipt);
         cleanup(burn, mint);
         let _ = token_mint_ref;
@@ -406,13 +406,13 @@ module desnet::v030_integration {
         cleanup(burn, mint);
     }
 
-    // ============ R3 H3 Regression — supra_vault two-phase settle ============
+    // ============ R3 H3 Regression - supra_vault two-phase settle ============
 
     /// Verify the two-phase settle blocks single-tx sandwich.
     /// Setup: token with burn_ref, pool seeded, vault with deposited SUPRA.
-    /// Phase 1: execute_settle without prior request → E_NO_PENDING_SETTLE (6).
-    /// Phase 2: request_settle then immediate execute_settle → E_SETTLE_NOT_READY (7).
-    /// Phase 3: request_settle, fast-forward 60s, execute_settle → success.
+    /// Phase 1: execute_settle without prior request -> E_NO_PENDING_SETTLE (6).
+    /// Phase 2: request_settle then immediate execute_settle -> E_SETTLE_NOT_READY (7).
+    /// Phase 3: request_settle, fast-forward 60s, execute_settle -> success.
     #[test(framework = @supra_framework, alice = @0xa11ce)]
     #[expected_failure(abort_code = 6, location = desnet::supra_vault)]
     fun test_settle_two_phase_no_pending_aborts(framework: &signer, alice: &signer) {
@@ -459,10 +459,10 @@ module desnet::v030_integration {
         let funding_coin = coin::mint<SupraCoin>(100_000_000, &mint);
         supra_vault::deposit_supra_coin_for_test(vault_addr, funding_coin);
 
-        // Attempt execute_settle with NO prior request_settle — expects E_NO_PENDING_SETTLE.
+        // Attempt execute_settle with NO prior request_settle - expects E_NO_PENDING_SETTLE.
         supra_vault::execute_settle(alice, vault_addr);
 
-        // Unreached — but cleanup pattern for safety.
+        // Unreached - but cleanup pattern for safety.
         let _ = token_mint_ref;
         cleanup(burn, mint);
     }
@@ -513,7 +513,7 @@ module desnet::v030_integration {
         cleanup(burn, mint);
     }
 
-    /// Positive path: request → fast-forward ≥60s → execute succeeds.
+    /// Positive path: request -> fast-forward >=60s -> execute succeeds.
     /// Also verifies the 1% buyback cap (defense-in-depth) by funding the vault
     /// with much more SUPRA than 1% of pool reserve, and asserting the cap kicks in.
     #[test(framework = @supra_framework, alice = @0xa11ce)]
@@ -548,7 +548,7 @@ module desnet::v030_integration {
             alice, b"vaultcoin", token_meta_addr, pool_addr, pid_addr, burn_ref
         );
 
-        // Fund vault with 10 SUPRA — half (5 SUPRA raw) would be the raw_buyback,
+        // Fund vault with 10 SUPRA - half (5 SUPRA raw) would be the raw_buyback,
         // but cap = 1% of 100 SUPRA reserve = 1 SUPRA. So buyback caps at 1 SUPRA,
         // owner receives 10 - 1 = 9 SUPRA (instead of 10/2 = 5).
         supra_vault::deposit_supra_coin_for_test(vault_addr, coin::mint<SupraCoin>(1_000_000_000, &mint));

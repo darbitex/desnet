@@ -1,12 +1,12 @@
-/// Token Factory — atomic spawn of $TOKEN + vault + IPO pool.
+/// Token Factory - atomic spawn of $TOKEN + vault + IPO pool.
 ///
 /// Full atomic register_handle flow. One tx = PID + token + vault + IPO.
 /// 100% of supply goes to IPO pool. No emission reserves, no AMM pool at register.
 ///
 /// Caller flow:
-///   profile::register_handle (charges handle_fee, sets IPO params) →
-///   factory::create_token_atomic(handle, pid_addr, target_tvl, entry_price) →
-///     mints 1B $TOKEN → creates vault → creates IPO pool with all 1B $TOKEN
+///   profile::register_handle (charges handle_fee, sets IPO params) ->
+///   factory::create_token_atomic(handle, pid_addr, target_tvl, entry_price) ->
+///     mints 1B $TOKEN -> creates vault -> creates IPO pool with all 1B $TOKEN
 module desnet::factory {
     use std::option;
     use std::signer;
@@ -58,7 +58,7 @@ module desnet::factory {
     const E_TOKEN_NOT_FOUND: u64 = 19;
     const E_PROJECT_URI_TOO_LONG: u64 = 20;
 
-    /// Mirror Supra `fungible_asset` framework limits — pre-validate so callers
+    /// Mirror Supra `fungible_asset` framework limits - pre-validate so callers
     /// get a clear abort instead of a deep-stack framework error.
     const MAX_NAME_LEN: u64 = 32;
     const MAX_SYMBOL_LEN: u64 = 32;
@@ -90,14 +90,14 @@ module desnet::factory {
 
     struct FactoryRegistry has key {
         records: SmartTable<String, TokenRecord>,
-        metadata_index: SmartTable<address, String>,    // token_metadata → handle
-        owner_index: SmartTable<address, String>,        // owner_addr (pid) → handle
+        metadata_index: SmartTable<address, String>,    // token_metadata -> handle
+        owner_index: SmartTable<address, String>,        // owner_addr (pid) -> handle
     }
 
     /// Holds the `MutateMetadataRef` for a spawned token's FA Metadata. Stored at
     /// the FA Metadata object addr (one-to-one with the token). The ref's only
     /// authorized use is `update_token_icon`, gated by PID-NFT-owner signer
-    /// (cold wallet — same authority tier as `withdraw_pid_token`).
+    /// (cold wallet - same authority tier as `withdraw_pid_token`).
     /// Name/symbol/decimals/project_uri are NOT mutable by design.
     struct TokenMetadataMutRef has key {
         mutate_ref: MutateMetadataRef,
@@ -153,8 +153,8 @@ module desnet::factory {
     /// Caller MUST:
     /// - Have already minted PID NFT at `pid_addr`
     /// - Have already collected handle_fee from end-user
-    /// - Pass `name`/`symbol` (≤32 b each, PERMANENT) and `icon_uri`/`project_uri`
-    ///   (≤512 b each, mutable post-mint via `update_token_icon` /
+    /// - Pass `name`/`symbol` (<=32 b each, PERMANENT) and `icon_uri`/`project_uri`
+    ///   (<=512 b each, mutable post-mint via `update_token_icon` /
     ///   `update_token_project_uri`, both PID-NFT-owner gated).
     /// - Pass IPO params (target_tvl, entry_price_x, entry_price_y)
     public(friend) fun create_token_atomic(
@@ -206,7 +206,7 @@ module desnet::factory {
         object::disable_ungated_transfer(&metadata_obj_transfer_ref);
         let _ = object::object_from_constructor_ref<fungible_asset::Metadata>(&constructor_ref);
 
-        // Step 2: Mint full supply — 100% goes to IPO (no more 50M/50M/900M split).
+        // Step 2: Mint full supply - 100% goes to IPO (no more 50M/50M/900M split).
         let ipo_token_fa = fungible_asset::mint(&mint_ref, TOTAL_SUPPLY);
 
         // Step 3: Deploy vault (sealed, holds BurnRef for future buyback).
@@ -266,11 +266,11 @@ module desnet::factory {
         });
     }
 
-    // ============ TOKEN METADATA UPDATE — PID-NFT-OWNER ONLY ============
+    // ============ TOKEN METADATA UPDATE - PID-NFT-OWNER ONLY ============
 
     /// Update the FA `icon_uri` for a spawned token. Authority = PID-NFT-owner
     /// (cold wallet, same tier as `withdraw_pid_token`). Name/symbol are NOT
-    /// mutable. New icon_uri must be ≤ 512 bytes (Supra framework cap).
+    /// mutable. New icon_uri must be <= 512 bytes (Supra framework cap).
     public entry fun update_token_icon(
         owner: &signer,
         handle: vector<u8>,
@@ -281,7 +281,7 @@ module desnet::factory {
         fungible_asset::mutate_metadata(
             mut_ref,
             option::none(), option::none(), option::none(),
-            option::some(new_icon_uri),            // icon_uri — UPDATE
+            option::some(new_icon_uri),            // icon_uri - UPDATE
             option::none(),
         );
     }
@@ -300,7 +300,7 @@ module desnet::factory {
             mut_ref,
             option::none(), option::none(), option::none(),
             option::none(),
-            option::some(new_project_uri),         // project_uri — UPDATE
+            option::some(new_project_uri),         // project_uri - UPDATE
         );
     }
 
@@ -377,7 +377,7 @@ module desnet::factory {
     public fun get_token_record(handle: vector<u8>): TokenRecord acquires FactoryRegistry {
         let registry = borrow_global<FactoryRegistry>(@desnet);
         let key = string::utf8(handle);
-        // v0.3.2 (F1): semantic-correct error code (was E_HANDLE_TAKEN — misleading).
+        // v0.3.2 (F1): semantic-correct error code (was E_HANDLE_TAKEN - misleading).
         assert!(smart_table::contains(&registry.records, key), E_TOKEN_NOT_FOUND);
         *smart_table::borrow(&registry.records, key)
     }
@@ -406,7 +406,7 @@ module desnet::factory {
     }
 
     /// Note: `owner_addr` is the PID Object addr (= the registered owner_index key),
-    /// NOT the wallet that holds the PID NFT. Use `handle_of_wallet` for wallet→handle.
+    /// NOT the wallet that holds the PID NFT. Use `handle_of_wallet` for wallet->handle.
     #[view]
     public fun handle_of_owner(owner_addr: address): String acquires FactoryRegistry {
         let registry = borrow_global<FactoryRegistry>(@desnet);
@@ -418,7 +418,7 @@ module desnet::factory {
         *smart_table::borrow(&registry.owner_index, owner_addr)
     }
 
-    // (v0.3.2 F1b: handle_of_wallet lives in profile.move to avoid factory→profile
+    // (v0.3.2 F1b: handle_of_wallet lives in profile.move to avoid factory->profile
     // dependency cycle. Profile already uses factory; reverse direction would cycle.)
 
     #[view]
@@ -498,7 +498,7 @@ module desnet::factory {
         smart_table::borrow(&registry.records, handle).supra_vault
     }
 
-    /// v0.3.2 F9: single-hop handle → supra_vault lookup. Used by supra_fee_vault::settle
+    /// v0.3.2 F9: single-hop handle -> supra_vault lookup. Used by supra_fee_vault::settle
     /// to delegate-burn DESNET via desnet's supra_vault BurnRef.
     #[view]
     public fun vault_addr_of_handle(handle: vector<u8>): address acquires FactoryRegistry {

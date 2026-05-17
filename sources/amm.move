@@ -1,11 +1,11 @@
-/// AMM — purpose-built SUPRA/$TOKEN constant-product pool (LOCKED 2026-05-02).
+/// AMM - purpose-built SUPRA/$TOKEN constant-product pool (LOCKED 2026-05-02).
 ///
 /// Composability shape MATCHES darbitex AMM exactly (minus arbitrage module).
 /// External aggregators / arb bots can route through both venues uniformly via:
-/// - `compute_amount_out(reserve_in, reserve_out, amount_in)` — pure quote
-/// - `swap(pool_addr, swapper, fa_in, min_out): FA` — generic by addr
-/// - `flash_borrow(pool_addr, metadata, amount): (FA, FlashReceipt)` — Aave-standard
-/// - `flash_repay(pool_addr, fa_in, receipt)` — strict repay equality
+/// - `compute_amount_out(reserve_in, reserve_out, amount_in)` - pure quote
+/// - `swap(pool_addr, swapper, fa_in, min_out): FA` - generic by addr
+/// - `flash_borrow(pool_addr, metadata, amount): (FA, FlashReceipt)` - Aave-standard
+/// - `flash_repay(pool_addr, fa_in, receipt)` - strict repay equality
 /// - Addr-based views: `reserves(pool_addr)`, `lp_supply(pool_addr)`,
 ///   `lp_fee_per_share(pool_addr)`, `pool_tokens(pool_addr)`
 ///
@@ -82,7 +82,7 @@ module desnet::amm {
         extend_ref: ExtendRef,
     }
 
-    /// Flash loan hot-potato. No drop/store/key — must be consumed via flash_repay same tx.
+    /// Flash loan hot-potato. No drop/store/key - must be consumed via flash_repay same tx.
     struct FlashReceipt {
         pool_addr: address,
         metadata_addr: address,
@@ -263,7 +263,7 @@ module desnet::amm {
     // ============ ADD LIQUIDITY (FRIEND, called by lp_staking) ============
 
     /// M1 fix (audit R1): returns (lp_minted, supra_refund_fa, token_refund_fa).
-    /// Caller (lp_staking) deposits refund FAs back to user. Uniswap V2 pattern —
+    /// Caller (lp_staking) deposits refund FAs back to user. Uniswap V2 pattern -
     /// prevents naive callers from gifting surplus to existing LPs on ratio mismatch.
     public(friend) fun add_liquidity_internal(
         handle: vector<u8>,
@@ -391,7 +391,7 @@ module desnet::amm {
         assert!(exists<Pool>(pool_addr), E_POOL_NOT_FOUND);
         let pool = borrow_global<Pool>(pool_addr);
 
-        // M1 (self-audit): defense-in-depth — gate fee extraction during flash window.
+        // M1 (self-audit): defense-in-depth - gate fee extraction during flash window.
         assert!(!pool.locked, E_LOCKED);
         assert!(fungible_asset::balance(pool.supra_fees) >= supra_amount, E_INSUFFICIENT_FEE_BUCKET);
         assert!(fungible_asset::balance(pool.token_fees) >= token_amount, E_INSUFFICIENT_FEE_BUCKET);
@@ -412,8 +412,8 @@ module desnet::amm {
 
     // ============ SWAP (PUBLIC) ============
 
-    /// Generic swap by pool_addr — darbitex-shape composable entry for aggregators.
-    /// Detects direction from fa_in metadata: SUPRA_FA → SUPRA-in, else → TOKEN-in.
+    /// Generic swap by pool_addr - darbitex-shape composable entry for aggregators.
+    /// Detects direction from fa_in metadata: SUPRA_FA -> SUPRA-in, else -> TOKEN-in.
     public fun swap(
         pool_addr: address,
         _swapper: address,
@@ -465,7 +465,7 @@ module desnet::amm {
     }
 
     /// v0.3.2 (F5): backward-compat wrapper. Composable callers (aggregators/flash arbs)
-    /// that don't have the actor address available can still call this — event.actor stays
+    /// that don't have the actor address available can still call this - event.actor stays
     /// @0x0 sentinel. New code should prefer `swap_exact_supra_in_actor` to preserve attribution.
     public fun swap_exact_supra_in(
         handle: vector<u8>,
@@ -600,7 +600,7 @@ module desnet::amm {
     // ============ FLASH LOAN (PUBLIC, Aave-standard) ============
 
     /// Flash borrow `amount` of `metadata` from pool. Returns FA + hot-potato receipt.
-    /// Pool LOCKED during borrow span — swap/LP/flash all abort until repay.
+    /// Pool LOCKED during borrow span - swap/LP/flash all abort until repay.
     /// Flash fee: 9 bps of borrowed amount (matches darbitex).
     public fun flash_borrow(
         pool_addr: address,
@@ -647,7 +647,7 @@ module desnet::amm {
     }
 
     /// Repay flash loan. STRICT equality: fa_in.amount == receipt.amount + receipt.fee.
-    /// Borrow → Reserve; fee → Fee bucket (accumulates to LPs via fee_per_lp).
+    /// Borrow -> Reserve; fee -> Fee bucket (accumulates to LPs via fee_per_lp).
     public fun flash_repay(
         pool_addr: address,
         fa_in: FungibleAsset,
@@ -670,7 +670,7 @@ module desnet::amm {
             (pool.token_reserve, pool.token_fees, false)
         };
 
-        // Split: fee → fee bucket, principal → reserve
+        // Split: fee -> fee bucket, principal -> reserve
         let fee_fa = fungible_asset::extract(&mut fa_in, fee);
         fungible_asset::deposit(fee_store, fee_fa);
         fungible_asset::deposit(reserve_store, fa_in);
@@ -696,7 +696,7 @@ module desnet::amm {
 
     // ============ INTERNAL MATH ============
 
-    /// Pure quote — darbitex-shape signature. CPMM with 10 bps fee.
+    /// Pure quote - darbitex-shape signature. CPMM with 10 bps fee.
     /// v0.3.2 (F4b): added #[view] so frontend can call gas-free via /v1/view.
     #[view]
     public fun compute_amount_out(
@@ -719,7 +719,7 @@ module desnet::amm {
         math128::sqrt(product)
     }
 
-    // ============ VIEWS — handle-based (internal) ============
+    // ============ VIEWS - handle-based (internal) ============
 
     #[view]
     public fun reserves(handle: vector<u8>): (u64, u64) acquires Pool {
@@ -790,7 +790,7 @@ module desnet::amm {
         }
     }
 
-    // ============ VIEWS — addr-based (darbitex-shape composability) ============
+    // ============ VIEWS - addr-based (darbitex-shape composability) ============
 
     #[view]
     public fun reserves_at(pool_addr: address): (u64, u64) acquires Pool {
@@ -831,7 +831,7 @@ module desnet::amm {
     }
 
     // ============ v0.3.2 (F4c): handle/pool_addr companion view fns ============
-    // Some views take handle, others take pool_addr — caller convenience companions
+    // Some views take handle, others take pool_addr - caller convenience companions
     // for the missing direction. Body delegates to existing variant.
 
     #[view]
@@ -890,7 +890,7 @@ module desnet::amm {
     // ============ IPO GATE ============
 
     /// Enable swaps on a pool. Friend-only (called by ipo::complete_ipo).
-    /// Permanently irreversible for a given pool — no disable counterpart.
+    /// Permanently irreversible for a given pool - no disable counterpart.
     public(friend) fun enable_swaps(handle: vector<u8>) acquires Pool {
         let pool_addr = pool_address_of_handle(handle);
         assert!(exists<Pool>(pool_addr), E_POOL_NOT_FOUND);
@@ -967,9 +967,9 @@ module desnet::amm {
     #[test]
     fun test_compute_amount_out_known_values() {
         // 100 in, 1000 reserve_in, 2000 reserve_out
-        // amount_after_fee = 100 × 9900 = 990000
-        // num = 990000 × 2000 = 1_980_000_000
-        // den = 1000 × 10000 + 990000 = 10_990_000
+        // amount_after_fee = 100 * 9900 = 990000
+        // num = 990000 * 2000 = 1_980_000_000
+        // den = 1000 * 10000 + 990000 = 10_990_000
         // out = 1_980_000_000 / 10_990_000 = 180
         assert!(compute_amount_out(1000, 2000, 100) == 180, 1);
     }
@@ -977,9 +977,9 @@ module desnet::amm {
     #[test]
     fun test_compute_amount_out_with_fee() {
         // 10000 in, 100k/200k reserves
-        // amount_after_fee = 10000 × 9900 = 99_000_000
-        // num = 99_000_000 × 200_000 = 19_800_000_000_000
-        // den = 100_000 × 10_000 + 99_000_000 = 1_099_000_000
+        // amount_after_fee = 10000 * 9900 = 99_000_000
+        // num = 99_000_000 * 200_000 = 19_800_000_000_000
+        // den = 100_000 * 10_000 + 99_000_000 = 1_099_000_000
         // out = 19_800_000_000_000 / 1_099_000_000 = 18016
         assert!(compute_amount_out(100_000, 200_000, 10_000) == 18016, 1);
     }

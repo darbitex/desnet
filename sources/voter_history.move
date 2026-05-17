@@ -1,10 +1,10 @@
-/// Voter History — per-voter cumulative LP fee / rewards record.
+/// Voter History - per-voter cumulative LP fee / rewards record.
 ///
-/// CRITICAL — voting power source authentication:
+/// CRITICAL - voting power source authentication:
 ///
 /// Two pathways feed into voting power:
-///   1. (Legacy) `desnet::lp_staking::claim_internal` — LP staking rewards (pre-IPO model).
-///   2. `desnet::ipo::claim_fees` — DESNET-side LP swap fees (IPO model).
+///   1. (Legacy) `desnet::lp_staking::claim_internal` - LP staking rewards (pre-IPO model).
+///   2. `desnet::ipo::claim_fees` - DESNET-side LP swap fees (IPO model).
 ///
 /// Cross-module authentication via friend visibility + signer addr check:
 ///   - `record_reward_received` is `public(friend)` gated; callers validated at
@@ -97,7 +97,7 @@ module desnet::voter_history {
         timestamp_secs: u64,
     }
 
-    // ============ INIT — called once by governance::init_module ============
+    // ============ INIT - called once by governance::init_module ============
 
     public(friend) fun init_registry(governance_account: &signer) {
         let governance_addr = signer::address_of(governance_account);
@@ -111,7 +111,7 @@ module desnet::voter_history {
         });
     }
 
-    // ============ RECORD — called EXCLUSIVELY by desnet::lp_staking::claim_internal ============
+    // ============ RECORD - called EXCLUSIVELY by desnet::lp_staking::claim_internal ============
 
     /// SOLE pathway for voting power generation. Friend-restricted to lp_staking
     /// (load-bearing barrier). The signer.addr == @desnet assertion is belt-and-braces.
@@ -135,7 +135,7 @@ module desnet::voter_history {
 
         let registry = borrow_global_mut<Registry>(@desnet);
 
-        // Lazy-init voter entry on first reward (no voter signer required —
+        // Lazy-init voter entry on first reward (no voter signer required -
         // factory authority writes to centralized governance storage)
         if (!smart_table::contains(&registry.voters, voter_addr)) {
             smart_table::add(&mut registry.voters, voter_addr, VoterHistory {
@@ -172,7 +172,7 @@ module desnet::voter_history {
         token_addr: address,
         amount: u64,
     ) acquires Registry, RegistryByToken {
-        // 1. Legacy path — keeps old indexers working.
+        // 1. Legacy path - keeps old indexers working.
         record_reward_received(factory_authority, voter_addr, amount);
 
         // 2. Per-token isolated path. (factory_authority asserted == @desnet inside #1.)
@@ -196,7 +196,7 @@ module desnet::voter_history {
         history.total_received = history.total_received + amount;
     }
 
-    // ============ PRUNE — permissionless storage bound ============
+    // ============ PRUNE - permissionless storage bound ============
 
     /// Anyone can call to prune entries older than HISTORY_PRUNE_AFTER_SECS.
     public entry fun prune_voter_history(_caller: &signer, voter_addr: address)
@@ -263,7 +263,7 @@ module desnet::voter_history {
         sum
     }
 
-    /// v0.3.2 (F7): exists check — gates governance::voting_power's choice of
+    /// v0.3.2 (F7): exists check - gates governance::voting_power's choice of
     /// per-token vs legacy-mixed read.
     /// v0.3.3 (G1) NOTE: superseded for voting-power by per-USER `has_per_token_entry`
     /// to fix lazy-flip disenfranchisement. Kept for indexer compatibility.
@@ -277,7 +277,7 @@ module desnet::voter_history {
     /// token. Governance::voting_power should use this for per-user fallback to legacy.
     /// v0.3.3 (Qwen R6 H1 NOTE): superseded for voting-power by per-user-per-token
     /// `has_per_token_entry_for_token` (see below). Kept for indexer compatibility.
-    /// Reason: claim_internal writes per-pool's token (not always DESNET) — this
+    /// Reason: claim_internal writes per-pool's token (not always DESNET) - this
     /// generic check returns true for non-DESNET claimers too, which would
     /// disenfranchise their legacy DESNET balance under voting_power's DESNET-only branch.
     #[view]

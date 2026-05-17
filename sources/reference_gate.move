@@ -1,20 +1,20 @@
-/// ReferenceGate — opt-in engagement policy primitive (LOCKED 2026-05-01).
+/// ReferenceGate - opt-in engagement policy primitive (LOCKED 2026-05-01).
 ///
 /// Single primitive, 4 fields. Used by:
 /// - Mint-level: gates Voice/Spark/Echo/Remix/Press of specific mint
 /// - Profile-level (sync_gate): gates incoming Sync requests
 ///
 /// Logic at gate check (ALL conditions must hold):
-/// 1. actor.synced_to(target_pid) — sync precondition (SKIPPED for sync_gate itself, chicken-egg)
-/// 2. min_token_balance ≤ actor.token_balance(target_pid_token) ≤ max_token_balance
-/// 3. LP stake check — removed in IPO model
+/// 1. actor.synced_to(target_pid) - sync precondition (SKIPPED for sync_gate itself, chicken-egg)
+/// 2. min_token_balance <= actor.token_balance(target_pid_token) <= max_token_balance
+/// 3. LP stake check - removed in IPO model
 ///
 /// Self-exemption: post creator always passes own gate (intuitive, prevents lock-out).
 /// Sentinels for "no check": min=0, max=u64::MAX, lp_stake=0.
 ///
 /// Cycle-safe API: caller pre-computes sync state (via link::is_synced) and passes
 /// as param. reference_gate doesn't import link (would create cycle since link uses
-/// reference_gate for sync_gate evaluation). Pure function design — caller orchestrates queries.
+/// reference_gate for sync_gate evaluation). Pure function design - caller orchestrates queries.
 ///
 /// Naming consistency: ReferenceGate + MintGate + sync_gate = unified gate-family.
 module desnet::reference_gate {
@@ -58,7 +58,7 @@ module desnet::reference_gate {
         if (!(no_min && no_max)) {
             // Resolve target's token via factory reverse lookup
             if (!factory::owner_has_token(profile::reference_gate_target_pid(gate))) {
-                // Target PID has no factory-spawned token → balance check impossible
+                // Target PID has no factory-spawned token -> balance check impossible
                 return false
             };
             let token_addr = factory::token_metadata_of_owner(profile::reference_gate_target_pid(gate));
@@ -68,7 +68,7 @@ module desnet::reference_gate {
             if (balance > profile::reference_gate_max_token_balance(gate)) return false;
         };
 
-        // 3. LP stake check — removed in IPO model (LP is locked in AMM pool, no staking)
+        // 3. LP stake check - removed in IPO model (LP is locked in AMM pool, no staking)
 
         true
     }
@@ -106,15 +106,15 @@ module desnet::reference_gate {
 
     #[test]
     fun test_check_sync_required_fails_when_not_synced() {
-        // Gate with sentinel min/max balance + zero lp_stake → only sync matters
+        // Gate with sentinel min/max balance + zero lp_stake -> only sync matters
         let g = profile::reference_gate_new(@0xfeed, 0, 18446744073709551615u64, 0);
-        // Actor not synced + skip_sync_check=false → fail
+        // Actor not synced + skip_sync_check=false -> fail
         assert!(!check(&g, @0x1, false, false, @0x0), 1);
     }
 
     #[test]
     fun test_check_sync_skipped_passes_no_other_constraints() {
-        // skip_sync_check=true (sync_gate path) + sentinels for balance + 0 lp_stake → pass
+        // skip_sync_check=true (sync_gate path) + sentinels for balance + 0 lp_stake -> pass
         let g = profile::reference_gate_new(@0xfeed, 0, 18446744073709551615u64, 0);
         assert!(check(&g, @0x1, false, true, @0x0), 1);
     }

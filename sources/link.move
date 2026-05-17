@@ -1,18 +1,18 @@
-/// Link — Sync action + PidSyncSet on-chain state (LOCKED 2026-05-01).
+/// Link - Sync action + PidSyncSet on-chain state (LOCKED 2026-05-01).
 ///
 /// Sync = subscribe to a PID's mints. Unidirectional like node-syncs-to-chain.
 /// ENDORSE removed from link_kind enum (= derived view from LP staking position).
 ///
-/// LinkEvent { link_kind: SYNC, state: ADD/REMOVE } — kept ADD/REMOVE pattern
+/// LinkEvent { link_kind: SYNC, state: ADD/REMOVE } - kept ADD/REMOVE pattern
 /// (Supra events immutable on emit; un-action emits state=REMOVE).
 ///
-/// PidSyncSet at syncer's PID (NOT target's). Target has count only — popular
+/// PidSyncSet at syncer's PID (NOT target's). Target has count only - popular
 /// accounts can't afford full follower-list resource. Indexer derives "who syncs
 /// me" from event stream.
 ///
 /// sync_gate (profile-level) gates incoming Sync requests: must pass
 /// ReferenceGate.check(actor, target_pid, skip_sync_check=true). Sync precondition
-/// itself is skipped (chicken-egg avoidance — first sync to gated PID).
+/// itself is skipped (chicken-egg avoidance - first sync to gated PID).
 module desnet::link {
     use std::bcs;
     use std::signer;
@@ -34,7 +34,7 @@ module desnet::link {
 
     /// link_kind enum (LinkEvent.link_kind)
     const LINK_SYNC: u8 = 1;
-    // ENDORSE removed 2026-05-01 — derived from LP staking, not on-chain link_kind.
+    // ENDORSE removed 2026-05-01 - derived from LP staking, not on-chain link_kind.
 
     /// state enum (LinkEvent.state)
     const STATE_ADD: u8 = 1;
@@ -53,7 +53,7 @@ module desnet::link {
     // ============ TYPES ============
 
     /// Per-PID sync set. Stored at syncer's PID Object addr.
-    /// `syncs: SmartTable<target_pid, true>` — set semantic, value unused.
+    /// `syncs: SmartTable<target_pid, true>` - set semantic, value unused.
     struct PidSyncSet has key {
         syncs: SmartTable<address, bool>,
         sync_count: u64,                    // # of PIDs I sync (= len of syncs table)
@@ -62,7 +62,7 @@ module desnet::link {
 
     // ============ EVENTS ============
 
-    /// Link record (Sync/Unsync). Replaces former #[event] — now BCS-encoded into
+    /// Link record (Sync/Unsync). Replaces former #[event] - now BCS-encoded into
     /// history::Entry.payload. Struct retained for canonical encoding.
     struct LinkEvent has drop, store {
         actor_pid: address,
@@ -72,7 +72,7 @@ module desnet::link {
         timestamp_secs: u64,
     }
 
-    // ============ LAZY-INIT — on-demand per-PID storage ============
+    // ============ LAZY-INIT - on-demand per-PID storage ============
 
     /// Lazy-create PidSyncSet at PID addr. Called from sync/unsync on first-write.
     /// Idempotent. Cycle-safe via profile::derive_pid_signer friend pattern.
@@ -110,7 +110,7 @@ module desnet::link {
         profile::assert_pid_exists(target_pid);
         assert!(syncer_pid != target_pid, E_SELF_SYNC_DISALLOWED);
 
-        // sync_gate check — skip_sync_check=true (chicken-egg avoidance: can't require
+        // sync_gate check - skip_sync_check=true (chicken-egg avoidance: can't require
         // sync precondition for the action that creates sync). Sync param is irrelevant
         // when skip_sync_check=true; pass false for clarity.
         let gate_opt = profile::get_sync_gate(target_pid);

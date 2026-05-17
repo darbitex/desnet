@@ -5,3 +5,6 @@ build/
 *.bak
 .DS_Store
 .deploy/
+# Supra CLI v0.5.0 puts these in CWD next to Move.toml when running locally.
+supra_history
+supra_node_logs/
