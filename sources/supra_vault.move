@@ -25,6 +25,8 @@ module desnet::supra_vault {
     const SETTLE_REQUEST_GRACE_SECS: u64 = 3600;
 
     const BPS_DENOM: u64 = 10000;
+    const BPS_FULL: u64 = 10000;
+    const SETTLE_SLIPPAGE_BPS: u64 = 9500;
 
     const E_BELOW_THRESHOLD: u64 = 1;
     const E_VAULT_NOT_FOUND: u64 = 2;
@@ -34,6 +36,8 @@ module desnet::supra_vault {
     const E_NO_PENDING_SETTLE: u64 = 6;
     const E_SETTLE_NOT_READY: u64 = 7;
     const E_SETTLE_REQUEST_PENDING: u64 = 8;
+    const E_SETTLE_REQUEST_EXPIRED: u64 = 9;
+    const E_VAULT_SHRUNK_BELOW_SNAPSHOT: u64 = 10;
 
     struct Vault has key {
         supra_balance: Coin<SupraCoin>,
@@ -44,7 +48,14 @@ module desnet::supra_vault {
         pid_object_addr: address,
         spec_version: u32,
         extend_ref: ExtendRef,
-        pending_settle_at_secs: u64,
+    }
+
+    struct PendingSettle has key, drop {
+        requested_at_secs: u64,
+        total_supra_at_request: u64,
+        buyback_at_request: u64,
+        owner_at_request: u64,
+        min_token_out: u64,
     }
 
     #[event]
@@ -97,7 +108,6 @@ module desnet::supra_vault {
             pid_object_addr,
             spec_version: SPEC_VERSION,
             extend_ref,
-            pending_settle_at_secs: 0,
         });
 
         vault_addr
@@ -130,19 +140,27 @@ module desnet::supra_vault {
         _caller: &signer,
         vault_addr: address,
     ) acquires Vault {
-        let vault = borrow_global_mut<Vault>(vault_addr);
+        assert!(!exists<PendingSettle>(vault_addr), E_SETTLE_REQUEST_PENDING);
+        let vault = borrow_global<Vault>(vault_addr);
 
         let total_supra = coin::value(&vault.supra_balance);
         assert!(total_supra >= SUPRA_SETTLE_THRESHOLD, E_BELOW_THRESHOLD);
 
-        let now = timestamp::now_seconds();
-        assert!(
-            vault.pending_settle_at_secs == 0
-                || now >= vault.pending_settle_at_secs + SETTLE_DELAY_SECS + SETTLE_REQUEST_GRACE_SECS,
-            E_SETTLE_REQUEST_PENDING
-        );
+        let buyback_amount = total_supra / 2;
+        let owner_amount = total_supra - buyback_amount;
 
-        vault.pending_settle_at_secs = now;
+        let quoted_out = amm::quote_swap_exact_in(vault.handle, buyback_amount, true);
+        let min_token_out = (quoted_out * SETTLE_SLIPPAGE_BPS) / BPS_FULL;
+
+        let now = timestamp::now_seconds();
+        let vault_signer = object::generate_signer_for_extending(&vault.extend_ref);
+        move_to(&vault_signer, PendingSettle {
+            requested_at_secs: now,
+            total_supra_at_request: total_supra,
+            buyback_at_request: buyback_amount,
+            owner_at_request: owner_amount,
+            min_token_out,
+        });
 
         event::emit(SettleRequested {
             vault_addr,
@@ -154,54 +172,69 @@ module desnet::supra_vault {
     public entry fun execute_settle(
         _caller: &signer,
         vault_addr: address,
-    ) acquires Vault {
-        let vault = borrow_global_mut<Vault>(vault_addr);
-
-        assert!(vault.pending_settle_at_secs > 0, E_NO_PENDING_SETTLE);
+    ) acquires Vault, PendingSettle {
+        assert!(exists<PendingSettle>(vault_addr), E_NO_PENDING_SETTLE);
         let now = timestamp::now_seconds();
+        let pending_ref = borrow_global<PendingSettle>(vault_addr);
+        let requested_at = pending_ref.requested_at_secs;
+        assert!(now >= requested_at + SETTLE_DELAY_SECS, E_SETTLE_NOT_READY);
         assert!(
-            now >= vault.pending_settle_at_secs + SETTLE_DELAY_SECS,
-            E_SETTLE_NOT_READY
+            now <= requested_at + SETTLE_DELAY_SECS + SETTLE_REQUEST_GRACE_SECS,
+            E_SETTLE_REQUEST_EXPIRED
         );
+
+        let PendingSettle {
+            requested_at_secs: _,
+            total_supra_at_request,
+            buyback_at_request,
+            owner_at_request,
+            min_token_out,
+        } = move_from<PendingSettle>(vault_addr);
+
+        let vault = borrow_global_mut<Vault>(vault_addr);
 
         assert!(
             amm::pool_address_of_handle(vault.handle) == vault.amm_pool_addr,
             E_POOL_ADDR_DRIFT
         );
 
-        let total_supra = coin::value(&vault.supra_balance);
-        assert!(total_supra >= SUPRA_SETTLE_THRESHOLD, E_BELOW_THRESHOLD);
+        let current_total = coin::value(&vault.supra_balance);
+        assert!(current_total >= total_supra_at_request, E_VAULT_SHRUNK_BELOW_SNAPSHOT);
 
         let pid_object = object::address_to_object<object::ObjectCore>(vault.pid_object_addr);
         let owner_addr = object::owner(pid_object);
 
-        let buyback_amount = total_supra / 2;
-        let owner_amount = total_supra - buyback_amount;
-
-        let supra_for_buyback = coin::extract(&mut vault.supra_balance, buyback_amount);
-        let supra_for_owner = coin::extract(&mut vault.supra_balance, owner_amount);
+        let supra_for_buyback = coin::extract(&mut vault.supra_balance, buyback_at_request);
+        let supra_for_owner = coin::extract(&mut vault.supra_balance, owner_at_request);
 
         let supra_fa_buyback = coin::coin_to_fungible_asset(supra_for_buyback);
         let token_received = amm::swap_exact_supra_in(
             vault.handle,
             supra_fa_buyback,
-            0,
+            min_token_out,
         );
         let burned_amount = fungible_asset::amount(&token_received);
         fungible_asset::burn(&vault.burn_ref, token_received);
 
         coin::deposit(owner_addr, supra_for_owner);
 
-        vault.pending_settle_at_secs = 0;
-
         event::emit(SupraSettled {
             vault_addr,
-            total_supra,
-            to_buyback: buyback_amount,
-            to_owner: owner_amount,
+            total_supra: total_supra_at_request,
+            to_buyback: buyback_at_request,
+            to_owner: owner_at_request,
             owner_addr,
             token_burned: burned_amount,
         });
+    }
+
+    public entry fun cancel_pending_settle(
+        _caller: &signer,
+        vault_addr: address,
+    ) acquires PendingSettle {
+        if (exists<PendingSettle>(vault_addr)) {
+            let _ = move_from<PendingSettle>(vault_addr);
+        };
     }
 
     #[view]
@@ -232,14 +265,21 @@ module desnet::supra_vault {
     }
 
     #[view]
-    public fun pending_settle_at_secs(vault_addr: address): u64 acquires Vault {
-        borrow_global<Vault>(vault_addr).pending_settle_at_secs
+    public fun pending_settle_at_secs(vault_addr: address): u64 acquires PendingSettle {
+        if (!exists<PendingSettle>(vault_addr)) return 0;
+        borrow_global<PendingSettle>(vault_addr).requested_at_secs
     }
 
     #[view]
-    public fun settle_executable_at_secs(vault_addr: address): u64 acquires Vault {
-        let pending = borrow_global<Vault>(vault_addr).pending_settle_at_secs;
-        if (pending == 0) 0 else pending + SETTLE_DELAY_SECS
+    public fun settle_executable_at_secs(vault_addr: address): u64 acquires PendingSettle {
+        if (!exists<PendingSettle>(vault_addr)) return 0;
+        borrow_global<PendingSettle>(vault_addr).requested_at_secs + SETTLE_DELAY_SECS
+    }
+
+    #[view]
+    public fun pending_min_token_out(vault_addr: address): u64 acquires PendingSettle {
+        if (!exists<PendingSettle>(vault_addr)) return 0;
+        borrow_global<PendingSettle>(vault_addr).min_token_out
     }
 
     public(friend) fun burn_via_vault(
