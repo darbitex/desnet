@@ -424,6 +424,8 @@ module desnet::ipo {
         caller: &signer,
         handle: vector<u8>,
         position_addr: address,
+        min_supra_out: u64,
+        min_token_out: u64,
     ) acquires IPOPool, Position, SubdomainRegistry {
         assert!(exists<Position>(position_addr), E_POSITION_NOT_FOUND);
         let caller_addr = signer::address_of(caller);
@@ -443,8 +445,14 @@ module desnet::ipo {
         assert!(!ipo.completed, E_IPO_COMPLETED);
         assert!(ipo.pool_addr != @0x0, E_NO_POOL);
 
+        // Y-2: caller-supplied slippage bounds. Y-3 self-audit lift —
+        // a concurrent participate_ipo in the same block can dilute the
+        // pool; min_supra_out / min_token_out let the burner refuse a
+        // bad exit. Pass 0/0 for legacy no-slippage behavior.
         let lp_amount = pos.shares;
-        let (supra_out, token_out) = amm::remove_liquidity_internal(handle, lp_amount, 0, 0);
+        let (supra_out, token_out) = amm::remove_liquidity_internal(
+            handle, lp_amount, min_supra_out, min_token_out,
+        );
 
         let supra_refund_amt = fungible_asset::amount(&supra_out);
         if (supra_refund_amt > 0) {
@@ -460,12 +468,22 @@ module desnet::ipo {
 
         ipo.total_lp = ipo.total_lp - lp_amount;
         ipo.total_supra_raised = ipo.total_supra_raised - pos.supra_deposited;
-        let original_depositor = pos.depositor;
-        let remaining = *smart_table::borrow(&ipo.depositor_totals, original_depositor) - pos.supra_deposited;
-        if (remaining == 0) {
-            smart_table::remove(&mut ipo.depositor_totals, original_depositor);
-        } else {
-            *smart_table::borrow_mut(&mut ipo.depositor_totals, original_depositor) = remaining;
+
+        // Y-1: anti-wash. Only free the depositor's allocation cap if the
+        // refund is initiated by the ORIGINAL depositor (NFT never moved).
+        // If the subdomain NFT has been transferred to a different owner,
+        // the original depositor's cap stays consumed — closes the
+        // deposit → transfer → refund → re-deposit cycling exploit that
+        // would otherwise let a single wallet rotate its 10% slot
+        // indefinitely for market-manipulation purposes.
+        if (caller_addr == pos.depositor) {
+            let original_depositor = pos.depositor;
+            let remaining = *smart_table::borrow(&ipo.depositor_totals, original_depositor) - pos.supra_deposited;
+            if (remaining == 0) {
+                smart_table::remove(&mut ipo.depositor_totals, original_depositor);
+            } else {
+                *smart_table::borrow_mut(&mut ipo.depositor_totals, original_depositor) = remaining;
+            };
         };
 
         // Release subdomain
