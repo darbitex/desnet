@@ -48,19 +48,38 @@ MAX_GAS_PUB = ENV['MAX_GAS_PUBLISH']
 MAX_GAS_ENTRY = ENV['MAX_GAS_ENTRY']
 DESNET_PKG_DIR = ENV['DESNET_PKG_DIR']
 NAMED_ADDR = ENV['NAMED_ADDRESSES']
+SCRIPT_DIR = str(Path(__file__).parent.resolve())
+SUPRA_PTY = f'{SCRIPT_DIR}/supra-pty.py'
+# Password for the smr profile that lives in DESNET_PKG_DIR. supra CLI v0.5.0
+# pre-flight-loads this profile EVEN when --private-key is supplied; with
+# stdin closed this fails with ENXIO. supra-pty.py feeds the password.
+SUPRA_PASSWORD = os.environ.get(
+    'SUPRA_PASSWORD',
+    'DesnetMainnetDeploy2026!StrongPasswordForLocalCliOnly',
+)
 
-MAX_CHUNK_BYTES = 32_000
+# Per-tx code payload budget. Matches the testnet-proven chunker_testnet.py:
+# bin-pack COMPLETE modules (never split one), 50KB target leaves headroom
+# under Supra's 64KB tx serialization limit after BCS overhead + signature.
+MAX_CHUNK_BYTES = 50_000
 PAYLOAD_JSON = '/tmp/desnet-publish-payload.json'
 
 
 def run(cmd, **kw):
     print(f"$ {' '.join(cmd)}")
+    # Detach subprocess stdin so it cannot consume our pipe-fed `y` answer.
+    kw.setdefault('stdin', subprocess.DEVNULL)
     return subprocess.run(cmd, check=True, **kw)
 
 
 def build_payload():
     """Compile + serialize desnet pkg into a publish-payload JSON."""
     print('==[ build-publish-payload ]==')
+    # Pre-delete stale payload so the CLI never prompts "overwrite? [y/n]".
+    try:
+        os.remove(PAYLOAD_JSON)
+    except FileNotFoundError:
+        pass
     run([
         'supra', 'move', 'tool', 'build-publish-payload',
         '--package-dir', DESNET_PKG_DIR,
@@ -68,6 +87,7 @@ def build_payload():
         '--json-output-file', PAYLOAD_JSON,
         '--included-artifacts', 'none',
         '--skip-fetch-latest-git-deps',
+        '--override-size-check',
     ])
     return json.load(open(PAYLOAD_JSON))
 
@@ -80,45 +100,59 @@ def hex_to_bytes(s: str) -> bytes:
 def slice_into_chunks(metadata: bytes, modules: list[bytes]) -> list[tuple[bytes, list[int], list[bytes]]]:
     """Returns a list of (metadata_chunk, code_indices, code_chunks) tuples.
 
-    metadata is sliced first (chunked alone). Then each module's bytecode is
-    sliced and paired with its module index. The LAST tuple in the list will
-    be passed to publish_chunked (which performs the actual publish).
+    Mirrors testnet's proven chunker (.deploy/chunker_testnet.py): bin-pack
+    complete modules in order, never split a module across chunks. Metadata
+    rides in the first chunk only (empty bytes for subsequent chunks). The
+    last tuple in the returned list is fed to publish_chunked.
     """
     chunks: list[tuple[bytes, list[int], list[bytes]]] = []
+    cur_idx: list[int] = []
+    cur_code: list[bytes] = []
+    cur_size = 0
 
-    # Metadata chunks (paired with empty code segments).
-    if len(metadata) <= MAX_CHUNK_BYTES:
-        chunks.append((metadata, [], []))
-    else:
-        for i in range(0, len(metadata), MAX_CHUNK_BYTES):
-            chunks.append((metadata[i:i + MAX_CHUNK_BYTES], [], []))
-
-    # Module bytecode chunks.
     for mod_idx, code in enumerate(modules):
-        for i in range(0, len(code), MAX_CHUNK_BYTES):
-            piece = code[i:i + MAX_CHUNK_BYTES]
-            # Pack each module-bytecode segment as its own chunk.
-            chunks.append((b'', [mod_idx], [piece]))
+        if cur_size + len(code) > MAX_CHUNK_BYTES and cur_idx:
+            chunks.append((b'', cur_idx, cur_code))
+            cur_idx, cur_code, cur_size = [], [], 0
+        cur_idx.append(mod_idx)
+        cur_code.append(code)
+        cur_size += len(code)
+    if cur_idx:
+        chunks.append((b'', cur_idx, cur_code))
 
+    # Metadata rides in the FIRST chunk only.
+    md, idx, cd = chunks[0]
+    chunks[0] = (metadata, idx, cd)
     return chunks
 
 
-def submit_chunk(fn_name: str, metadata: bytes, indices: list[int], code: list[bytes]):
-    """Call publisher::stage_chunk or publisher::publish_chunked."""
-    # supra CLI run args use JSON-array literals for vectors. hex: prefix for bytes.
-    args = [
-        f'hex:{metadata.hex()}',
-        f'"u16:[{",".join(str(i) for i in indices)}]"',
-        f'"hex:[{",".join(c.hex() for c in code)}]"',
-    ]
-    # We need to be careful with shell quoting. Use subprocess with list (no shell).
+def submit_chunk(fn_name: str, metadata: bytes, indices: list[int], code: list[bytes], chunk_idx: int):
+    """Call publisher::stage_chunk or publisher::publish_chunked via --json-file.
+
+    The supra CLI's --args parser does not accept the `hex:[h1,h2,...]` array
+    shorthand for vector<vector<u8>>, so we serialize the call as a JSON file
+    matching the format produced by build-publish-payload.
+    """
+    # NOTE: u16 vector values must be strings per the proven testnet chunker
+    # (.deploy/chunker_testnet.py line 66). Integers cause supra CLI to reject.
+    # NOTE: hex values get a "0x" prefix to mirror the canonical format from
+    # build-publish-payload (empty metadata for non-first chunks = "0x").
+    payload = {
+        "function_id": f"{ORIGIN}::publisher::{fn_name}",
+        "type_args": [],
+        "args": [
+            {"type": "hex", "value": ("0x" + metadata.hex()) if metadata else "0x"},
+            {"type": "u16", "value": [str(i) for i in indices]},
+            {"type": "hex", "value": ["0x" + c.hex() for c in code]},
+        ],
+    }
+    json_path = f'/tmp/desnet-chunk-{chunk_idx}.json'
+    with open(json_path, 'w') as f:
+        json.dump(payload, f)
     cmd = [
-        'supra', 'move', 'tool', 'run',
-        '--function-id', f'{ORIGIN}::publisher::{fn_name}',
-        '--args',
-        f'hex:{metadata.hex()}',
-        f'u16:[{",".join(str(i) for i in indices)}]',
-        f'hex:[{",".join(c.hex() for c in code)}]',
+        'python3', SUPRA_PTY,
+        'move', 'tool', 'run',
+        '--json-file', json_path,
         '--private-key', PRIVKEY,
         '--sender-account', ORIGIN,
         '--url', RPC_URL,
@@ -126,8 +160,13 @@ def submit_chunk(fn_name: str, metadata: bytes, indices: list[int], code: list[b
         '--gas-unit-price', GAS_PRICE,
         '--assume-yes',
     ]
-    print(f"$ supra ... run {fn_name}  meta_bytes={len(metadata)} code_bytes={sum(len(c) for c in code)} mod_idx={indices}")
-    subprocess.run(cmd, check=True)
+    print(f"$ supra ... run {fn_name} (json={json_path})  meta_bytes={len(metadata)} code_bytes={sum(len(c) for c in code)} mod_idx={indices}")
+    # supra CLI v0.5.0 'move tool run' pre-flight-loads the smr profile from
+    # CWD even when --private-key is supplied; with stdin closed it fails on
+    # the password prompt. Invoke via supra-pty.py which forks a pty and feeds
+    # SUPRA_PASSWORD. cwd=DESNET_PKG_DIR so the smr files are visible.
+    env = {**os.environ, 'SUPRA_PASSWORD': SUPRA_PASSWORD}
+    subprocess.run(cmd, check=True, cwd=DESNET_PKG_DIR, env=env)
 
 
 def main():
@@ -165,7 +204,7 @@ def main():
     for i, (md, idx, cd) in enumerate(chunks):
         fn = 'publish_chunked' if i == n - 1 else 'stage_chunk'
         print(f'\n==[ chunk {i+1}/{n}: {fn} ]==')
-        submit_chunk(fn, md, idx, cd)
+        submit_chunk(fn, md, idx, cd, i + 1)
 
     print('\n==[ chunked publish DONE ]==')
     print(f'Verify with: supra move account balance --account-address {DESNET}')
