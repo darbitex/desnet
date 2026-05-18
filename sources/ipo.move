@@ -180,10 +180,13 @@ module desnet::ipo {
         let transfer_ref = object::generate_transfer_ref(&constructor);
         object::disable_ungated_transfer(&transfer_ref);
 
+        let ipo_addr = object::address_from_constructor_ref(&constructor);
         let supra_meta = object::address_to_object<Metadata>(governance::native_fa_metadata());
-        let supra_store = fungible_asset::create_store(&constructor, supra_meta);
+        let supra_store_constructor = object::create_object(ipo_addr);
+        let supra_store = fungible_asset::create_store(&supra_store_constructor, supra_meta);
         let token_meta = object::address_to_object<Metadata>(token_metadata_addr);
-        let token_store = fungible_asset::create_store(&constructor, token_meta);
+        let token_store_constructor = object::create_object(ipo_addr);
+        let token_store = fungible_asset::create_store(&token_store_constructor, token_meta);
 
         fungible_asset::deposit(token_store, token_fa);
 
