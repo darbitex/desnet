@@ -1,8 +1,8 @@
-# DeSNet
+# DeSNet (Supra port)
 
-A decentralized social network protocol on Supra. Every profile is an Object NFT, every profile spawns its own fungible token, and every social action — posts, likes, replies, quotes, presses, syncs — is an on-chain primitive. No centralized backend, no off-chain database, no protocol fees on swaps.
+A decentralized social network protocol on Supra. Every profile is an Object NFT, every profile spawns its own fungible token through an IPO, and every social action — posts, likes, replies, quotes, presses, syncs, opinions — is an on-chain primitive. No centralized backend, no off-chain database, no protocol fees on swaps.
 
-**Status:** v0.3.3 live on Supra mainnet (`@desnet = 0x7ba7ee5a...`). 18 Move modules, ~8.9k LoC, audited by a 6-LLM panel (5 GREEN / 1 YELLOW disputed-and-rejected).
+**Status:** **LIVE on Supra mainnet** (2026-05-18). 21 Move modules, ~10k LoC. `@origin` is a 3/5 multisig, vanity privkey burned, package upgrade #1 already landed via governance path.
 
 **License:** [The Unlicense](LICENSE) — public domain.
 
@@ -10,159 +10,186 @@ A decentralized social network protocol on Supra. Every profile is an Object NFT
 
 ## What it is
 
-A profile (PID) on DeSNet is a transferable Object NFT with a deterministic address derived from its owner wallet. Registering a handle (`alice`, `bob`, `desnet`, …) atomically:
+A profile (PID) on DeSNet is a transferable Object NFT. Registering a handle (`alice`, `bob`, `desnet`, …) atomically:
 
 1. Mints the PID Object NFT to the registrant
-2. Spawns a per-profile fungible token `$ALICE` (1B supply, 8 decimals)
-3. Creates an SUPRA/`$ALICE` AMM pool seeded with 5 SUPRA + 50M tokens (FDV ≈ 100 SUPRA)
-4. Locks the creator's LP position permanently into the staking pool
-5. Splits the handle fee 10% to the deployer / 90% into SUPRA → DESNET buyback-burn
+2. Reserves a per-profile fungible token `$ALICE` (1B supply, 8 decimals)
+3. Opens an **IPO** that accepts SUPRA at a fixed entry price up to a target TVL
+4. Lets anyone (including the creator) back the handle by depositing SUPRA — depositors get a *subdomain* Profile NFT (`name@alice`) carrying their share + locked LP claim
+5. On IPO completion, the AMM `SUPRA/$ALICE` pool spawns at the determined price, LP locks onto subdomain NFTs, and rewards start streaming through a permissionless multi-FA gauge
 
 Handle pricing scales by length: 1-char = 100 SUPRA, 6+ chars = 1 SUPRA. One-time, immutable, no renewal.
 
-The PID itself is the unit of identity, the token is the unit of speech-economy, and the AMM pool is the price discovery surface — all bound together at registration in a single transaction.
+**Pre-completion refund:** anyone holding an IPO subdomain Position NFT can burn it for **100% refund** at any time before the target TVL is reached. Refund auto-claims accrued LP rewards first.
 
-## The seven verbs
+**Subdomain PID is a full citizen.** `name@alice` can post, sync, press, opinion — all verbs accept an explicit `pid_addr` parameter, authorized via "caller is controller OR Profile NFT owner." Transferring a subdomain NFT carries the locked LP shares + reward debts + fee debts along with it.
 
-Every social action on DeSNet is one of seven on-chain primitives:
+## The eight verbs
 
-| Verb   | Module    | Meaning                                  |
-|--------|-----------|------------------------------------------|
-| Mint   | `mint`    | Original post (text ≤333 B + media)      |
-| Spark  | `pulse`   | Like / positive reaction                 |
-| Voice  | `mint`    | Reply (parent set)                       |
-| Echo   | `pulse`   | Repost / amplify                         |
-| Remix  | `mint`    | Quote-post (quote set)                   |
-| Press  | `press`   | Mint a Mint as a collectible NFT         |
-| Sync   | `link`    | Subscribe to a PID's mints               |
+Every social action on DeSNet is one of eight on-chain primitives:
 
-Posts can carry tags (ownerless folksonomy), tickers (factory-spawned `$X` only — every ticker resolves to a PID), mentions (any Supra address), and tips (any FA-standard token). Pressing a Mint distributes a linear-curve emission from that token's reaction reserve to the presser.
+| Verb     | Module      | Meaning                                                  |
+|----------|-------------|----------------------------------------------------------|
+| Mint     | `mint`      | Original post (text ≤333 B + media)                      |
+| Spark    | `pulse`     | Like / positive reaction                                 |
+| Voice    | `mint`      | Reply (parent set)                                       |
+| Echo     | `pulse`     | Repost / amplify                                         |
+| Remix    | `mint`      | Quote-post (quote set)                                   |
+| Press    | `press`     | Mint a Mint as a collectible NFT — distributes rewards   |
+| Sync     | `link`      | Subscribe to a PID's mints                               |
+| Opinion  | `opinion`   | Binary YAY/NAY prediction market on a Mint               |
+
+Posts can carry tags (ownerless folksonomy), tickers (factory-spawned `$X` only — every ticker resolves to a PID), mentions (any Supra address), and tips (any FA-standard token). Pressing a Mint distributes a BPS-of-pool slice from the author's multi-FA reward pool to the presser; pools decay asymptotically and never zero.
+
+## Architectural delta vs DeSNet Aptos mode
+
+| Surface              | Aptos mode (sibling)                 | This (Supra mode)                            |
+|----------------------|--------------------------------------|----------------------------------------------|
+| Token distribution   | 5% AMM / 5% reactions / 90% LP, all sealed at register | **100% to IPO pool**, depositor-driven |
+| Creator allocation   | Locked LP NFT forever                | **0 token by default** — handle = identity only. Optional 10% MAX_CREATOR_BPS via creator self-IPO at register time |
+| Launch mechanic      | Atomic spawn + immediate LP staking  | **IPO with refund-during-IPO** — burn position pre-target = 100% refund |
+| LP reward source     | Sealed `$TOKEN` reserve, depleting   | **Permissionless multi-FA topup gauge** (Synthetix-style, MasterChef acc_per_share) |
+| Reaction reward      | Sealed `$TOKEN` reserve, linear curve| **BPS-of-pool per press** from multi-FA gauge, per-PID isolated |
+| Identity             | Main handle only                     | Main handle **+ subdomain `name@alice`** via IPO deposit |
+| Profile entry path   | Must register own handle             | **Can also enter as backer** — IPO deposit creates subdomain Profile NFT |
 
 ## Architecture
 
 ```
-                          governance (DAO + chunked upgrade infra)
+                        governance (DAO + chunked upgrade infra)
                                        │
-       ┌──────────┬─────────┬──────────┼───────────┬────────────┬──────────┐
-       │          │         │          │           │            │          │
-   profile     factory     amm    lp_staking   supra_vault   supra_fee   voter_history
-   (PID NFT)  (atomic     (SUPRA/$T  (LP NFT     (50/50      _vault       (DESNET-only
-              spawn)       10bps)   positions   buyback-    (10/90       voting power
-                                    + emission) burn)       deployer/    + fallback)
-                                                            buyback-
-                                                            burn)
+       ┌──────────┬─────────┬──────────┼───────────┬────────────┬──────────────┐
+       │          │         │          │           │            │              │
+   profile    factory    amm    lp_emission  supra_vault  supra_fee_vault  voter_history
+  (PID NFT,  (reserves  (SUPRA/  (multi-FA   (per-token   (handle-fee     (DESNET-only
+   sub-PID)   ticker)   $TOKEN   topup       buyback +    split + MEV-    voting power
+                        100 bps) gauge)      MEV-safe     safe settle)    + fallback)
+                                             settle)
        │
+       ├── registration  (atomic register + optional creator self-IPO seed)
+       ├── ipo            (100% IPO, refund-during, auto-stake Position)
+       ├── opinion       (binary YAY/NAY prediction market)
        ├── reference_gate (sync + balance + LP-stake gating)
-       ├── link / pulse / mint / press   (verb modules — friend-only writers)
+       ├── link / pulse / mint / press   (verb modules — friend-only history writers)
        ├── history       (per-PID BCS append-only log, 30 KB chunks rotate)
        ├── assets        (fractal-tree on-chain media ≤ 5 MB, MIME PNG/JPEG/WebP/GIF/SVG)
        ├── giveaway      (FA / NFT giveaways with 3 gates)
-       ├── lp_emission / reaction_emission (sealed reserves: 90% LP, 5% reactions)
-       └── supra_vault     (per-token SUPRA vault with embedded BurnRef)
+       ├── reaction_emission (per-PID BPS-of-pool multi-FA gauge for Press)
+       └── lp_staking    (legacy free-stake path, AMM fee accrual only)
 ```
 
-**Eighteen modules total.** The graph is enforced by Move `friend` visibility — verb modules can only write to `history` through the friend interface, factory is the only creator of new `$TOKEN`s, `supra_vault` holds each token's `BurnRef` and exposes burn only via a delegate call from `supra_fee_vault`.
+**21 modules total.** The graph is enforced by Move `friend` visibility — verb modules write to `history` only via the friend interface, `factory` is the only creator of new `$TOKEN`s, `supra_vault` holds each token's `BurnRef` and exposes burn only via delegate call from `supra_fee_vault`, `ipo` is friend of `profile` for subdomain Profile NFT creation + Position-at-PID-addr storage.
 
-## Where the value flows
+## IPO + reward economics
 
-**DESNET (the protocol token).** Registered as the `desnet` handle. Receives 90% of every handle-registration fee as a buyback-and-burn: SUPRA → AMM swap → burn. Two-phase commit-reveal (`request_settle` → 60 s delay → `execute_settle`) defends against MEV. Every settle is permissionless and every burn is a permanent supply reduction. v0.3.2 first burn: 3,685,451 DESNET (-0.37% supply on a single 0.9 SUPRA settle).
+**Per-profile token at register:** 1B supply (8 decimals). 100% directed into the IPO pool. Tokens are only minted into circulating supply as IPO depositors claim post-completion (or as creator-seeded LP unwinds via emissions). Pre-completion, the IPO contract holds the entire mint allocation.
 
-**Per-profile tokens.** 1B supply at mint, allocated:
-- 5% (50M) seeded into the AMM pool
-- 5% (50M) into the reaction emission reserve (drained as Press distributes)
-- 90% (900M) into the LP emission reserve (drained as LP stakers claim)
-- Creator allocation: 0% (forever-locked LP position is the stake)
+**Cap branching at `deposit_supra`:**
+- Caller is the registered handle's wallet: `MAX_CREATOR_BPS = 1000` (10%)
+- Any other depositor: `MAX_PER_ADDRESS_BPS = 100` (1%)
 
-**LP staking.** V3-style position NFTs. Two stake kinds — *locked* (atomic at register, the creator's seed LP, never withdrawable) and *free* (anyone can add, withdrawable). Both feed `voter_history` for governance weight and `reference_gate` for engagement gating.
+**Position auto-stake.** Reward debts are embedded in `ipo::Position`. There's no separate `lp_staking::Position` for IPO participants. Single NFT, single claim path. Reward debts are stored at the subdomain PID's deterministic address — transferring the subdomain NFT carries shares + debts together.
+
+**Permissionless reward topup.** Anyone can call `lp_emission::notify_reward(handle, reward_token_meta, amount)` or `reaction_emission::notify_reward(author_pid, reward_token_meta, amount)`. Pools accept up to 32 registered reward tokens each. MasterChef-style `acc_per_share` with `ACC_SCALE = 1e12` (lowered from 1e18 to keep u128 intermediates safe at extreme bounds). DESNET notifies also feed `governance::record_emission_for_window` for DAO 30 d threshold tracking.
+
+**Dispatchable-FA defense.** `notify_reward` rejects FAs that have `register_dispatch_functions` installed — a malicious FA hook could brick `press::press` or `burn_for_refund`. The check is one-shot at FA creation time, so a plain FA stays plain forever.
 
 ## Governance
 
-Single DAO over the monolith package. Voting power = a voter's cumulative DESNET-denominated LP rewards (per-token isolated, with a transitional fallback to legacy mixed reads for pre-v0.3.2 voters). Chunked package upgrades stage modules into a `DaoUpgradeStaging` resource via `dao_stage_chunks_into_staging`, then publish atomically via `dao_publish_chunked_upgrade` with hash-pin verification. Multisig 3/5 on `@origin` for the bootstrap publisher path.
+Single DAO over the monolith package. Voting power = a voter's cumulative DESNET-denominated LP rewards (per-token isolated, F7 fix). Two upgrade paths to `@desnet`:
+
+- **Multisig upgrade.** 3/5 multisig on `@origin` calls `governance::multisig_publish_chunked_upgrade_with_digest` with BCS-digest-verified payload. Used for the initial operational window (upgrade #1 landed via this path 2026-05-18).
+- **DAO upgrade.** `governance::propose_upgrade` → `cast_vote` (7 d window, 35% quorum on the voter's emission-weighted balance) → `dao_publish_chunked_upgrade`. Eventually-canonical path.
+
+The multisig path is one-way-disablable via `disable_multisig_upgrade`, handing exclusive control to the DAO.
 
 ## Audit
 
-External multi-LLM audit panel across six rounds (R1 → R6). v0.3.3 R6 verdict: **5 GREEN / 1 YELLOW**.
+External multi-LLM audit panel **Supra-R1 submission** at `docs/audit/supra-r1-submission/` — five files covering surface deltas vs the audited Aptos R6 baseline, self-audit Y-1..Y-5 + status, focused reviewer checklist, full source bundle (550 KB / 13.6k lines). Aptos baseline R1–R6 (5 GREEN / 1 YELLOW final on the v0.3.3 sibling repo) is explicitly carry-over.
 
-| Reviewer       | R6 Verdict | Notes                                         |
-|----------------|-----------:|-----------------------------------------------|
-| Gemini 3.1 Pro | GREEN      | "definitive and required fix" on settle MEV   |
-| DeepSeek V3.2  | GREEN      | "Proceed with chunked mainnet deploy"         |
-| Grok 4 (xAI)   | GREEN      | "Deploy v0.3.3. Production ready."            |
-| Claude Opus 4.7| GREEN      | 6 LOW/INFO findings for v0.3.4 backlog        |
-| Kimi K2.6      | GREEN      | "no latent HIGH or MED" sweep                 |
-| Qwen 3 Max     | YELLOW     | Q-H1 disputed → REJECTED on 5/6 consensus     |
-
-All R6 reviewer responses, the diff vs `v0.3.2-mainnet-live`, the self-audit (S1 was a HIGH self-find that we caught and fixed pre-deploy), and the cross-validation matrix are under [`docs/audit/v033-r6-submission/`](docs/audit/v033-r6-submission/). Earlier rounds R1-R5 are in [`docs/audit/`](docs/audit/) alongside the submission packages and external responses.
+Notable self-finds during Supra port:
+- **D-3 (HIGH).** `ipo::complete_ipo` was permissionless `total_supra_raised > 0` → anyone could lock the IPO after first deposit, voiding refund. Fixed to `>= ipo.target_tvl`.
+- **Y-1 (HIGH).** Anti-wash on `burn_for_refund` — `depositor_totals` decrement only when caller == original depositor (closes NFT-transfer-then-refund cycling).
+- **Y-2 (HIGH).** Slippage params `min_supra_out` / `min_token_out` on refund (was zero-slippage).
+- **Y-4 (HIGH).** Dispatchable-FA defense on both gauges, as above.
+- **`supra_vault` HIGH (post-submit).** `execute_settle` used `min_out = 0` on buyback swap → MEV sandwich window. Fixed with snapshot `min_token_out = quote × 95%` and grace-window guards.
 
 ## Source layout
 
 ```
 sources/
-  governance.move          DAO + chunked upgrade staging + multisig publish
-  factory.move             Atomic register_handle pipeline
-  profile.move             PID Object NFT + handle registry + signer hierarchy
-  amm.move                 SUPRA/$TOKEN constant-product pool, 10 bps to LP
-  lp_staking.move          V3-style LP positions + emission + fee claims
-  lp_emission.move         Sealed 900M reserve drained by claims
-  reaction_emission.move   Sealed 50M reserve drained by Press actors
-  supra_vault.move           Per-token vault + embedded BurnRef
-  supra_fee_vault.move    10/90 split + two-phase MEV-safe settle
-  voter_history.move       Per-token voting power with legacy fallback
-  reference_gate.move      Sync + balance + LP-stake gating primitive
-  mint.move                Mint / Voice / Remix verbs
-  pulse.move               Spark / Echo verbs
-  press.move               Press collectible NFT
-  link.move                Sync verb + PidSyncSet state
-  history.move             BCS append-only per-PID log, 30 KB chunks
-  assets.move              Fractal-tree on-chain media ≤ 5 MB
-  giveaway.move            FA / NFT giveaway primitive
+  governance.move            DAO + chunked upgrade staging + multisig publish
+  registration.move          Atomic register_handle + optional creator self-IPO seed
+  factory.move               Token reservation, mint authority, BurnRef parking
+  profile.move               PID Object NFT + handle registry + subdomain Profile NFT
+  ipo.move                   100% IPO + refund + auto-stake Position at PID addr
+  amm.move                   SUPRA/$TOKEN constant-product pool, 100 bps to LP
+  lp_emission.move           Multi-FA permissionless topup gauge for IPO Positions
+  lp_staking.move            Legacy free-stake path (AMM fee only, no emission)
+  reaction_emission.move     Per-author-PID BPS-of-pool multi-FA gauge for Press
+  voter_history.move         Per-token voting power with legacy fallback
+  reference_gate.move        Sync + balance + LP-stake gating primitive
+  mint.move                  Mint / Voice / Remix verbs
+  pulse.move                 Spark / Echo verbs
+  press.move                 Press collectible NFT (calls reaction_emission)
+  link.move                  Sync verb + PidSyncSet state
+  history.move               BCS append-only per-PID log, 30 KB chunks rotate
+  assets.move                Fractal-tree on-chain media ≤ 5 MB (Tier-1 / Tier-2 / Tier-3)
+  giveaway.move              FA / NFT giveaways (follower / NFT-hold / LP-stake gates)
+  opinion.move               Binary YAY/NAY prediction market on a Mint
+  supra_vault.move           Per-token vault + embedded BurnRef + MEV-safe settle
+  supra_fee_vault.move       Handle-fee split + two-phase MEV-safe settle
 
 tests/
-  v030_integration.move    Full-flow integration tests
+  v030_integration.move      Aptos-baseline carry-over integration tests
+  supra_port_v04.move        Per-PID reaction isolation + Supra-port-specific surfaces
+
 docs/
-  v0.3.0-design-lock.md    Locked design doc (read first)
-  v0.3.3-self-audit.md     Self-audit findings S1-S5
-  audit/                   External R1-R6 audit packages + responses
+  audit/                     R1–R6 Aptos audit packages + Supra-R1 submission
+scripts/
+  mainnet-deploy/            Five-step deploy runbook (Pattern A.2, executed 2026-05-18)
 ```
 
 ## Building
 
 ```sh
-supra move tool compile --named-addresses \
-  desnet=<deploy_addr>,origin=<origin_addr>,desnet_claimer=<claimer_addr>
-supra move tool test
+supra move tool test --dev --ignore-compile-warnings
+supra move tool build-publish-payload \
+  --package-dir . \
+  --named-addresses desnet=<desnet_addr>,origin=<origin_addr> \
+  --included-artifacts none \
+  --override-size-check
 ```
 
-The package depends on `desnet-bootstrap` (a sibling local package providing the chunked-upgrade publisher capability — required because the package exceeds Supra's 64 KB single-tx publish limit). Mainnet deploys go through `governance::multisig_stage_upgrade_chunk` → `multisig_publish_chunked_upgrade` with a 3/5 multisig threshold on `@origin`.
+The package depends on `desnet-bootstrap-supra` (a sibling local package providing the chunked-upgrade publisher capability — required because the package exceeds Supra's 64 KB single-tx publish limit). Mainnet deploys go through `publisher::stage_chunk` (N times) → `publisher::publish_chunked`, all signed by `@origin`. Post-publish, `@origin` was converted to a 3/5 multisig and the vanity privkey was burned via `account::create_with_existing_account_and_revoke_auth_key`.
 
 ## Mainnet addresses
 
-| Resource              | Address                                                              |
-|-----------------------|----------------------------------------------------------------------|
-| Package `@desnet`     | `0x7ba7ee5a93694aa5943f4ef344737d95795d51395e3d65a1b732c776d34be724` |
-| `@origin` multisig    | `0x000073c4dd3fa51260b4cd8b6878191214df1e6dcd4dbcd1ed906c05c3aaa9a9` |
-| DESNET PID NFT        | `0xfa4dd0513a60afe94e9dcafda75e50072ef9718b14b8a91a731f2d04d9fc3adf` |
-| DESNET FA             | `0x44c1006d4d8dae79195fa396c71408514343a5c4b4627b6e7595f64d65b224e7` |
-| DESNET AMM pool       | `0x5ba92cb1c4eb871b36eb4475b85763c390f8aa604946eb1ea26c10ee46c822a8` |
-| LP staking pool       | `0x983d04dd23cdaa139af36e79af464739e6ec9f13874c2f6dc329ee508389481b` |
-| LP emission reserve   | `0x19c83d5de114c22ca462029c1ec5069d3c9c3aaec7a8028aefb4a41942e1088b` |
-| Reaction emission     | `0x4d7544844fa9b6eea0a2720b434627986fc7adc0339d39b851824a892be44e23` |
-| SUPRA vault (DESNET)    | `0xfd45ced87cc95c4a9f2bba5c633b357d748d0b03071e19ff2b66529104774d09` |
+| Resource                  | Address                                                              |
+|---------------------------|----------------------------------------------------------------------|
+| Package `@desnet`         | `0x8edc10f93d38bcf373f3f3f28890c0af13b9325e9dce4c9d37873e50dd316585` |
+| `@origin` (3/5 multisig)  | `0x000010b58aa6179cf0249e004ce452b870a503e850f248ca9e9b68e276cddead` |
+| Bootstrap pkg (publisher) | `0x000010b58aa6179cf0249e004ce452b870a503e850f248ca9e9b68e276cddead` (at @origin) |
+| First handle `desnet` PID | `0xecb7e428…f93105a`                                                 |
+| DESNET FA                 | `0xe96e2642…d10a9c012`                                               |
+| DESNET IPO Object         | `0x19c97e33…5793bc59` (target 1M SUPRA)                              |
+| AMM pool (post-deposit)   | `0xbf4386f1e4d4…30ad0a16`                                            |
+| First subdomain PID       | `0xc6361ff35…a311f62e80` (`intern@desnet`, held by `0x0047a3e1…`)    |
+
+Multisig owners (5, all confirmed raw-key Supra-signing-capable per audit 2026-05-18):
+`0x85d1e404…814efd30`, `0x0047a3e1…f647321c9`, `0x85c7ab96…d3061197`, `0x1a502d89…e17f59a7`, `0xc257b12e…8fa0b093`.
 
 ## Design philosophy
 
-- **One PID, one token, one pool, one tx.** Identity, currency, and market are inseparable.
-- **No protocol fees on swaps.** AMM fee 10 bps, 100% to LP. Protocol revenue comes only from handle registration.
-- **No off-chain dependencies for core flows.** Posts, media, history — all on-chain. Frontend is a renderer, not a backend.
+- **One PID, one token, one IPO, one tx.** Identity, currency, and market are inseparable, but the market opens through a refundable depositor pool — not a pre-allocated reserve.
+- **Subdomain PID is first class.** Backers are identities, not just shareholders. Their LP follows the NFT, their reward stream follows the NFT.
+- **No protocol fees on swaps.** AMM fee 100 bps (1%), 100% to LP. Protocol revenue comes from handle registration only.
+- **No off-chain dependencies for core flows.** Posts, media, history — all on-chain. Frontend is a renderer.
 - **Tickers are scarce by design.** Every `$X` ticker resolves to a PID. No anonymous launchpads.
 - **Tags are ownerless.** Folksonomy permanently — no namespace landgrab.
-- **Forever-lock the creator LP.** No rug surface. The creator earns from emissions and fees, not from extraction.
-- **F7 cross-token inflation defense.** Voting power isolates per-token rewards; legacy mixed reads only as a pre-v0.3.2 transition fallback.
-- **MEV-safe settle.** Commit-reveal with 60 s delay and 5% slippage cap. Snapshot amounts pin against vault growth between request and execute.
+- **Permissionless rewards.** Anyone funds the gauge for any handle. No protocol-mandated emission schedule.
+- **MEV-safe settle.** Commit-reveal with delay window and slippage cap on both `supra_vault` and `supra_fee_vault`.
 
-## Versions
+## Sibling
 
-- **v0.3.3** — current mainnet. R6 audit 5/6 GREEN. Tag `v0.3.3-mainnet-live`.
-- **v0.3.2** — superseded. Introduced two-phase settle infra and per-token voter history.
-- **v0.3.1** — superseded. Added `supra_fee_vault` (initial 50/50 split, later changed to 10/90).
-- **v0.3.0** — initial mainnet. Design lock under [`docs/v0.3.0-design-lock.md`](docs/v0.3.0-design-lock.md).
+The Aptos-mainnet sibling (v0.3.3, 18 modules, sealed-reserve economics) lives at [`github.com/darbitex/desnet`](https://github.com/darbitex/desnet) on the legacy `@desnet=0x7ba7ee5a…`. Both modes coexist on different chains so the market chooses.
